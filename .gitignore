@@ -11,6 +11,9 @@ HELP.md
 .project
 .classpath
 
+# Configuracao local do Claude Code
+.claude/
+
 # Logs
 *.log
 

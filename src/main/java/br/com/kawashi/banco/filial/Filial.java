@@ -1,5 +1,7 @@
 package br.com.kawashi.banco.filial;
 
+import org.hibernate.annotations.DynamicUpdate;
+
 import br.com.kawashi.banco.compartilhado.AuditoriaBase;
 import br.com.kawashi.banco.empresa.Empresa;
 
@@ -14,7 +16,9 @@ import jakarta.persistence.Table;
  * Uma filial de uma empresa. O CNPJ tem a mesma raiz (8 primeiros digitos) da empresa e uma ordem
  * de 0002 em diante (0001 e a matriz). Empresa e CNPJ nao mudam depois de criada a filial.
  */
+// @DynamicUpdate: ver o motivo em Cliente (um PUT nao desfaz um "inativar" concorrente).
 @Entity
+@DynamicUpdate
 @Table(name = "FILIAL")
 public class Filial extends AuditoriaBase {
 

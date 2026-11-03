@@ -9,6 +9,7 @@ import org.springframework.transaction.annotation.Transactional;
 import br.com.kawashi.banco.cliente.Cliente;
 import br.com.kawashi.banco.cliente.ClienteRepository;
 import br.com.kawashi.banco.compartilhado.Documentos;
+import br.com.kawashi.banco.compartilhado.Textos;
 import br.com.kawashi.banco.compartilhado.erros.ConflitoException;
 import br.com.kawashi.banco.compartilhado.erros.RecursoNaoEncontradoException;
 import br.com.kawashi.banco.compartilhado.erros.RegraDeNegocioException;
@@ -36,7 +37,10 @@ public class EmpresaService {
     }
 
     public Empresa criar(Long clienteId, EmpresaRequest dados) {
-        Cliente cliente = buscarCliente(clienteId);
+        // Trava a linha do cliente ate o fim da transacao: sem isso, "inativar" concorrente comitava
+        // entre a leitura de "ativo" e o INSERT, e a empresa nascia num cliente ja inativo.
+        Cliente cliente = clientes.buscarTravando(clienteId)
+                .orElseThrow(() -> new RecursoNaoEncontradoException("Cliente", clienteId));
         if (!cliente.isAtivo()) {
             throw new RegraDeNegocioException("O cliente " + clienteId
                     + " está inativo: só é possível cadastrar empresa para cliente ativo. Reative o cliente primeiro.");
@@ -50,7 +54,7 @@ public class EmpresaService {
         if (repositorio.existsByCnpj(cnpj)) {
             throw new ConflitoException("Já existe uma empresa com o CNPJ " + cnpj + ".");
         }
-        return repositorio.save(new Empresa(cliente, cnpj, dados.razaoSocial().trim(), limpar(dados.nomeFantasia())));
+        return repositorio.save(new Empresa(cliente, cnpj, Textos.aparar(dados.razaoSocial()), Textos.limpar(dados.nomeFantasia())));
     }
 
     @Transactional(readOnly = true)
@@ -70,7 +74,7 @@ public class EmpresaService {
         if (!empresa.getCnpj().equals(Documentos.somenteDigitos(dados.cnpj()))) {
             throw new RegraDeNegocioException("O CNPJ de uma empresa não pode ser alterado depois do cadastro.");
         }
-        empresa.atualizar(dados.razaoSocial().trim(), limpar(dados.nomeFantasia()));
+        empresa.atualizar(Textos.aparar(dados.razaoSocial()), Textos.limpar(dados.nomeFantasia()));
         return empresa;
     }
 
@@ -116,7 +120,4 @@ public class EmpresaService {
         return total == null ? 0 : total;
     }
 
-    private static String limpar(String texto) {
-        return texto == null || texto.isBlank() ? null : texto.trim();
-    }
 }

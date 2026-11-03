@@ -12,6 +12,7 @@ import org.springframework.transaction.annotation.Transactional;
 import br.com.kawashi.banco.cliente.Cliente;
 import br.com.kawashi.banco.cliente.ClienteRepository;
 import br.com.kawashi.banco.compartilhado.Documentos;
+import br.com.kawashi.banco.compartilhado.Textos;
 import br.com.kawashi.banco.compartilhado.erros.RecursoNaoEncontradoException;
 import br.com.kawashi.banco.compartilhado.erros.RegraDeNegocioException;
 
@@ -49,9 +50,9 @@ public class EnderecoService {
         }
         return repositorio.save(new Endereco(cliente,
                 dados.logradouro().trim(),
-                limpar(dados.numero()),
-                limpar(dados.complemento()),
-                limpar(dados.bairro()),
+                Textos.limpar(dados.numero()),
+                Textos.limpar(dados.complemento()),
+                Textos.limpar(dados.bairro()),
                 dados.cidade().trim(),
                 dados.uf().trim().toUpperCase(Locale.ROOT),
                 Documentos.somenteDigitos(dados.cep()),
@@ -84,9 +85,9 @@ public class EnderecoService {
         }
         endereco.atualizar(
                 dados.logradouro().trim(),
-                limpar(dados.numero()),
-                limpar(dados.complemento()),
-                limpar(dados.bairro()),
+                Textos.limpar(dados.numero()),
+                Textos.limpar(dados.complemento()),
+                Textos.limpar(dados.bairro()),
                 dados.cidade().trim(),
                 dados.uf().trim().toUpperCase(Locale.ROOT),
                 Documentos.somenteDigitos(dados.cep()),
@@ -143,7 +144,4 @@ public class EnderecoService {
         }
     }
 
-    private static String limpar(String texto) {
-        return texto == null || texto.isBlank() ? null : texto.trim();
-    }
 }

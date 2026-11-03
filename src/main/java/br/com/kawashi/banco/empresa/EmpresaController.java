@@ -16,6 +16,7 @@ import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.util.UriComponentsBuilder;
 
 import br.com.kawashi.banco.compartilhado.Pagina;
+import br.com.kawashi.banco.compartilhado.Paginas;
 import jakarta.validation.Valid;
 
 /**
@@ -43,7 +44,7 @@ public class EmpresaController {
     @GetMapping("/clientes/{clienteId}/empresas")
     public Pagina<EmpresaResponse> listar(@PathVariable Long clienteId,
             @PageableDefault(size = 20, sort = "id") Pageable paginacao) {
-        return Pagina.de(servico.listar(clienteId, paginacao), EmpresaResponse::de);
+        return Pagina.de(servico.listar(clienteId, Paginas.seguro(paginacao)), EmpresaResponse::de);
     }
 
     @GetMapping("/empresas/{id}")

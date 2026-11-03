@@ -1,12 +1,20 @@
 package br.com.kawashi.banco.cliente;
 
+import org.hibernate.annotations.DynamicUpdate;
+
 import br.com.kawashi.banco.compartilhado.AuditoriaBase;
 
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.Table;
 
+/**
+ * {@code @DynamicUpdate}: o UPDATE grava so as colunas que mudaram. Sem isso, um PUT (que muda a
+ * razao social) desfazia um "inativar" concorrente, porque regravava tambem a coluna ATIVO com o
+ * valor lido antes.
+ */
 @Entity
+@DynamicUpdate
 @Table(name = "CLIENTE")
 public class Cliente extends AuditoriaBase {
 

@@ -9,6 +9,7 @@ import java.lang.annotation.Documented;
 import java.lang.annotation.Retention;
 import java.lang.annotation.Target;
 import java.util.Arrays;
+import java.util.Locale;
 
 import jakarta.validation.Constraint;
 import jakarta.validation.ConstraintValidator;
@@ -39,7 +40,9 @@ public enum Uf {
         class Validador implements ConstraintValidator<Valida, String> {
             @Override
             public boolean isValid(String valor, ConstraintValidatorContext contexto) {
-                return valor == null || valor.isBlank() || Uf.existe(valor.trim().toUpperCase());
+                // Mesma regra do Cnpj: so o "em branco comum" fica por conta do @NotBlank. Locale.ROOT para
+                // a conversao nao depender do idioma da maquina.
+                return valor == null || valor.trim().isEmpty() || Uf.existe(valor.trim().toUpperCase(Locale.ROOT));
             }
         }
     }

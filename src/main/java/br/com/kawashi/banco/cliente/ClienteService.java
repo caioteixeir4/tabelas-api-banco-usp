@@ -2,6 +2,7 @@ package br.com.kawashi.banco.cliente;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -11,6 +12,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import br.com.kawashi.banco.compartilhado.Documentos;
+import br.com.kawashi.banco.compartilhado.Textos;
 import br.com.kawashi.banco.compartilhado.erros.ConflitoException;
 import br.com.kawashi.banco.compartilhado.erros.RecursoNaoEncontradoException;
 import br.com.kawashi.banco.compartilhado.erros.RegraDeNegocioException;
@@ -36,7 +38,7 @@ public class ClienteService {
         if (repositorio.existsByCnpj(cnpj)) {
             throw new ConflitoException("Já existe um cliente com o CNPJ " + cnpj + ".");
         }
-        return repositorio.save(new Cliente(cnpj, dados.razaoSocial().trim(), limpar(dados.nomeFantasia())));
+        return repositorio.save(new Cliente(cnpj, Textos.aparar(dados.razaoSocial()), Textos.limpar(dados.nomeFantasia())));
     }
 
     @Transactional(readOnly = true)
@@ -52,8 +54,10 @@ public class ClienteService {
             filtros.add((raiz, consulta, cb) -> cb.equal(raiz.get("cnpj"), digitos));
         }
         if (razaoSocial != null && !razaoSocial.isBlank()) {
-            String trecho = "%" + razaoSocial.trim().toLowerCase() + "%";
-            filtros.add((raiz, consulta, cb) -> cb.like(cb.lower(raiz.get("razaoSocial")), trecho));
+            // % e _ digitados pelo usuario sao texto, nao curinga: escapados, senao "?razaoSocial=%"
+            // devolvia todos os clientes e "_" casava qualquer razao social.
+            String trecho = "%" + escaparCuringas(Textos.aparar(razaoSocial).toLowerCase(Locale.ROOT)) + "%";
+            filtros.add((raiz, consulta, cb) -> cb.like(cb.lower(raiz.get("razaoSocial")), trecho, '\\'));
         }
         if (ativo != null) {
             filtros.add((raiz, consulta, cb) -> cb.equal(raiz.get("ativo"), ativo));
@@ -66,7 +70,7 @@ public class ClienteService {
         if (!cliente.getCnpj().equals(Documentos.somenteDigitos(dados.cnpj()))) {
             throw new RegraDeNegocioException("O CNPJ de um cliente não pode ser alterado depois do cadastro.");
         }
-        cliente.atualizar(dados.razaoSocial().trim(), limpar(dados.nomeFantasia()));
+        cliente.atualizar(Textos.aparar(dados.razaoSocial()), Textos.limpar(dados.nomeFantasia()));
         return cliente;
     }
 
@@ -105,7 +109,7 @@ public class ClienteService {
         return total == null ? 0 : total;
     }
 
-    private static String limpar(String texto) {
-        return texto == null || texto.isBlank() ? null : texto.trim();
+    private static String escaparCuringas(String texto) {
+        return texto.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_");
     }
 }

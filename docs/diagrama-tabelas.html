@@ -1,0 +1,932 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Diagrama das Tabelas</title>
+<style>
+  :root {
+    --bg: #f4f6f9; --surface: #ffffff; --ink: #18212d; --muted: #566475;
+    --line: #d3dae4; --line-soft: #e6eaf0; --lig: #4b5b70; --accent: #1f55c9;
+    --padrao: #2a64e0; --sefaz: #b36d00; --login: #7a45d6; --org: #0b7c70; --adm: #bd3a73;
+    --aviso-bg: #fff6df; --aviso-line: #e8c36a; --ok-bg: #e8f5ec; --ok-line: #9ccaa8;
+    --sombra: 0 1px 2px rgba(20, 30, 50, .08), 0 4px 14px rgba(20, 30, 50, .06);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #10151c; --surface: #19212b; --ink: #e8edf4; --muted: #9aa8ba;
+      --line: #2f3b4b; --line-soft: #26313f; --lig: #93a4ba; --accent: #7aa2ff;
+      --padrao: #6b9bff; --sefaz: #e0a23a; --login: #a98bff; --org: #3cc3b3; --adm: #f07aa8;
+      --aviso-bg: #2b2411; --aviso-line: #6b5a1f; --ok-bg: #14281b; --ok-line: #2f6040;
+      --sombra: 0 1px 2px rgba(0, 0, 0, .4), 0 4px 14px rgba(0, 0, 0, .3);
+    }
+  }
+  * { box-sizing: border-box; }
+  html { -webkit-text-size-adjust: 100%; }
+  body {
+    margin: 0; background: var(--bg); color: var(--ink);
+    font: 15px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+  .mono, code { font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace; }
+  code { font-size: .9em; background: var(--line-soft); padding: 1px 5px; border-radius: 4px; }
+  main { max-width: 1480px; margin: 0 auto; padding: 24px 24px 64px; }
+  h1 { font-size: 26px; line-height: 1.2; margin: 0 0 6px; }
+  h2 { font-size: 20px; line-height: 1.25; margin: 0 0 4px; }
+  p { margin: 0 0 10px; }
+  .sub { color: var(--muted); margin: 0; }
+  a { color: var(--accent); }
+
+  nav.ancoras { display: flex; flex-wrap: wrap; gap: 8px; margin: 16px 0 0; }
+  nav.ancoras a {
+    text-decoration: none; padding: 5px 12px; border: 1px solid var(--line);
+    border-radius: 999px; background: var(--surface); font-size: 13px; color: var(--ink);
+  }
+  nav.ancoras a:hover, nav.ancoras a:focus-visible { border-color: var(--accent); color: var(--accent); }
+
+  .cartao { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; box-shadow: var(--sombra); }
+  .legenda { margin-top: 20px; padding: 14px 18px; display: grid; gap: 14px 28px; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); }
+  .legenda h4 { margin: 0 0 6px; font-size: 12px; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
+  .legenda ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 5px; font-size: 13px; }
+  .legenda li { display: flex; align-items: center; gap: 8px; }
+  .legenda svg { flex: none; }
+  .amostra { width: 14px; height: 14px; border-radius: 3px; background: var(--c); flex: none; }
+
+  .placar { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); margin-top: 20px; }
+  .placar .num { padding: 12px 16px; }
+  .placar b { display: block; font-size: 30px; line-height: 1.1; }
+  .placar span { color: var(--muted); font-size: 13px; }
+  .placar .zero b { color: var(--sefaz); }
+
+  .aviso { margin-top: 14px; padding: 12px 16px; border-radius: 8px; border: 1px solid var(--aviso-line); background: var(--aviso-bg); font-size: 14px; }
+  .aviso strong { display: block; margin-bottom: 2px; }
+  .info { border-color: var(--ok-line); background: var(--ok-bg); }
+
+  .bloco { margin-top: 44px; }
+  .bloco > header { margin-bottom: 12px; }
+  .selo { display: inline-block; font-size: 11px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; padding: 2px 8px; border-radius: 999px; vertical-align: middle; margin-left: 8px; }
+  .selo.real { background: var(--ok-bg); border: 1px solid var(--ok-line); }
+  .selo.ref { background: var(--aviso-bg); border: 1px solid var(--aviso-line); }
+
+  .scroller { overflow-x: auto; padding-bottom: 8px; }
+  .canvas { position: relative; width: max-content; min-width: 100%; padding: 22px 72px; }
+  .colunas { display: flex; gap: 130px; align-items: stretch; }
+  .coluna { display: flex; flex-direction: column; gap: 30px; width: 340px; flex: none; }
+  .v-topo { justify-content: flex-start; }
+  .v-centro { justify-content: center; }
+  .v-fim { justify-content: flex-end; }
+  svg.ligacoes { position: absolute; left: 0; top: 0; pointer-events: none; overflow: visible; }
+  svg.ligacoes path.lig { fill: none; stroke: var(--lig); stroke-width: 1.6; pointer-events: stroke; cursor: help; transition: opacity .12s, stroke-width .12s; }
+  svg.ligacoes .glifo { fill: none; stroke: var(--lig); stroke-width: 1.6; }
+  svg.ligacoes circle.glifo { fill: var(--surface); }
+  svg.ligacoes text { fill: var(--ink); font: 700 11px ui-monospace, Consolas, monospace; text-anchor: middle; }
+  svg.ligacoes g.rel { transition: opacity .12s; }
+  svg.ligacoes g.rel.dim { opacity: .13; }
+  svg.ligacoes g.rel.foco path.lig, svg.ligacoes g.rel.foco .glifo { stroke: var(--accent); stroke-width: 2.4; }
+  svg.ligacoes g.rel.foco text { fill: var(--accent); }
+
+  .tabela {
+    --cor: var(--padrao);
+    background: var(--surface); border: 1px solid var(--line); border-top: 4px solid var(--cor);
+    border-radius: 8px; box-shadow: var(--sombra); outline-offset: 3px; transition: opacity .12s;
+  }
+  .tabela.ref { border-style: dashed; border-top-style: solid; }
+  .tabela.fantasma { opacity: .72; }
+  .tabela.dim { opacity: .35; }
+  .tabela:focus-visible { outline: 2px solid var(--accent); }
+  .tabela.s-padrao { --cor: var(--padrao); } .tabela.s-sefaz { --cor: var(--sefaz); }
+  .tabela.s-login { --cor: var(--login); } .tabela.s-org { --cor: var(--org); } .tabela.s-adm { --cor: var(--adm); }
+  .tabela > header { padding: 9px 12px 8px; background: color-mix(in srgb, var(--cor) 11%, var(--surface)); border-radius: 4px 4px 0 0; }
+  .tabela h3 { margin: 0; font: 700 15px/1.25 ui-monospace, SFMono-Regular, Consolas, monospace; letter-spacing: .01em; overflow-wrap: anywhere; }
+  .tabela .esq { font: 600 10.5px/1.3 ui-monospace, Consolas, monospace; color: color-mix(in srgb, var(--cor) 72%, var(--ink)); }
+  .tabela .desc { font-size: 12px; color: var(--muted); margin: 2px 0 0; line-height: 1.35; }
+  .tabela .ponte { display: inline-block; margin-top: 4px; font-size: 10.5px; font-weight: 700; padding: 1px 7px; border-radius: 999px; border: 1px solid var(--cor); color: color-mix(in srgb, var(--cor) 72%, var(--ink)); }
+  .campo {
+    display: grid; grid-template-columns: 50px minmax(0, 1fr) auto; align-items: center; gap: 4px 6px;
+    padding: 4px 12px; border-top: 1px solid var(--line-soft); font: 12px/1.35 ui-monospace, SFMono-Regular, Consolas, monospace;
+  }
+  .campo:first-of-type { border-top: 0; }
+  .campo .nome { font-weight: 600; overflow-wrap: anywhere; }
+  .campo .nome .ref { font-weight: 400; color: var(--muted); font-size: 11px; }
+  .campo .tipo { color: var(--muted); text-align: right; white-space: nowrap; }
+  .campo .tipo i { font-style: normal; font-size: 10px; margin-left: 4px; padding: 0 4px; border-radius: 3px; border: 1px solid var(--line); color: var(--muted); }
+  .campo .nota-chip { display: inline-block; width: 15px; height: 15px; line-height: 14px; text-align: center; border-radius: 50%; font-size: 10px; font-weight: 700; margin-left: 4px; background: var(--aviso-bg); border: 1px solid var(--aviso-line); cursor: help; font-family: system-ui, sans-serif; }
+  .flags { display: flex; gap: 3px; }
+  .flags b { font: 700 9.5px/1 system-ui, sans-serif; padding: 3px 4px; border-radius: 3px; letter-spacing: .02em; }
+  .flags .pk { background: #f3c64b; color: #3b2b00; }
+  .flags .fk { background: #2a64e0; color: #fff; }
+  .flags .uq { background: #1f8f55; color: #fff; }
+  .flags .uq.comp { background: transparent; color: #1f8f55; border: 1.5px dashed #1f8f55; padding: 1.5px 2.5px; }
+  @media (prefers-color-scheme: dark) {
+    .flags .fk { background: #4d7fe6; } .flags .uq { background: #2ca468; }
+    .flags .uq.comp { color: #4dd391; border-color: #4dd391; background: transparent; }
+  }
+
+  .tabelao { width: 100%; border-collapse: collapse; font-size: 13.5px; margin-top: 14px; }
+  .tabelao caption { text-align: left; font-weight: 700; padding: 0 0 6px; font-size: 14px; }
+  .tabelao th { text-align: left; font-size: 11.5px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); padding: 6px 10px; border-bottom: 2px solid var(--line); white-space: nowrap; }
+  .tabelao td { padding: 7px 10px; border-bottom: 1px solid var(--line-soft); vertical-align: top; }
+  .tabelao tbody tr { transition: background .1s; }
+  .tabelao tbody tr:hover, .tabelao tbody tr.foco { background: color-mix(in srgb, var(--accent) 9%, transparent); }
+  .tabelao .card { font-weight: 700; white-space: nowrap; }
+  .tabelao .card.n1 { color: #1f8f55; } .tabelao .card.nn { color: var(--sefaz); }
+  .tabelao-wrap { overflow-x: auto; }
+  details { margin-top: 14px; }
+  details > summary { cursor: pointer; font-weight: 600; padding: 6px 0; }
+  details > summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .notas { margin: 14px 0 0; padding: 0; list-style: none; display: grid; gap: 6px; font-size: 13.5px; }
+  .notas li { padding-left: 24px; position: relative; }
+  .notas li::before { content: "i"; position: absolute; left: 0; top: 1px; width: 17px; height: 17px; line-height: 16px; text-align: center; border-radius: 50%; font: 700 11px system-ui, sans-serif; background: var(--aviso-bg); border: 1px solid var(--aviso-line); }
+  .restr-tipo { font: 700 11px ui-monospace, Consolas, monospace; }
+
+  .grid2 { display: grid; gap: 16px; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); margin-top: 12px; }
+  footer { margin-top: 56px; padding-top: 18px; border-top: 1px solid var(--line); color: var(--muted); font-size: 13.5px; }
+  noscript { display: block; margin: 20px 0; padding: 14px; border: 1px solid var(--aviso-line); background: var(--aviso-bg); border-radius: 8px; }
+
+  @media (max-width: 899px) {
+    main { padding: 18px 16px 48px; }
+    .canvas { width: auto; padding: 14px 0; }
+    .colunas { flex-direction: column; gap: 18px; }
+    .coluna { width: 100%; max-width: 520px; gap: 18px; }
+    svg.ligacoes { display: none; }
+    .scroller { overflow: visible; }
+    .campo .nome .ref { display: inline; }
+  }
+  @media (min-width: 900px) { .campo .nome .ref { display: inline; } }
+  @media print {
+    body { background: #fff; } nav.ancoras { display: none; }
+    .scroller { overflow: visible; }
+  }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>Diagrama das tabelas</h1>
+    <p class="sub" id="estado"></p>
+    <nav class="ancoras" aria-label="Seções">
+      <a href="#banco">1 · O que existe no banco</a>
+      <a href="#repete">2 · O que se repete hoje</a>
+      <a href="#login">3 · Referência: LOGIN e ORGANIZACOES</a>
+      <a href="#adm">4 · Referência: ADMINISTRACAO</a>
+      <a href="#atualizar">Como atualizar</a>
+    </nav>
+  </header>
+
+  <noscript>Este diagrama é desenhado por JavaScript a partir do bloco <code>#modelo</code> no fim do arquivo. Ative o JavaScript para ver as tabelas.</noscript>
+
+  <section class="cartao legenda" aria-label="Legenda">
+    <div>
+      <h4>Campos</h4>
+      <ul>
+        <li><span class="flags"><b class="pk">PK</b></span> chave primária</li>
+        <li><span class="flags"><b class="fk">FK</b></span> chave estrangeira (aponta para <span class="mono">TABELA.CAMPO</span>)</li>
+        <li><span class="flags"><b class="uq">UQ</b></span> valor único na tabela</li>
+        <li><span class="flags"><b class="uq comp">UQ</b></span> único em conjunto com outra coluna (tracejado)</li>
+        <li><span class="mono" style="font-size:10px;padding:0 4px;border:1px solid var(--line);border-radius:3px;color:var(--muted)">null</span> campo opcional; sem a marca o campo é <span class="mono">NOT NULL</span></li>
+        <li><span class="nota-chip" style="display:inline-block;width:15px;height:15px;line-height:14px;text-align:center;border-radius:50%;font:700 10px system-ui;background:var(--aviso-bg);border:1px solid var(--aviso-line)">i</span> tem nota logo abaixo do diagrama</li>
+      </ul>
+    </div>
+    <div>
+      <h4>Linhas (cardinalidade)</h4>
+      <ul>
+        <li>
+          <svg width="92" height="22" viewBox="0 0 92 22" aria-hidden="true"><g fill="none" stroke="var(--lig)" stroke-width="1.6"><path d="M2 11H90"/><path d="M9 4v14M14 4v14"/><path d="M90 11L74 4M90 11L74 11M90 11L74 18"/><circle cx="68" cy="11" r="4" fill="var(--surface)"/></g></svg>
+          <span><b>1 : N</b> — um pai, zero ou muitos filhos</span>
+        </li>
+        <li><span style="width:92px;flex:none;text-align:center" class="mono"><b>||</b></span><span>lado do pai: exatamente 1 (a FK é <span class="mono">NOT NULL</span>)</span></li>
+        <li><span style="width:92px;flex:none;text-align:center" class="mono"><b>○&lt;</b></span><span>lado do filho: 0, 1 ou muitos</span></li>
+        <li><span>Passe o mouse (ou foque com Tab) numa tabela para destacar as ligações dela.</span></li>
+      </ul>
+    </div>
+    <div>
+      <h4>Cor = schema do Oracle</h4>
+      <ul id="legenda-schemas"></ul>
+    </div>
+  </section>
+
+  <div class="placar" id="placar"></div>
+  <div class="aviso" id="aviso-11"></div>
+
+  <section class="bloco" id="banco"></section>
+
+  <section class="bloco" id="repete">
+    <header>
+      <h2>2 · O que se repete hoje <span class="selo real">fatos do esquema</span></h2>
+      <p class="sub">Onde cada dado de pessoa ou de organização aparece nas tabelas, para ajudar a decidir o que a futura <span class="mono">PESSOA</span> absorve. Só descreve o que existe; não é proposta de desenho.</p>
+    </header>
+    <div class="tabelao-wrap"><table class="tabelao" id="repete-tabela"><thead><tr><th>Dado</th><th>Onde aparece hoje</th><th>O que o banco garante</th></tr></thead><tbody></tbody></table></div>
+  </section>
+
+  <section class="bloco" id="login"></section>
+  <section class="bloco" id="adm"></section>
+
+  <section class="bloco" id="atualizar">
+    <header><h2>Como atualizar este diagrama</h2></header>
+    <div class="cartao" style="padding:14px 18px">
+      <p>Tudo o que aparece vem do bloco <code>&lt;script id="modelo" type="application/json"&gt;</code> no fim deste arquivo: tabelas, campos, tipos, ligações e as tabelas de apoio. Para mudar o desenho, edite o JSON e recarregue a página (o <code>README</code> do repositório explica o formato).</p>
+      <ul style="margin:0 0 10px;padding-left:20px">
+        <li><b>Tabela nova</b>: acrescente um objeto em <code>tabelas</code> e o <code>id</code> dela em alguma coluna de <code>colunas</code>.</li>
+        <li><b>Relação nova</b>: acrescente em <code>relacoes</code> (<code>pai</code>, <code>filho</code>, <code>fk</code>, <code>pk</code>) e marque <code>"fk"</code> no campo do filho.</li>
+        <li><b>Depois de uma migração</b>: confira com <code>SELECT ... FROM user_tab_columns</code> no schema e atualize <code>estado</code>.</li>
+      </ul>
+      <p class="sub" style="margin:0">Fontes deste desenho: <code>src/main/resources/db/migration/V1</code> a <code>V4</code> (Flyway), conferidas no Oracle ao vivo; e <code>oracle-init/12_exemplo_dominio_kawashi_core.sql</code> (referência, nunca aplicada). As 4 tabelas de controle de segurança ficam no repositório <code>regras-banco-usp</code> e não entram aqui.</p>
+    </div>
+  </section>
+
+  <footer>Gerado para o TCC (USP/Esalq). Os nomes de schema usam <span class="mono">&lt;AMB&gt;</span> no lugar do ambiente (<span class="mono">TESTE_DEV</span>, <span class="mono">DEV</span>, <span class="mono">INFRA</span>, <span class="mono">HOMOLOG</span>, <span class="mono">PROD</span>...).</footer>
+</main>
+
+<!-- =====================================================================================
+     MODELO DO DIAGRAMA. Edite aqui; o resto da página só desenha o que está neste bloco.
+     campos: n=nome, t=tipo, pk, fk={t,c}, uq (true | nome da restricao), uqCom=[colunas do par],
+             nulo, pad=default, ident, nota
+     ===================================================================================== -->
+<script id="modelo" type="application/json">
+{
+  "estado": "Reflete o Flyway até a V4 (conferido no Oracle em 02/11/2026). Aplicado hoje só em KAWASHI_ENV_TESTE_DEV.",
+  "esquemas": {
+    "padrao": { "rotulo": "KAWASHI_ENV_<AMB>", "nome": "Padrão (tabelas compartilhadas)" },
+    "sefaz": { "rotulo": "KAWASHI_ENV_<AMB>_SEFAZ", "nome": "SEFAZ (serviço)" },
+    "login": { "rotulo": "KAWASHI_ENV_<AMB>_LOGIN", "nome": "LOGIN (referência)" },
+    "org": { "rotulo": "KAWASHI_ENV_<AMB>_ORGANIZACOES", "nome": "ORGANIZACOES (referência)" },
+    "adm": { "rotulo": "KAWASHI_ENV_<AMB>_ADMINISTRACAO", "nome": "ADMINISTRACAO (referência)" }
+  },
+  "diagramas": [
+    {
+      "id": "banco",
+      "titulo": "1 · O que existe no banco",
+      "selo": "real",
+      "seloTexto": "no Oracle hoje",
+      "subtitulo": "As 6 tabelas criadas pelo Flyway (V1 a V4) mais CONFIGURACAO_FISCAL, a tabela de serviço SEFAZ que vem da fixture do repositório de regras.",
+      "colunas": [
+        { "v": "centro", "tabelas": ["CLIENTE", "CONFIGURACAO_FISCAL"] },
+        { "v": "topo", "tabelas": ["ENDERECO", "CONTATO", "EMPRESA"] },
+        { "v": "fim", "tabelas": ["FILIAL", "SOCIO"] }
+      ],
+      "tabelas": [
+        {
+          "id": "CLIENTE", "nome": "CLIENTE", "schema": "padrao",
+          "desc": "cliente da Kawashi; raiz de endereços, contatos e empresas",
+          "campos": [
+            { "n": "ID", "t": "NUMBER", "pk": true, "ident": true },
+            { "n": "CNPJ", "t": "VARCHAR2(14)", "uq": "nome gerado pelo Oracle" },
+            { "n": "RAZAO_SOCIAL", "t": "VARCHAR2(200 CHAR)" },
+            { "n": "NOME_FANTASIA", "t": "VARCHAR2(200 CHAR)", "nulo": true },
+            { "n": "ATIVO", "t": "BOOLEAN", "pad": "TRUE" },
+            { "n": "CRIADO_EM", "t": "TIMESTAMP(6)", "pad": "SYSTIMESTAMP" },
+            { "n": "ATUALIZADO_EM", "t": "TIMESTAMP(6)", "pad": "SYSTIMESTAMP" }
+          ],
+          "restricoes": [
+            { "tipo": "PK", "nome": "SYS_C008613 (nome gerado)", "regra": "ID" },
+            { "tipo": "UNIQUE", "nome": "SYS_C008614 (nome gerado)", "regra": "CNPJ" },
+            { "tipo": "CHECK", "nome": "CK_CLIENTE_CNPJ", "regra": "REGEXP_LIKE(CNPJ, '^[0-9]{14}$')" }
+          ]
+        },
+        {
+          "id": "CONFIGURACAO_FISCAL", "nome": "CONFIGURACAO_FISCAL", "schema": "sefaz",
+          "desc": "exemplo de tabela de serviço (SEFAZ), vem da fixture do repo de regras",
+          "campos": [
+            { "n": "ID", "t": "NUMBER", "pk": true, "ident": true },
+            { "n": "CLIENTE_ID", "t": "NUMBER", "fk": { "t": "CLIENTE", "c": "ID" }, "nota": "Sem UNIQUE: o banco aceita várias configurações fiscais para o mesmo cliente. Se a regra for uma por cliente, hoje só a API poderia garantir." },
+            { "n": "REGIME_TRIBUTARIO", "t": "VARCHAR2(50)" },
+            { "n": "INSCRICAO_ESTADUAL", "t": "VARCHAR2(20)", "nulo": true }
+          ],
+          "restricoes": [
+            { "tipo": "PK", "nome": "nome gerado pelo Oracle", "regra": "ID" },
+            { "tipo": "FK", "nome": "nome gerado pelo Oracle", "regra": "CLIENTE_ID → KAWASHI_ENV_<AMB>.CLIENTE (ID), sem cascade" }
+          ]
+        },
+        {
+          "id": "ENDERECO", "nome": "ENDERECO", "schema": "padrao",
+          "desc": "endereços do cliente (empresa e filial não têm endereço próprio)",
+          "campos": [
+            { "n": "ID", "t": "NUMBER", "pk": true, "ident": true },
+            { "n": "CLIENTE_ID", "t": "NUMBER", "fk": { "t": "CLIENTE", "c": "ID" } },
+            { "n": "LOGRADOURO", "t": "VARCHAR2(200 CHAR)" },
+            { "n": "NUMERO", "t": "VARCHAR2(20 CHAR)", "nulo": true },
+            { "n": "COMPLEMENTO", "t": "VARCHAR2(100 CHAR)", "nulo": true },
+            { "n": "BAIRRO", "t": "VARCHAR2(100 CHAR)", "nulo": true },
+            { "n": "CIDADE", "t": "VARCHAR2(100 CHAR)" },
+            { "n": "UF", "t": "VARCHAR2(2)" },
+            { "n": "CEP", "t": "VARCHAR2(8)" },
+            { "n": "PRINCIPAL", "t": "BOOLEAN", "pad": "FALSE", "nota": "No máximo um endereço principal por cliente: regra só da API. O banco aceitaria vários." },
+            { "n": "CRIADO_EM", "t": "TIMESTAMP(6)", "pad": "SYSTIMESTAMP" },
+            { "n": "ATUALIZADO_EM", "t": "TIMESTAMP(6)", "pad": "SYSTIMESTAMP" }
+          ],
+          "restricoes": [
+            { "tipo": "PK", "nome": "PK_ENDERECO", "regra": "ID" },
+            { "tipo": "FK", "nome": "FK_ENDERECO_CLIENTE", "regra": "CLIENTE_ID → CLIENTE (ID), sem cascade" },
+            { "tipo": "CHECK", "nome": "CK_ENDERECO_UF", "regra": "REGEXP_LIKE(UF, '^[A-Z]{2}$')" },
+            { "tipo": "CHECK", "nome": "CK_ENDERECO_CEP", "regra": "REGEXP_LIKE(CEP, '^[0-9]{8}$')" },
+            { "tipo": "INDEX", "nome": "IX_ENDERECO_CLIENTE", "regra": "CLIENTE_ID" }
+          ]
+        },
+        {
+          "id": "CONTATO", "nome": "CONTATO", "schema": "padrao",
+          "desc": "contatos do cliente",
+          "campos": [
+            { "n": "ID", "t": "NUMBER", "pk": true, "ident": true },
+            { "n": "CLIENTE_ID", "t": "NUMBER", "fk": { "t": "CLIENTE", "c": "ID" } },
+            { "n": "NOME", "t": "VARCHAR2(150 CHAR)" },
+            { "n": "EMAIL", "t": "VARCHAR2(150 CHAR)", "nulo": true },
+            { "n": "TELEFONE", "t": "VARCHAR2(11)", "nulo": true, "nota": "Pelo menos um entre EMAIL e TELEFONE é exigido: regra só da API. O banco aceita os dois vazios." },
+            { "n": "PRINCIPAL", "t": "BOOLEAN", "pad": "FALSE", "nota": "No máximo um contato principal por cliente: regra só da API." },
+            { "n": "CRIADO_EM", "t": "TIMESTAMP(6)", "pad": "SYSTIMESTAMP" },
+            { "n": "ATUALIZADO_EM", "t": "TIMESTAMP(6)", "pad": "SYSTIMESTAMP" }
+          ],
+          "restricoes": [
+            { "tipo": "PK", "nome": "PK_CONTATO", "regra": "ID" },
+            { "tipo": "FK", "nome": "FK_CONTATO_CLIENTE", "regra": "CLIENTE_ID → CLIENTE (ID), sem cascade" },
+            { "tipo": "CHECK", "nome": "CK_CONTATO_TELEFONE", "regra": "TELEFONE IS NULL OR REGEXP_LIKE(TELEFONE, '^[0-9]{10,11}$')" },
+            { "tipo": "INDEX", "nome": "IX_CONTATO_CLIENTE", "regra": "CLIENTE_ID" }
+          ]
+        },
+        {
+          "id": "EMPRESA", "nome": "EMPRESA", "schema": "padrao",
+          "desc": "empresa do cliente (a API só aceita a matriz, CNPJ de ordem 0001)",
+          "campos": [
+            { "n": "ID", "t": "NUMBER", "pk": true, "ident": true },
+            { "n": "CLIENTE_ID", "t": "NUMBER", "fk": { "t": "CLIENTE", "c": "ID" } },
+            { "n": "CNPJ", "t": "VARCHAR2(14)", "uq": "UK_EMPRESA_CNPJ" },
+            { "n": "RAZAO_SOCIAL", "t": "VARCHAR2(200 CHAR)" },
+            { "n": "NOME_FANTASIA", "t": "VARCHAR2(200 CHAR)", "nulo": true },
+            { "n": "ATIVA", "t": "BOOLEAN", "pad": "TRUE" },
+            { "n": "CRIADO_EM", "t": "TIMESTAMP(6)", "pad": "SYSTIMESTAMP" },
+            { "n": "ATUALIZADO_EM", "t": "TIMESTAMP(6)", "pad": "SYSTIMESTAMP" }
+          ],
+          "restricoes": [
+            { "tipo": "PK", "nome": "PK_EMPRESA", "regra": "ID" },
+            { "tipo": "UNIQUE", "nome": "UK_EMPRESA_CNPJ", "regra": "CNPJ" },
+            { "tipo": "FK", "nome": "FK_EMPRESA_CLIENTE", "regra": "CLIENTE_ID → CLIENTE (ID), sem cascade" },
+            { "tipo": "CHECK", "nome": "CK_EMPRESA_CNPJ", "regra": "REGEXP_LIKE(CNPJ, '^[0-9]{14}$')" },
+            { "tipo": "INDEX", "nome": "IX_EMPRESA_CLIENTE", "regra": "CLIENTE_ID" }
+          ]
+        },
+        {
+          "id": "FILIAL", "nome": "FILIAL", "schema": "padrao",
+          "desc": "filial de uma empresa (a API exige a mesma raiz de CNPJ)",
+          "campos": [
+            { "n": "ID", "t": "NUMBER", "pk": true, "ident": true },
+            { "n": "EMPRESA_ID", "t": "NUMBER", "fk": { "t": "EMPRESA", "c": "ID" } },
+            { "n": "CNPJ", "t": "VARCHAR2(14)", "uq": "UK_FILIAL_CNPJ" },
+            { "n": "NOME", "t": "VARCHAR2(150 CHAR)" },
+            { "n": "ATIVA", "t": "BOOLEAN", "pad": "TRUE" },
+            { "n": "CRIADO_EM", "t": "TIMESTAMP(6)", "pad": "SYSTIMESTAMP" },
+            { "n": "ATUALIZADO_EM", "t": "TIMESTAMP(6)", "pad": "SYSTIMESTAMP" }
+          ],
+          "restricoes": [
+            { "tipo": "PK", "nome": "PK_FILIAL", "regra": "ID" },
+            { "tipo": "UNIQUE", "nome": "UK_FILIAL_CNPJ", "regra": "CNPJ" },
+            { "tipo": "FK", "nome": "FK_FILIAL_EMPRESA", "regra": "EMPRESA_ID → EMPRESA (ID), sem cascade" },
+            { "tipo": "CHECK", "nome": "CK_FILIAL_CNPJ", "regra": "REGEXP_LIKE(CNPJ, '^[0-9]{14}$')" },
+            { "tipo": "INDEX", "nome": "IX_FILIAL_EMPRESA", "regra": "EMPRESA_ID" }
+          ]
+        },
+        {
+          "id": "SOCIO", "nome": "SOCIO", "schema": "padrao",
+          "desc": "sócio de uma empresa (pessoa física, identificada pelo CPF)",
+          "campos": [
+            { "n": "ID", "t": "NUMBER", "pk": true, "ident": true },
+            { "n": "EMPRESA_ID", "t": "NUMBER", "fk": { "t": "EMPRESA", "c": "ID" }, "uqCom": ["EMPRESA_ID", "CPF"], "uq": "UK_SOCIO_EMPRESA_CPF" },
+            { "n": "NOME", "t": "VARCHAR2(150 CHAR)" },
+            { "n": "CPF", "t": "VARCHAR2(11)", "uqCom": ["EMPRESA_ID", "CPF"], "uq": "UK_SOCIO_EMPRESA_CPF", "nota": "O CPF é único só dentro da empresa (par EMPRESA_ID + CPF). A mesma pessoa em duas empresas vira duas linhas SOCIO sem ligação entre elas." },
+            { "n": "PARTICIPACAO", "t": "NUMBER(5,2)", "nota": "O banco só exige maior que 0 e até 100 em cada linha. A soma por empresa não passar de 100% é regra só da API." },
+            { "n": "CRIADO_EM", "t": "TIMESTAMP(6)", "pad": "SYSTIMESTAMP" },
+            { "n": "ATUALIZADO_EM", "t": "TIMESTAMP(6)", "pad": "SYSTIMESTAMP" }
+          ],
+          "restricoes": [
+            { "tipo": "PK", "nome": "PK_SOCIO", "regra": "ID" },
+            { "tipo": "UNIQUE", "nome": "UK_SOCIO_EMPRESA_CPF", "regra": "(EMPRESA_ID, CPF)" },
+            { "tipo": "FK", "nome": "FK_SOCIO_EMPRESA", "regra": "EMPRESA_ID → EMPRESA (ID), sem cascade" },
+            { "tipo": "CHECK", "nome": "CK_SOCIO_CPF", "regra": "REGEXP_LIKE(CPF, '^[0-9]{11}$')" },
+            { "tipo": "CHECK", "nome": "CK_SOCIO_PARTICIPACAO", "regra": "PARTICIPACAO > 0 AND PARTICIPACAO <= 100" },
+            { "tipo": "INDEX", "nome": "IX_SOCIO_EMPRESA", "regra": "EMPRESA_ID" }
+          ]
+        }
+      ],
+      "relacoes": [
+        { "pai": "CLIENTE", "filho": "ENDERECO", "fk": "CLIENTE_ID", "pk": "ID", "card": "1:N", "nome": "FK_ENDERECO_CLIENTE" },
+        { "pai": "CLIENTE", "filho": "CONTATO", "fk": "CLIENTE_ID", "pk": "ID", "card": "1:N", "nome": "FK_CONTATO_CLIENTE" },
+        { "pai": "CLIENTE", "filho": "EMPRESA", "fk": "CLIENTE_ID", "pk": "ID", "card": "1:N", "nome": "FK_EMPRESA_CLIENTE" },
+        { "pai": "EMPRESA", "filho": "FILIAL", "fk": "EMPRESA_ID", "pk": "ID", "card": "1:N", "nome": "FK_FILIAL_EMPRESA" },
+        { "pai": "EMPRESA", "filho": "SOCIO", "fk": "EMPRESA_ID", "pk": "ID", "card": "1:N", "nome": "FK_SOCIO_EMPRESA" },
+        { "pai": "CLIENTE", "filho": "CONFIGURACAO_FISCAL", "fk": "CLIENTE_ID", "pk": "ID", "card": "1:N", "nome": "(nome gerado)", "lado": "esq", "apagar": "Recusado pelo banco (ORA-02292). A API não conhece esta tabela: devolve só o 409 genérico, sem dizer o motivo.", "obs": "FK entre schemas: SEFAZ aponta para o schema padrão." }
+      ],
+      "extras": []
+    },
+    {
+      "id": "login",
+      "titulo": "3 · Referência: LOGIN e ORGANIZACOES",
+      "selo": "ref",
+      "seloTexto": "só desenho, não existe no banco",
+      "subtitulo": "Do script oracle-init/12_exemplo_dominio_kawashi_core.sql, que nunca foi aplicado. Atenção ao nome: a EMPRESA de ORGANIZACOES (quem usa o sistema Kawashi) não é a EMPRESA do schema padrão (empresa de um cliente), apesar do mesmo nome.",
+      "colunas": [
+        { "v": "centro", "tabelas": ["USUARIO"] },
+        { "v": "topo", "tabelas": ["USUARIO_EMPRESA", "LOG_LOGIN", "LOG_TROCA_SENHA"] },
+        { "v": "centro", "tabelas": ["ORG_EMPRESA", "ORG_FILIAL", "LOG_ALTERACAO"] }
+      ],
+      "tabelas": [
+        {
+          "id": "USUARIO", "nome": "USUARIO", "schema": "login", "ref": true,
+          "desc": "quem se autentica com e-mail e senha",
+          "campos": [
+            { "n": "ID", "t": "NUMBER", "pk": true, "ident": true },
+            { "n": "EMAIL", "t": "VARCHAR2(150)", "uq": true },
+            { "n": "SENHA_HASH", "t": "VARCHAR2(200)" },
+            { "n": "SENHA_ALTERADA_EM", "t": "TIMESTAMP", "pad": "SYSTIMESTAMP" },
+            { "n": "MFA_HABILITADO", "t": "CHAR(1)", "pad": "'N'" },
+            { "n": "ATIVO", "t": "CHAR(1)", "pad": "'S'" }
+          ],
+          "restricoes": [
+            { "tipo": "PK", "nome": "(nome gerado)", "regra": "ID" },
+            { "tipo": "UNIQUE", "nome": "(nome gerado)", "regra": "EMAIL" }
+          ]
+        },
+        {
+          "id": "USUARIO_EMPRESA", "nome": "USUARIO_EMPRESA", "schema": "login", "ref": true,
+          "desc": "em quais empresas o usuário atua e com que cargo",
+          "ponte": "tabela de junção: USUARIO × ORGANIZACOES.EMPRESA (N:N)",
+          "campos": [
+            { "n": "ID", "t": "NUMBER", "pk": true, "ident": true },
+            { "n": "USUARIO_ID", "t": "NUMBER", "fk": { "t": "USUARIO", "c": "ID" }, "uqCom": ["USUARIO_ID", "EMPRESA_ID"], "uq": "UQ_USUARIO_EMPRESA" },
+            { "n": "EMPRESA_ID", "t": "NUMBER", "fk": { "t": "EMPRESA", "c": "ID", "esquema": "ORGANIZACOES" }, "uqCom": ["USUARIO_ID", "EMPRESA_ID"], "uq": "UQ_USUARIO_EMPRESA" },
+            { "n": "CARGO", "t": "VARCHAR2(50)" }
+          ],
+          "restricoes": [
+            { "tipo": "PK", "nome": "(nome gerado)", "regra": "ID" },
+            { "tipo": "UNIQUE", "nome": "UQ_USUARIO_EMPRESA", "regra": "(USUARIO_ID, EMPRESA_ID)" },
+            { "tipo": "FK", "nome": "(nome gerado)", "regra": "USUARIO_ID → USUARIO (ID), sem cascade" },
+            { "tipo": "FK", "nome": "(nome gerado)", "regra": "EMPRESA_ID → ORGANIZACOES.EMPRESA (ID), entre schemas, sem cascade" }
+          ]
+        },
+        {
+          "id": "LOG_LOGIN", "nome": "LOG_LOGIN", "schema": "login", "ref": true,
+          "desc": "histórico de tentativas de login",
+          "campos": [
+            { "n": "ID", "t": "NUMBER", "pk": true, "ident": true },
+            { "n": "USUARIO_ID", "t": "NUMBER", "fk": { "t": "USUARIO", "c": "ID" } },
+            { "n": "EMPRESA_ESCOLHIDA_ID", "t": "NUMBER", "nulo": true, "nota": "Guarda o id da empresa escolhida no login, mas não é chave estrangeira: o banco não confere se ela existe." },
+            { "n": "DATA_HORA", "t": "TIMESTAMP", "pad": "SYSTIMESTAMP" },
+            { "n": "IP_ORIGEM", "t": "VARCHAR2(45)", "nulo": true },
+            { "n": "SUCESSO", "t": "CHAR(1)" }
+          ],
+          "restricoes": [
+            { "tipo": "PK", "nome": "(nome gerado)", "regra": "ID" },
+            { "tipo": "FK", "nome": "(nome gerado)", "regra": "USUARIO_ID → USUARIO (ID), sem cascade" }
+          ]
+        },
+        {
+          "id": "LOG_TROCA_SENHA", "nome": "LOG_TROCA_SENHA", "schema": "login", "ref": true,
+          "desc": "histórico de troca de senha",
+          "campos": [
+            { "n": "ID", "t": "NUMBER", "pk": true, "ident": true },
+            { "n": "USUARIO_ID", "t": "NUMBER", "fk": { "t": "USUARIO", "c": "ID" } },
+            { "n": "DATA_HORA", "t": "TIMESTAMP", "pad": "SYSTIMESTAMP" }
+          ],
+          "restricoes": [
+            { "tipo": "PK", "nome": "(nome gerado)", "regra": "ID" },
+            { "tipo": "FK", "nome": "(nome gerado)", "regra": "USUARIO_ID → USUARIO (ID), sem cascade" }
+          ]
+        },
+        {
+          "id": "ORG_EMPRESA", "nome": "EMPRESA", "schema": "org", "ref": true,
+          "desc": "empresa que USA o sistema Kawashi (não é o EMPRESA do schema padrão)",
+          "campos": [
+            { "n": "ID", "t": "NUMBER", "pk": true, "ident": true },
+            { "n": "CNPJ", "t": "VARCHAR2(14)", "uq": true },
+            { "n": "RAZAO_SOCIAL", "t": "VARCHAR2(200)" },
+            { "n": "ATIVA", "t": "CHAR(1)", "pad": "'S'" }
+          ],
+          "restricoes": [
+            { "tipo": "PK", "nome": "(nome gerado)", "regra": "ID" },
+            { "tipo": "UNIQUE", "nome": "(nome gerado)", "regra": "CNPJ" }
+          ]
+        },
+        {
+          "id": "ORG_FILIAL", "nome": "FILIAL", "schema": "org", "ref": true,
+          "desc": "filial da empresa que usa o sistema",
+          "campos": [
+            { "n": "ID", "t": "NUMBER", "pk": true, "ident": true },
+            { "n": "EMPRESA_ID", "t": "NUMBER", "fk": { "t": "ORG_EMPRESA", "c": "ID" } },
+            { "n": "CNPJ", "t": "VARCHAR2(14)", "uq": true },
+            { "n": "NOME", "t": "VARCHAR2(150)" }
+          ],
+          "restricoes": [
+            { "tipo": "PK", "nome": "(nome gerado)", "regra": "ID" },
+            { "tipo": "UNIQUE", "nome": "(nome gerado)", "regra": "CNPJ" },
+            { "tipo": "FK", "nome": "(nome gerado)", "regra": "EMPRESA_ID → EMPRESA (ID), sem cascade" }
+          ]
+        },
+        {
+          "id": "LOG_ALTERACAO", "nome": "LOG_ALTERACAO", "schema": "org", "ref": true,
+          "desc": "trilha de alterações, sem chave estrangeira",
+          "campos": [
+            { "n": "ID", "t": "NUMBER", "pk": true, "ident": true },
+            { "n": "TABELA_ORIGEM", "t": "VARCHAR2(30)", "nota": "TABELA_ORIGEM + REGISTRO_ID apontam para qualquer tabela por texto e número. Não há chave estrangeira, então não há ligação no diagrama." },
+            { "n": "REGISTRO_ID", "t": "NUMBER" },
+            { "n": "ACAO", "t": "VARCHAR2(20)" },
+            { "n": "DATA_HORA", "t": "TIMESTAMP", "pad": "SYSTIMESTAMP" }
+          ],
+          "restricoes": [
+            { "tipo": "PK", "nome": "(nome gerado)", "regra": "ID" }
+          ]
+        }
+      ],
+      "relacoes": [
+        { "pai": "USUARIO", "filho": "USUARIO_EMPRESA", "fk": "USUARIO_ID", "pk": "ID", "card": "1:N", "nome": "(nome gerado)" },
+        { "pai": "USUARIO", "filho": "LOG_LOGIN", "fk": "USUARIO_ID", "pk": "ID", "card": "1:N", "nome": "(nome gerado)" },
+        { "pai": "USUARIO", "filho": "LOG_TROCA_SENHA", "fk": "USUARIO_ID", "pk": "ID", "card": "1:N", "nome": "(nome gerado)" },
+        { "pai": "ORG_EMPRESA", "filho": "USUARIO_EMPRESA", "fk": "EMPRESA_ID", "pk": "ID", "card": "1:N", "nome": "(nome gerado)", "obs": "FK entre schemas: LOGIN aponta para ORGANIZACOES." },
+        { "pai": "ORG_EMPRESA", "filho": "ORG_FILIAL", "fk": "EMPRESA_ID", "pk": "ID", "card": "1:N", "nome": "(nome gerado)", "lado": "dir" }
+      ],
+      "extras": [
+        { "card": "N:N", "a": "USUARIO", "b": "ORGANIZACOES.EMPRESA", "via": "USUARIO_EMPRESA", "obs": "Uma pessoa atua em várias empresas, com cargo diferente em cada; uma empresa tem vários usuários. As duas relações 1:N acima, juntas, formam este N:N." }
+      ]
+    },
+    {
+      "id": "adm",
+      "titulo": "4 · Referência: ADMINISTRACAO",
+      "selo": "ref",
+      "seloTexto": "só desenho, não existe no banco",
+      "subtitulo": "Também de oracle-init/12_exemplo_dominio_kawashi_core.sql. O CLIENTE em cinza é a tabela padrão do bloco 1.",
+      "colunas": [
+        { "v": "centro", "tabelas": ["CLIENTE_FANTASMA"] },
+        { "v": "centro", "tabelas": ["FATURA"] },
+        { "v": "centro", "tabelas": ["PAGAMENTO"] }
+      ],
+      "tabelas": [
+        {
+          "id": "CLIENTE_FANTASMA", "nome": "CLIENTE", "schema": "padrao", "fantasma": true,
+          "desc": "tabela padrão (detalhes no bloco 1)",
+          "campos": [ { "n": "ID", "t": "NUMBER", "pk": true, "ident": true } ],
+          "restricoes": []
+        },
+        {
+          "id": "FATURA", "nome": "FATURA", "schema": "adm", "ref": true,
+          "desc": "cobrança de um cliente da Kawashi",
+          "campos": [
+            { "n": "ID", "t": "NUMBER", "pk": true, "ident": true },
+            { "n": "CLIENTE_ID", "t": "NUMBER", "fk": { "t": "CLIENTE", "c": "ID", "esquema": "padrão" } },
+            { "n": "COMPETENCIA", "t": "DATE" },
+            { "n": "VALOR", "t": "NUMBER(12,2)" },
+            { "n": "STATUS", "t": "VARCHAR2(20)", "pad": "'ABERTA'" }
+          ],
+          "restricoes": [
+            { "tipo": "PK", "nome": "(nome gerado)", "regra": "ID" },
+            { "tipo": "FK", "nome": "(nome gerado)", "regra": "CLIENTE_ID → KAWASHI_ENV_<AMB>.CLIENTE (ID), entre schemas, sem cascade" }
+          ]
+        },
+        {
+          "id": "PAGAMENTO", "nome": "PAGAMENTO", "schema": "adm", "ref": true,
+          "desc": "pagamento de uma fatura",
+          "campos": [
+            { "n": "ID", "t": "NUMBER", "pk": true, "ident": true },
+            { "n": "FATURA_ID", "t": "NUMBER", "fk": { "t": "FATURA", "c": "ID" } },
+            { "n": "DATA_PAGAMENTO", "t": "DATE" },
+            { "n": "VALOR_PAGO", "t": "NUMBER(12,2)" },
+            { "n": "FORMA_PAGAMENTO", "t": "VARCHAR2(30)" }
+          ],
+          "restricoes": [
+            { "tipo": "PK", "nome": "(nome gerado)", "regra": "ID" },
+            { "tipo": "FK", "nome": "(nome gerado)", "regra": "FATURA_ID → FATURA (ID), sem cascade" }
+          ]
+        }
+      ],
+      "relacoes": [
+        { "pai": "CLIENTE_FANTASMA", "filho": "FATURA", "fk": "CLIENTE_ID", "pk": "ID", "card": "1:N", "nome": "(nome gerado)", "obs": "FK entre schemas: ADMINISTRACAO aponta para o schema padrão." },
+        { "pai": "FATURA", "filho": "PAGAMENTO", "fk": "FATURA_ID", "pk": "ID", "card": "1:N", "nome": "(nome gerado)" }
+      ],
+      "extras": []
+    }
+  ],
+  "repete": [
+    { "dado": "CNPJ", "onde": "CLIENTE, EMPRESA e FILIAL (e EMPRESA e FILIAL de ORGANIZACOES, na referência)", "garante": "Cada tabela tem o próprio UNIQUE. Nada impede o mesmo CNPJ em CLIENTE e em EMPRESA ao mesmo tempo." },
+    { "dado": "Razão social / nome", "onde": "RAZAO_SOCIAL em CLIENTE e EMPRESA; NOME em CONTATO, SOCIO e FILIAL", "garante": "Só tipo e tamanho. Texto livre em cada tabela, sem ligação entre eles." },
+    { "dado": "CPF", "onde": "Só em SOCIO", "garante": "Único por empresa (EMPRESA_ID + CPF), não no banco todo." },
+    { "dado": "E-mail", "onde": "CONTATO.EMAIL (e USUARIO.EMAIL, na referência)", "garante": "Nada. EMAIL de CONTATO não é único nem tem formato validado no banco; em USUARIO é único." },
+    { "dado": "Telefone", "onde": "Só em CONTATO.TELEFONE", "garante": "10 ou 11 dígitos (CHECK)." },
+    { "dado": "Endereço", "onde": "Só ENDERECO, preso a CLIENTE", "garante": "EMPRESA, FILIAL e SOCIO não têm endereço." },
+    { "dado": "Mesma pessoa em papéis diferentes", "onde": "SOCIO, CONTATO e (na referência) USUARIO", "garante": "Nenhuma coluna liga um SOCIO a um CONTATO ou a um USUARIO. Cada papel guarda seus próprios dados." }
+  ]
+}
+</script>
+
+<script>
+(function () {
+  'use strict';
+  var M = JSON.parse(document.getElementById('modelo').textContent);
+
+  function h(tag, attrs) {
+    var e = document.createElement(tag), i, k;
+    attrs = attrs || {};
+    for (k in attrs) {
+      if (attrs[k] === false || attrs[k] == null) continue;
+      if (k === 'class') e.className = attrs[k];
+      else if (k === 'text') e.textContent = attrs[k];
+      else e.setAttribute(k, attrs[k] === true ? '' : attrs[k]);
+    }
+    for (i = 2; i < arguments.length; i++) append(e, arguments[i]);
+    return e;
+  }
+  function append(e, c) {
+    if (c == null || c === false) return;
+    if (Array.isArray(c)) { c.forEach(function (x) { append(e, x); }); return; }
+    e.appendChild(c.nodeType ? c : document.createTextNode(String(c)));
+  }
+  var SVGNS = 'http://www.w3.org/2000/svg';
+  function s(tag, attrs) {
+    var e = document.createElementNS(SVGNS, tag), k;
+    for (k in attrs || {}) e.setAttribute(k, attrs[k]);
+    return e;
+  }
+
+  document.getElementById('estado').textContent = M.estado;
+
+  // ---- legenda de cores ----
+  var leg = document.getElementById('legenda-schemas');
+  Object.keys(M.esquemas).forEach(function (k) {
+    var e = M.esquemas[k];
+    leg.appendChild(h('li', {},
+      h('span', { class: 'amostra', style: '--c:var(--' + k + ')' }),
+      h('span', {}, h('b', { class: 'mono', style: 'font-size:12px' }, e.rotulo), ' · ', e.nome)));
+  });
+
+  // ---- cartao de tabela ----
+  function tituloCampo(t, c) {
+    var p = [c.n + ' ' + c.t, c.nulo ? 'aceita nulo' : 'NOT NULL'];
+    if (c.ident) p.push('gerado pelo banco (identity)');
+    if (c.pad) p.push('DEFAULT ' + c.pad);
+    if (c.pk) p.push('chave primária');
+    if (c.fk) p.push('chave estrangeira para ' + (c.fk.esquema ? c.fk.esquema + '.' : '') + c.fk.t + '.' + c.fk.c);
+    if (c.uq && c.uqCom) p.push('único junto com ' + c.uqCom.filter(function (x) { return x !== c.n; }).join(', '));
+    else if (c.uq) p.push('único');
+    return p.join(' · ');
+  }
+
+  function cartao(d, t) {
+    var cls = 'tabela s-' + t.schema + (t.ref ? ' ref' : '') + (t.fantasma ? ' fantasma' : '');
+    var sch = M.esquemas[t.schema];
+    var nomeFk = function (c) {
+      var alvo = d.tabelas.filter(function (x) { return x.id === c.fk.t; })[0];
+      return (c.fk.esquema ? c.fk.esquema + '.' : '') + (alvo ? alvo.nome : c.fk.t) + '.' + c.fk.c;
+    };
+    var el = h('article', { class: cls, 'data-t': t.id, tabindex: '0', 'aria-label': 'Tabela ' + t.nome },
+      h('header', {},
+        h('h3', { text: t.nome }),
+        h('div', { class: 'esq', text: sch.rotulo }),
+        h('p', { class: 'desc', text: t.desc }),
+        t.ponte ? h('span', { class: 'ponte', text: t.ponte }) : null),
+      t.campos.map(function (c) {
+        var flags = h('span', { class: 'flags' },
+          c.pk ? h('b', { class: 'pk', text: 'PK' }) : null,
+          c.fk ? h('b', { class: 'fk', text: 'FK' }) : null,
+          c.uq ? h('b', { class: 'uq' + (c.uqCom ? ' comp' : ''), text: 'UQ' }) : null);
+        return h('div', { class: 'campo', 'data-c': c.n, title: tituloCampo(t, c) },
+          flags,
+          h('span', { class: 'nome' }, c.n,
+            c.fk ? h('span', { class: 'ref', text: ' → ' + nomeFk(c) }) : null,
+            c.nota ? h('span', { class: 'nota-chip', text: 'i', title: c.nota }) : null),
+          h('span', { class: 'tipo' }, c.t, c.nulo ? h('i', { text: 'null' }) : null));
+      }));
+    return el;
+  }
+
+  // ---- tabela de relacoes ----
+  function tabelaRelacoes(d) {
+    var nome = function (id) { var t = d.tabelas.filter(function (x) { return x.id === id; })[0]; return t ? t.nome : id; };
+    var corpo = h('tbody');
+    var apagarPadrao = d.selo === 'ref'
+      ? 'Seria recusado pelo banco (ORA-02292), se o script fosse aplicado. Não há API para estas tabelas.'
+      : 'Recusado pelo banco (ORA-02292); a API avisa antes, com 409.';
+    d.relacoes.forEach(function (r, i) {
+      var pai = d.tabelas.filter(function (x) { return x.id === r.pai; })[0];
+      var filho = d.tabelas.filter(function (x) { return x.id === r.filho; })[0];
+      corpo.appendChild(h('tr', { 'data-rel': i },
+        h('td', { class: 'mono' }, h('b', { text: nome(r.pai) }), '.' + r.pk),
+        h('td', { class: 'card n1', text: '1 : N' }),
+        h('td', { class: 'mono' }, h('b', { text: nome(r.filho) }), '.' + r.fk),
+        h('td', { class: 'mono', text: r.nome }),
+        h('td', {}, r.apagar || apagarPadrao,
+          r.obs ? h('div', { class: 'sub', style: 'font-size:12.5px', text: r.obs }) : null),
+        h('td', { text: (pai && filho && pai.schema !== filho.schema) ? 'entre schemas' : 'mesmo schema' })));
+    });
+    (d.extras || []).forEach(function (x) {
+      corpo.appendChild(h('tr', {},
+        h('td', { class: 'mono' }, h('b', { text: x.a })),
+        h('td', { class: 'card nn', text: x.card.replace(':', ' : ') }),
+        h('td', { class: 'mono' }, h('b', { text: x.b })),
+        h('td', { class: 'mono', text: 'via ' + x.via }),
+        h('td', { colspan: '2', text: x.obs })));
+    });
+    return h('div', { class: 'tabelao-wrap' }, h('table', { class: 'tabelao' },
+      h('caption', { text: 'Relações (pai 1 → filho N)' }),
+      h('thead', {}, h('tr', {}, ['Pai (1)', 'Cardinalidade', 'Filho (N)', 'Nome da FK', 'Ao apagar o pai', 'Schemas'].map(function (x) { return h('th', { text: x }); }))),
+      corpo));
+  }
+
+  function listaNotas(d) {
+    var itens = [];
+    d.tabelas.forEach(function (t) {
+      t.campos.forEach(function (c) {
+        if (c.nota) itens.push(h('li', {}, h('b', { class: 'mono', text: t.nome + '.' + c.n }), ' — ' + c.nota));
+      });
+    });
+    return itens.length ? h('ul', { class: 'notas' }, itens) : null;
+  }
+
+  function detalhesRestricoes(d) {
+    var corpo = h('tbody');
+    d.tabelas.forEach(function (t) {
+      if (t.fantasma) return;
+      t.restricoes.forEach(function (r, i) {
+        corpo.appendChild(h('tr', {},
+          h('td', { class: 'mono' }, i === 0 ? h('b', { text: t.nome }) : ''),
+          h('td', { class: 'restr-tipo', text: r.tipo }),
+          h('td', { class: 'mono', text: r.nome }),
+          h('td', { class: 'mono', text: r.regra })));
+      });
+    });
+    return h('details', {}, h('summary', { text: 'Restrições e índices (nomes e regras que o banco aplica)' }),
+      h('div', { class: 'tabelao-wrap' }, h('table', { class: 'tabelao' },
+        h('thead', {}, h('tr', {}, ['Tabela', 'Tipo', 'Nome', 'Regra'].map(function (x) { return h('th', { text: x }); }))), corpo)));
+  }
+
+  // ---- ligacoes (SVG) ----
+  var BASE = 50, PASSO = 12;
+  function ligar(canvas, d) {
+    var svg = canvas.querySelector('svg.ligacoes');
+    while (svg.firstChild) svg.removeChild(svg.firstChild);
+    if (getComputedStyle(svg).display === 'none') return;
+    var cr = canvas.getBoundingClientRect();
+    svg.setAttribute('width', canvas.offsetWidth);
+    svg.setAttribute('height', canvas.offsetHeight);
+
+    var colDe = {};
+    d.colunas.forEach(function (col, i) { col.tabelas.forEach(function (id) { colDe[id] = i; }); });
+    function pos(id, campo) {
+      var card = canvas.querySelector('[data-t="' + id + '"]');
+      var row = card.querySelector('[data-c="' + campo + '"]');
+      var a = card.getBoundingClientRect(), r = row.getBoundingClientRect();
+      return { left: a.left - cr.left, right: a.right - cr.left, y: r.top + r.height / 2 - cr.top };
+    }
+
+    var conj = d.relacoes.map(function (r, i) {
+      var P = pos(r.pai, r.pk), C = pos(r.filho, r.fk), sp, sc;
+      if (colDe[r.pai] === colDe[r.filho]) { sp = sc = (r.lado === 'dir') ? 1 : -1; }
+      else if (colDe[r.filho] > colDe[r.pai]) { sp = 1; sc = -1; }
+      else { sp = -1; sc = 1; }
+      return { i: i, r: r, sp: sp, sc: sc,
+        x1: sp > 0 ? P.right : P.left, y1: P.y,
+        x2: sc > 0 ? C.right : C.left, y2: C.y };
+    });
+
+    // faixas (lanes): para filhos abaixo/acima da origem, o mais perto vira por ultimo (faixa mais longe)
+    var grupos = {};
+    conj.forEach(function (c) {
+      var k = c.r.pai + '|' + c.sp + '|' + (c.y2 >= c.y1 ? 'b' : 'a');
+      (grupos[k] = grupos[k] || []).push(c);
+    });
+    Object.keys(grupos).forEach(function (k) {
+      var g = grupos[k];
+      g.sort(function (a, b) { return Math.abs(a.y2 - a.y1) - Math.abs(b.y2 - b.y1); });
+      g.forEach(function (c, idx) { c.lane = g.length - 1 - idx; });
+    });
+
+    conj.forEach(function (c) {
+      var lx = c.x1 + c.sp * (BASE + PASSO * c.lane);
+      var r = c.r;
+      var g = s('g', { class: 'rel', 'data-rel': c.i, 'data-pai': r.pai, 'data-filho': r.filho });
+      var path = s('path', { class: 'lig', d: 'M' + c.x1 + ',' + c.y1 + ' H' + lx + ' V' + c.y2 + ' H' + c.x2 });
+      var tip = s('title');
+      tip.textContent = nomeLegivel(d, r.filho) + '.' + r.fk + ' → ' + nomeLegivel(d, r.pai) + '.' + r.pk + '  (' + r.card.replace(':', ' para ') + ')';
+      path.appendChild(tip);
+      g.appendChild(path);
+      // lado do pai: duas barras = exatamente 1
+      [7, 12].forEach(function (o) {
+        g.appendChild(s('path', { class: 'glifo', d: 'M' + (c.x1 + c.sp * o) + ',' + (c.y1 - 6) + ' V' + (c.y1 + 6) }));
+      });
+      var t1 = s('text', { x: c.x1 + c.sp * 26, y: c.y1 - 6 }); t1.textContent = '1'; g.appendChild(t1);
+      // lado do filho: pe de galinha + circulo = zero ou muitos
+      var ax = c.x2 + c.sc * 16;
+      g.appendChild(s('path', { class: 'glifo', d: 'M' + ax + ',' + c.y2 + ' L' + c.x2 + ',' + (c.y2 - 7) + ' M' + ax + ',' + c.y2 + ' L' + c.x2 + ',' + c.y2 + ' M' + ax + ',' + c.y2 + ' L' + c.x2 + ',' + (c.y2 + 7) }));
+      g.appendChild(s('circle', { class: 'glifo', cx: c.x2 + c.sc * 22, cy: c.y2, r: 4 }));
+      var tn = s('text', { x: c.x2 + c.sc * 38, y: c.y2 - 6 }); tn.textContent = 'N'; g.appendChild(tn);
+      svg.appendChild(g);
+    });
+  }
+  function nomeLegivel(d, id) {
+    var t = d.tabelas.filter(function (x) { return x.id === id; })[0];
+    return t ? t.nome : id;
+  }
+
+  // ---- destaque ao passar o mouse ----
+  function ligarDestaque(sec, d) {
+    var canvas = sec.querySelector('.canvas');
+    function limpar() {
+      canvas.querySelectorAll('.dim').forEach(function (e) { e.classList.remove('dim'); });
+      canvas.querySelectorAll('.foco').forEach(function (e) { e.classList.remove('foco'); });
+      sec.querySelectorAll('tr.foco').forEach(function (e) { e.classList.remove('foco'); });
+    }
+    function focar(idsRel) {
+      limpar();
+      var tabs = {};
+      idsRel.forEach(function (i) { tabs[d.relacoes[i].pai] = 1; tabs[d.relacoes[i].filho] = 1; });
+      canvas.querySelectorAll('g.rel').forEach(function (g) {
+        var on = idsRel.indexOf(+g.getAttribute('data-rel')) >= 0;
+        g.classList.add(on ? 'foco' : 'dim');
+      });
+      canvas.querySelectorAll('.tabela').forEach(function (c) {
+        if (!tabs[c.getAttribute('data-t')]) c.classList.add('dim');
+      });
+      idsRel.forEach(function (i) {
+        var tr = sec.querySelector('tr[data-rel="' + i + '"]'); if (tr) tr.classList.add('foco');
+      });
+    }
+    canvas.querySelectorAll('.tabela').forEach(function (c) {
+      var id = c.getAttribute('data-t');
+      var rels = [];
+      d.relacoes.forEach(function (r, i) { if (r.pai === id || r.filho === id) rels.push(i); });
+      var on = function () { if (rels.length) focar(rels); };
+      c.addEventListener('mouseenter', on); c.addEventListener('focus', on);
+      c.addEventListener('mouseleave', limpar); c.addEventListener('blur', limpar);
+    });
+    sec.querySelectorAll('tr[data-rel]').forEach(function (tr) {
+      var i = +tr.getAttribute('data-rel');
+      tr.addEventListener('mouseenter', function () { focar([i]); });
+      tr.addEventListener('mouseleave', limpar);
+    });
+    // delegacao: passar o mouse numa linha tambem destaca
+    canvas.addEventListener('mouseover', function (ev) {
+      var g = ev.target.closest && ev.target.closest('g.rel');
+      if (g) focar([+g.getAttribute('data-rel')]);
+    });
+    canvas.addEventListener('mouseout', function (ev) {
+      var g = ev.target.closest && ev.target.closest('g.rel');
+      if (g) limpar();
+    });
+  }
+
+  // ---- monta um bloco ----
+  var canvases = [];
+  function montar(d) {
+    var sec = document.getElementById(d.id);
+    var cab = h('header', {},
+      h('h2', {}, d.titulo, h('span', { class: 'selo ' + d.selo, text: d.seloTexto })),
+      h('p', { class: 'sub', text: d.subtitulo }));
+    var cols = h('div', { class: 'colunas' }, d.colunas.map(function (col) {
+      return h('div', { class: 'coluna v-' + col.v }, col.tabelas.map(function (id) {
+        return cartao(d, d.tabelas.filter(function (t) { return t.id === id; })[0]);
+      }));
+    }));
+    var canvas = h('div', { class: 'canvas' }, cols, s('svg', { class: 'ligacoes', 'aria-hidden': 'true' }));
+    sec.appendChild(cab);
+    sec.appendChild(h('div', { class: 'scroller' }, canvas));
+    sec.appendChild(tabelaRelacoes(d));
+    var notas = listaNotas(d); if (notas) sec.appendChild(h('div', {}, h('h3', { style: 'margin:18px 0 0;font-size:15px', text: 'Notas' }), notas));
+    sec.appendChild(detalhesRestricoes(d));
+    ligarDestaque(sec, d);
+    canvases.push({ canvas: canvas, d: d });
+  }
+  // "login" e "adm" ficam em secoes proprias; "banco" tambem. Aqui so ligamos pelo id.
+  M.diagramas.forEach(montar);
+
+  function redesenhar() { canvases.forEach(function (x) { ligar(x.canvas, x.d); }); }
+  redesenhar();
+  window.addEventListener('resize', redesenhar);
+  window.addEventListener('load', redesenhar);
+  if (document.fonts && document.fonts.ready) document.fonts.ready.then(redesenhar);
+  if (window.ResizeObserver) {
+    var ro = new ResizeObserver(redesenhar);
+    canvases.forEach(function (x) { ro.observe(x.canvas); });
+  }
+
+  // ---- placar e aviso do 1:1 (calculados do bloco "banco") ----
+  var A = M.diagramas[0];
+  var conta = function (c) { return A.relacoes.filter(function (r) { return r.card === c; }).length; };
+  var placar = document.getElementById('placar');
+  [
+    [A.tabelas.length, 'tabelas no banco hoje', ''],
+    [conta('1:N'), 'relações 1 : N', ''],
+    [conta('1:1'), 'relações 1 : 1', conta('1:1') === 0 ? 'zero' : ''],
+    [conta('N:N'), 'relações N : N', '']
+  ].forEach(function (x) {
+    placar.appendChild(h('div', { class: 'cartao num ' + x[2] }, h('b', { text: x[0] }), h('span', { text: x[1] })));
+  });
+  var av = document.getElementById('aviso-11');
+  if (conta('1:1') === 0) {
+    av.appendChild(h('strong', { text: 'Não existe relação 1 para 1 no banco hoje.' }));
+    av.appendChild(document.createTextNode(
+      'Para ser 1:1, a coluna de chave estrangeira teria de ser UNIQUE, e nenhuma é. Os "só um" que aparecem são regras da API, não do banco: um endereço principal e um contato principal por cliente, e a soma das participações dos sócios até 100%. Quando decidirem a PESSOA, é aqui que um 1:1 (por exemplo, uma pessoa para um usuário) apareceria, com UNIQUE na FK.'));
+  } else {
+    av.style.display = 'none';
+  }
+
+  // ---- tabela "o que se repete" ----
+  var rb = document.querySelector('#repete-tabela tbody');
+  M.repete.forEach(function (x) {
+    rb.appendChild(h('tr', {}, h('td', {}, h('b', { text: x.dado })), h('td', { text: x.onde }), h('td', { text: x.garante })));
+  });
+})();
+</script>
+</body>
+</html>

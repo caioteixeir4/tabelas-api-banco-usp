@@ -16,6 +16,7 @@ import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.util.UriComponentsBuilder;
 
 import br.com.kawashi.banco.compartilhado.Pagina;
+import br.com.kawashi.banco.compartilhado.Paginas;
 import jakarta.validation.Valid;
 
 @RestController
@@ -39,7 +40,7 @@ public class EnderecoController {
     @GetMapping
     public Pagina<EnderecoResponse> listar(@PathVariable Long clienteId,
             @PageableDefault(size = 20, sort = "id") Pageable paginacao) {
-        return Pagina.de(servico.listar(clienteId, paginacao), EnderecoResponse::de);
+        return Pagina.de(servico.listar(clienteId, Paginas.seguro(paginacao)), EnderecoResponse::de);
     }
 
     @GetMapping("/{id}")

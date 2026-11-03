@@ -6,6 +6,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.TypeMismatchException;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.dao.OptimisticLockingFailureException;
 import org.springframework.data.core.PropertyReferenceException;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
@@ -54,6 +55,22 @@ public class TratadorDeErros extends ResponseEntityExceptionHandler {
     @ExceptionHandler(RegraDeNegocioException.class)
     ProblemDetail regraDeNegocio(RegraDeNegocioException ex) {
         return problema(HttpStatus.UNPROCESSABLE_ENTITY, "Regra de negócio violada", ex.getMessage());
+    }
+
+    @ExceptionHandler(ParametroInvalidoException.class)
+    ProblemDetail requisicaoInvalida(ParametroInvalidoException ex) {
+        return problema(HttpStatus.BAD_REQUEST, "Parâmetro inválido", ex.getMessage());
+    }
+
+    /**
+     * Dois pedidos mexendo no mesmo registro ao mesmo tempo (por exemplo, o mesmo DELETE enviado
+     * duas vezes): o segundo nao encontra mais a linha. Nao e erro do servidor, e um conflito.
+     */
+    @ExceptionHandler(OptimisticLockingFailureException.class)
+    ProblemDetail alteradoPorOutroPedido(OptimisticLockingFailureException ex) {
+        LOG.info("Conflito de concorrencia: {}", ex.getMessage());
+        return problema(HttpStatus.CONFLICT, "Conflito",
+                "O registro foi alterado ou excluído por outro pedido. Consulte-o de novo e repita a operação.");
     }
 
     // ---- validacao de entrada ---------------------------------------------------

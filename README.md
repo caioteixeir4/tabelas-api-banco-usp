@@ -86,10 +86,30 @@ proxy) e chamam os endpoints por MockMvc. Cada teste roda numa transação que �
 então não sobra dado no banco e os testes não interferem entre si. Os documentos usados são
 CNPJ/CPF válidos e aleatórios (`GeradorDeDocumentos`), nunca reais.
 
+A suíte tem **291 testes** (última execução de `mvn test`, todos passando):
+
+| Grupo | Testes |
+|---|---|
+| Uma classe por recurso: `ClienteApiTest`, `ContatoApiTest`, `EmpresaApiTest`, `EnderecoApiTest`, `FilialApiTest`, `SocioApiTest` | 221 |
+| `DocumentosTest` (CNPJ, CPF, UF, sem banco) | 31 |
+| `LimitesDeTextoTest` (tamanho máximo em letras acentuadas, em cada campo) | 12 |
+| `EndurecimentoTest` (paginação, filtro, corpo grande, documento sujo, decisões de pai inativo) | 14 |
+| `EntradasDeBordaTest` | 8 |
+| `ConexaoProxyTest` (a conta de API entra no schema certo) e `TratadorDeErrosTest` | 3 + 2 |
+
 Como a transação do teste mantém a sessão aberta, ela esconde um tipo de erro de produção
-(`LazyInitializationException` fora da transação). Por isso a aplicação também foi exercitada por
-HTTP real, com o roteiro completo: criar cliente, empresa, filial, sócios, endereço e contato,
-violar as regras de propósito, e limpar tudo.
+(`LazyInitializationException` fora da transação). Por isso existe também um roteiro por **HTTP
+real**, [`scripts/smoke-http.ps1`](scripts/smoke-http.ps1): com a API no ar, cria cliente, empresa,
+filial, sócios, endereço e contato, viola as regras de propósito (50 verificações) e apaga tudo o
+que criou, conferindo que nada sobrou.
+
+```bash
+PORT=18080 mvn spring-boot:run          # em um terminal
+```
+
+```powershell
+.\scripts\smoke-http.ps1 -Base http://localhost:18080
+```
 
 ## Armadilhas encontradas pelo caminho
 

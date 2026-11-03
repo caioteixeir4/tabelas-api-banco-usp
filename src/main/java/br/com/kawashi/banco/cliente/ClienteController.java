@@ -17,6 +17,7 @@ import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.util.UriComponentsBuilder;
 
 import br.com.kawashi.banco.compartilhado.Pagina;
+import br.com.kawashi.banco.compartilhado.Paginas;
 import jakarta.validation.Valid;
 
 @RestController
@@ -42,7 +43,7 @@ public class ClienteController {
             @RequestParam(required = false) String razaoSocial,
             @RequestParam(required = false) Boolean ativo,
             @PageableDefault(size = 20, sort = "razaoSocial") Pageable paginacao) {
-        return Pagina.de(servico.listar(cnpj, razaoSocial, ativo, paginacao), ClienteResponse::de);
+        return Pagina.de(servico.listar(cnpj, razaoSocial, ativo, Paginas.seguro(paginacao)), ClienteResponse::de);
     }
 
     @GetMapping("/{id}")

@@ -51,6 +51,24 @@ class DocumentosTest {
         assertThat(Documentos.cpfValido(valor)).isFalse();
     }
 
+    @ParameterizedTest
+    @ValueSource(strings = {"abc11222333000181xyz", "11222333000181٣", "112223330001٨١", "11222333000181!"})
+    void cnpjComCaractereQueNaoEDigitoNemPontuacaoEhRecusado(String valor) {
+        assertThat(Documentos.cnpjValido(valor)).isFalse();
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"x52998224725y", "52998224725٣", "529.982.247-25!"})
+    void cpfComCaractereQueNaoEDigitoNemPontuacaoEhRecusado(String valor) {
+        assertThat(Documentos.cpfValido(valor)).isFalse();
+    }
+
+    @Test
+    void espacosENasPontasContinuamAceitosEmDocumentoValido() {
+        assertThat(Documentos.cnpjValido(" 11.222.333/0001-81 ")).isTrue();
+        assertThat(Documentos.cpfValido("  529.982.247-25  ")).isTrue();
+    }
+
     @Test
     void somenteDigitosRemovePontuacao() {
         assertThat(Documentos.somenteDigitos("12.345.678/0001-90")).isEqualTo("12345678000190");

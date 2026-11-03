@@ -1,5 +1,6 @@
 package br.com.kawashi.banco.endereco;
 
+import br.com.kawashi.banco.compartilhado.Textos;
 import br.com.kawashi.banco.compartilhado.Uf;
 
 import jakarta.validation.constraints.NotBlank;
@@ -9,7 +10,8 @@ import jakarta.validation.constraints.Size;
 /**
  * Corpo de criacao e de atualizacao de endereco. O CEP aceita "12345-678" ou "12345678" e e guardado
  * so com digitos; a UF aceita minuscula e e guardada em maiuscula. "principal" nulo vale falso (o
- * primeiro endereco do cliente, porem, e sempre o principal: regra do servico).
+ * primeiro endereco do cliente, porem, e sempre o principal: regra do servico). Os textos chegam
+ * aparados ANTES da validacao.
  */
 public record EnderecoRequest(
         @NotBlank(message = "O logradouro é obrigatório")
@@ -34,8 +36,19 @@ public record EnderecoRequest(
         String uf,
 
         @NotBlank(message = "O CEP é obrigatório")
+        @Size(max = 30, message = "O CEP aceita no máximo 30 caracteres")
         @Pattern(regexp = "\\d{5}-?\\d{3}", message = "CEP inválido (use 12345-678 ou 12345678)")
         String cep,
 
         Boolean principal) {
+
+    public EnderecoRequest {
+        logradouro = Textos.aparar(logradouro);
+        numero = Textos.aparar(numero);
+        complemento = Textos.aparar(complemento);
+        bairro = Textos.aparar(bairro);
+        cidade = Textos.aparar(cidade);
+        uf = Textos.aparar(uf);
+        cep = Textos.aparar(cep);
+    }
 }

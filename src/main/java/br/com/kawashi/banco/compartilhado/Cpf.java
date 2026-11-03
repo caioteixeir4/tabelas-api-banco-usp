@@ -33,7 +33,8 @@ public @interface Cpf {
     class Validador implements ConstraintValidator<Cpf, String> {
         @Override
         public boolean isValid(String valor, ConstraintValidatorContext contexto) {
-            return valor == null || valor.isBlank() || Documentos.cpfValido(valor);
+            // Mesma regra do Cnpj: so o "em branco comum" fica por conta do @NotBlank.
+            return valor == null || valor.trim().isEmpty() || Documentos.cpfValido(valor);
         }
     }
 }

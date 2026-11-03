@@ -1,5 +1,7 @@
 package br.com.kawashi.banco.empresa;
 
+import org.hibernate.annotations.DynamicUpdate;
+
 import br.com.kawashi.banco.cliente.Cliente;
 import br.com.kawashi.banco.compartilhado.AuditoriaBase;
 
@@ -15,7 +17,9 @@ import jakarta.persistence.Table;
  * penduram nela. Entidade e repositorio ficam na fundacao porque Filial e Socio dependem deles; o
  * servico, o controlador e os DTOs sao da fatia de Empresa.
  */
+// @DynamicUpdate: ver o motivo em Cliente (um PUT nao desfaz um "inativar" concorrente).
 @Entity
+@DynamicUpdate
 @Table(name = "EMPRESA")
 public class Empresa extends AuditoriaBase {
 

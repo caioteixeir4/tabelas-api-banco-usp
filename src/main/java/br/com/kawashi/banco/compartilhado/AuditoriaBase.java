@@ -2,6 +2,7 @@ package br.com.kawashi.banco.compartilhado;
 
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
+import java.time.temporal.ChronoUnit;
 
 import jakarta.persistence.Column;
 import jakarta.persistence.GeneratedValue;
@@ -32,14 +33,23 @@ public abstract class AuditoriaBase {
 
     @PrePersist
     void aoCriar() {
-        LocalDateTime agora = LocalDateTime.now(ZoneOffset.UTC);
+        LocalDateTime agora = agora();
         this.criadoEm = agora;
         this.atualizadoEm = agora;
     }
 
     @PreUpdate
     void aoAtualizar() {
-        this.atualizadoEm = LocalDateTime.now(ZoneOffset.UTC);
+        this.atualizadoEm = agora();
+    }
+
+    /**
+     * Na precisao da coluna (TIMESTAMP(6), microssegundos). Sem truncar, a resposta do POST
+     * devolvia o valor em memoria (ate 9 casas) e o GET seguinte, o valor arredondado pelo Oracle:
+     * a mesma data aparecia com dois textos diferentes.
+     */
+    private static LocalDateTime agora() {
+        return LocalDateTime.now(ZoneOffset.UTC).truncatedTo(ChronoUnit.MICROS);
     }
 
     public Long getId() {

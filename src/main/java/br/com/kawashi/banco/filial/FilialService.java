@@ -33,7 +33,9 @@ public class FilialService {
     }
 
     public Filial criar(Long empresaId, FilialRequest dados) {
-        Empresa empresa = buscarEmpresa(empresaId);
+        // Trava a linha da empresa ate o fim da transacao (mesmo motivo do EmpresaService.criar).
+        Empresa empresa = empresas.buscarTravando(empresaId)
+                .orElseThrow(() -> new RecursoNaoEncontradoException("Empresa", empresaId));
         if (!empresa.isAtiva()) {
             throw new RegraDeNegocioException("A empresa " + empresaId
                     + " está inativa e não pode receber novas filiais. Reative a empresa antes de cadastrar a filial.");

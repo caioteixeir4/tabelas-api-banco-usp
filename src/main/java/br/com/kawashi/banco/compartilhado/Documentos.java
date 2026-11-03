@@ -1,5 +1,7 @@
 package br.com.kawashi.banco.compartilhado;
 
+import java.util.regex.Pattern;
+
 /**
  * Regras de documentos brasileiros (CNPJ e CPF). Esta e a regra de negocio mais basica da API:
  * o banco so garante o formato (14 e 11 digitos), quem confere os digitos verificadores e a API.
@@ -9,7 +11,18 @@ public final class Documentos {
     private static final int[] PESOS_CNPJ_1 = {5, 4, 3, 2, 9, 8, 7, 6, 5, 4, 3, 2};
     private static final int[] PESOS_CNPJ_2 = {6, 5, 4, 3, 2, 9, 8, 7, 6, 5, 4, 3, 2};
 
+    /**
+     * O que um CNPJ ou CPF pode conter na ENTRADA: digitos ASCII e a pontuacao comum. Qualquer outra
+     * coisa (letras, emoji, algarismos de outros alfabetos) e recusada em vez de descartada em
+     * silencio por {@link #somenteDigitos}, que antes deixava "abc11222333000181xyz" virar um CNPJ.
+     */
+    private static final Pattern FORMATO_DE_DOCUMENTO = Pattern.compile("[0-9./\\-\\s]+");
+
     private Documentos() {
+    }
+
+    private static boolean formatoAceito(String valor) {
+        return valor != null && FORMATO_DE_DOCUMENTO.matcher(valor).matches();
     }
 
     /** Remove tudo que nao e digito ("12.345.678/0001-90" vira "12345678000190"). Nulo vira nulo. */
@@ -18,6 +31,9 @@ public final class Documentos {
     }
 
     public static boolean cnpjValido(String valor) {
+        if (!formatoAceito(valor)) {
+            return false;
+        }
         String d = somenteDigitos(valor);
         if (d == null || d.length() != 14 || todosIguais(d)) {
             return false;
@@ -27,6 +43,9 @@ public final class Documentos {
     }
 
     public static boolean cpfValido(String valor) {
+        if (!formatoAceito(valor)) {
+            return false;
+        }
         String d = somenteDigitos(valor);
         if (d == null || d.length() != 11 || todosIguais(d)) {
             return false;

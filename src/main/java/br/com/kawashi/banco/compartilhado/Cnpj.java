@@ -33,7 +33,10 @@ public @interface Cnpj {
     class Validador implements ConstraintValidator<Cnpj, String> {
         @Override
         public boolean isValid(String valor, ConstraintValidatorContext contexto) {
-            return valor == null || valor.isBlank() || Documentos.cnpjValido(valor);
+            // Nulo e "em branco comum" (o que o trim() remove) sao assunto do @NotBlank, que faz a mesma
+            // conta. Qualquer outro texto, inclusive espaco exotico como U+2003, precisa ser um CNPJ valido:
+            // com isBlank() aqui ele passava as duas anotacoes e virava string vazia depois de normalizado.
+            return valor == null || valor.trim().isEmpty() || Documentos.cnpjValido(valor);
         }
     }
 }

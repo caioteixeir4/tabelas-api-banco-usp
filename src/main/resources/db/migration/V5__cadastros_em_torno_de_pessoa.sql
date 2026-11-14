@@ -1,0 +1,132 @@
+-- V5: novo modelo de cadastros. Sai uma tabela por papel (CLIENTE, SOCIO...) e entra PESSOA, com o
+-- papel na coluna TIPO. CONTATO e ENDERECO viram tabelas auxiliares, de uma FILIAL ou de uma PESSOA.
+-- O desenho completo e o porque de cada decisao estao em docs/modelo-de-dados.md.
+--
+-- As tabelas de log (LOG_ALTERACAO, LOG_ACESSO) NAO sao criadas aqui: ficam no schema
+-- KAWASHI_ENV_<AMBIENTE>_LOG, criado pelo repositorio de regras, justamente para a API nao ser dona
+-- delas (quem e dono consegue apagar).
+
+-- Esta migracao troca tabelas, nao converte dados: o modelo antigo so existiu em desenvolvimento.
+-- Se alguma tabela antiga tiver linhas, para aqui em vez de apagar dado em silencio.
+DECLARE
+    v_linhas NUMBER;
+BEGIN
+    FOR t IN (SELECT table_name FROM user_tables
+               WHERE table_name IN ('SOCIO', 'FILIAL', 'EMPRESA', 'CONTATO', 'ENDERECO', 'CLIENTE')) LOOP
+        EXECUTE IMMEDIATE 'SELECT COUNT(*) FROM ' || t.table_name INTO v_linhas;
+        IF v_linhas > 0 THEN
+            RAISE_APPLICATION_ERROR(-20001, 'V5 recusada: a tabela ' || t.table_name || ' tem ' || v_linhas
+                || ' linha(s). Esta migracao nao converte dados do modelo antigo; exporte ou apague antes.');
+        END IF;
+    END LOOP;
+END;
+/
+
+DROP TABLE SOCIO;
+DROP TABLE FILIAL;
+DROP TABLE EMPRESA;
+DROP TABLE CONTATO;
+DROP TABLE ENDERECO;
+DROP TABLE CLIENTE;
+
+CREATE TABLE EMPRESA (
+    ID              NUMBER GENERATED ALWAYS AS IDENTITY,
+    CNPJ            VARCHAR2(14)        NOT NULL,
+    RAZAO_SOCIAL    VARCHAR2(200 CHAR)  NOT NULL,
+    NOME_FANTASIA   VARCHAR2(200 CHAR),
+    ATIVA           BOOLEAN             DEFAULT TRUE NOT NULL,
+    CRIADO_EM       TIMESTAMP(6)        DEFAULT SYSTIMESTAMP NOT NULL,
+    ATUALIZADO_EM   TIMESTAMP(6)        DEFAULT SYSTIMESTAMP NOT NULL,
+    CONSTRAINT PK_EMPRESA PRIMARY KEY (ID),
+    CONSTRAINT UK_EMPRESA_CNPJ UNIQUE (CNPJ),
+    CONSTRAINT CK_EMPRESA_CNPJ CHECK (REGEXP_LIKE(CNPJ, '^[0-9]{14}$'))
+);
+
+CREATE TABLE FILIAL (
+    ID              NUMBER GENERATED ALWAYS AS IDENTITY,
+    EMPRESA_ID      NUMBER              NOT NULL,
+    CNPJ            VARCHAR2(14)        NOT NULL,
+    NOME            VARCHAR2(150 CHAR)  NOT NULL,
+    ATIVA           BOOLEAN             DEFAULT TRUE NOT NULL,
+    CRIADO_EM       TIMESTAMP(6)        DEFAULT SYSTIMESTAMP NOT NULL,
+    ATUALIZADO_EM   TIMESTAMP(6)        DEFAULT SYSTIMESTAMP NOT NULL,
+    CONSTRAINT PK_FILIAL PRIMARY KEY (ID),
+    CONSTRAINT UK_FILIAL_CNPJ UNIQUE (CNPJ),
+    CONSTRAINT FK_FILIAL_EMPRESA FOREIGN KEY (EMPRESA_ID) REFERENCES EMPRESA (ID),
+    CONSTRAINT CK_FILIAL_CNPJ CHECK (REGEXP_LIKE(CNPJ, '^[0-9]{14}$'))
+);
+CREATE INDEX IX_FILIAL_EMPRESA ON FILIAL (EMPRESA_ID);
+
+-- Toda pessoa pertence a uma empresa. TIPO e o papel dela (um "enum": tipo novo e um valor novo
+-- no CHECK, nao uma tabela nova). NATUREZA diz se o DOCUMENTO e CPF ('F') ou CNPJ ('J'): cliente e
+-- fornecedor costumam ser empresas.
+CREATE TABLE PESSOA (
+    ID              NUMBER GENERATED ALWAYS AS IDENTITY,
+    EMPRESA_ID      NUMBER              NOT NULL,
+    TIPO            VARCHAR2(20)        NOT NULL,
+    NATUREZA        VARCHAR2(1)         NOT NULL,
+    DOCUMENTO       VARCHAR2(14)        NOT NULL,
+    NOME            VARCHAR2(200 CHAR)  NOT NULL,
+    PARTICIPACAO    NUMBER(5,2),
+    CARGO           VARCHAR2(100 CHAR),
+    ATIVA           BOOLEAN             DEFAULT TRUE NOT NULL,
+    CRIADO_EM       TIMESTAMP(6)        DEFAULT SYSTIMESTAMP NOT NULL,
+    ATUALIZADO_EM   TIMESTAMP(6)        DEFAULT SYSTIMESTAMP NOT NULL,
+    CONSTRAINT PK_PESSOA PRIMARY KEY (ID),
+    CONSTRAINT UK_PESSOA UNIQUE (EMPRESA_ID, DOCUMENTO, TIPO),
+    CONSTRAINT FK_PESSOA_EMPRESA FOREIGN KEY (EMPRESA_ID) REFERENCES EMPRESA (ID),
+    CONSTRAINT CK_PESSOA_TIPO CHECK (TIPO IN ('CLIENTE', 'COLABORADOR', 'SOCIO', 'FORNECEDOR')),
+    CONSTRAINT CK_PESSOA_NATUREZA CHECK (NATUREZA IN ('F', 'J')),
+    CONSTRAINT CK_PESSOA_DOCUMENTO CHECK ((NATUREZA = 'F' AND REGEXP_LIKE(DOCUMENTO, '^[0-9]{11}$'))
+                                       OR (NATUREZA = 'J' AND REGEXP_LIKE(DOCUMENTO, '^[0-9]{14}$'))),
+    CONSTRAINT CK_PESSOA_PARTICIPACAO CHECK (PARTICIPACAO IS NULL
+                                          OR (TIPO = 'SOCIO' AND PARTICIPACAO > 0 AND PARTICIPACAO <= 100)),
+    CONSTRAINT CK_PESSOA_CARGO CHECK (CARGO IS NULL OR TIPO = 'COLABORADOR')
+);
+
+-- Tabelas auxiliares: cada linha pertence a UMA filial ou a UMA pessoa, nunca aos dois nem a nenhum.
+-- Duas chaves estrangeiras de verdade (em vez de "tipo do dono + id") para o banco continuar
+-- garantindo que o dono existe.
+CREATE TABLE CONTATO (
+    ID              NUMBER GENERATED ALWAYS AS IDENTITY,
+    FILIAL_ID       NUMBER,
+    PESSOA_ID       NUMBER,
+    TIPO            VARCHAR2(20)        NOT NULL,
+    VALOR           VARCHAR2(150 CHAR)  NOT NULL,
+    PRINCIPAL       BOOLEAN             DEFAULT FALSE NOT NULL,
+    CRIADO_EM       TIMESTAMP(6)        DEFAULT SYSTIMESTAMP NOT NULL,
+    ATUALIZADO_EM   TIMESTAMP(6)        DEFAULT SYSTIMESTAMP NOT NULL,
+    CONSTRAINT PK_CONTATO PRIMARY KEY (ID),
+    CONSTRAINT FK_CONTATO_FILIAL FOREIGN KEY (FILIAL_ID) REFERENCES FILIAL (ID),
+    CONSTRAINT FK_CONTATO_PESSOA FOREIGN KEY (PESSOA_ID) REFERENCES PESSOA (ID),
+    CONSTRAINT CK_CONTATO_DONO CHECK ((FILIAL_ID IS NOT NULL AND PESSOA_ID IS NULL)
+                                   OR (FILIAL_ID IS NULL AND PESSOA_ID IS NOT NULL)),
+    CONSTRAINT CK_CONTATO_TIPO CHECK (TIPO IN ('EMAIL', 'TELEFONE'))
+);
+CREATE INDEX IX_CONTATO_FILIAL ON CONTATO (FILIAL_ID);
+CREATE INDEX IX_CONTATO_PESSOA ON CONTATO (PESSOA_ID);
+
+CREATE TABLE ENDERECO (
+    ID              NUMBER GENERATED ALWAYS AS IDENTITY,
+    FILIAL_ID       NUMBER,
+    PESSOA_ID       NUMBER,
+    LOGRADOURO      VARCHAR2(200 CHAR)  NOT NULL,
+    NUMERO          VARCHAR2(20 CHAR),
+    COMPLEMENTO     VARCHAR2(100 CHAR),
+    BAIRRO          VARCHAR2(100 CHAR),
+    CIDADE          VARCHAR2(100 CHAR)  NOT NULL,
+    UF              VARCHAR2(2)         NOT NULL,
+    CEP             VARCHAR2(8)         NOT NULL,
+    PRINCIPAL       BOOLEAN             DEFAULT FALSE NOT NULL,
+    CRIADO_EM       TIMESTAMP(6)        DEFAULT SYSTIMESTAMP NOT NULL,
+    ATUALIZADO_EM   TIMESTAMP(6)        DEFAULT SYSTIMESTAMP NOT NULL,
+    CONSTRAINT PK_ENDERECO PRIMARY KEY (ID),
+    CONSTRAINT FK_ENDERECO_FILIAL FOREIGN KEY (FILIAL_ID) REFERENCES FILIAL (ID),
+    CONSTRAINT FK_ENDERECO_PESSOA FOREIGN KEY (PESSOA_ID) REFERENCES PESSOA (ID),
+    CONSTRAINT CK_ENDERECO_DONO CHECK ((FILIAL_ID IS NOT NULL AND PESSOA_ID IS NULL)
+                                    OR (FILIAL_ID IS NULL AND PESSOA_ID IS NOT NULL)),
+    CONSTRAINT CK_ENDERECO_UF  CHECK (REGEXP_LIKE(UF, '^[A-Z]{2}$')),
+    CONSTRAINT CK_ENDERECO_CEP CHECK (REGEXP_LIKE(CEP, '^[0-9]{8}$'))
+);
+CREATE INDEX IX_ENDERECO_FILIAL ON ENDERECO (FILIAL_ID);
+CREATE INDEX IX_ENDERECO_PESSOA ON ENDERECO (PESSOA_ID);

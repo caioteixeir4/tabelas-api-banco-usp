@@ -14,9 +14,7 @@ public record FilialResponse(
     public static FilialResponse de(Filial filial) {
         return new FilialResponse(
                 filial.getId(),
-                // getId() de uma empresa carregada de forma preguicosa nao inicializa o proxy, entao
-                // funciona mesmo depois que a transacao do servico terminou (open-in-view esta desligado).
-                filial.getEmpresa().getId(),
+                filial.getEmpresaId(),
                 filial.getCnpj(),
                 filial.getNome(),
                 filial.isAtiva(),

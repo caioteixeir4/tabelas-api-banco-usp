@@ -1,38 +1,35 @@
 package br.com.kawashi.banco.contato;
 
-import br.com.kawashi.banco.cliente.Cliente;
+import br.com.kawashi.banco.auxiliar.Dono;
 import br.com.kawashi.banco.compartilhado.AuditoriaBase;
 
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
-import jakarta.persistence.FetchType;
-import jakarta.persistence.JoinColumn;
-import jakarta.persistence.ManyToOne;
+import jakarta.persistence.EnumType;
+import jakarta.persistence.Enumerated;
 import jakarta.persistence.Table;
 
 /**
- * Uma pessoa de contato de um cliente. Email e telefone sao opcionais individualmente, mas o servico
- * exige pelo menos um dos dois; o telefone e guardado so com digitos (10 ou 11).
+ * Um meio de contato (e-mail ou telefone) de uma filial ou de uma pessoa. Tabela auxiliar: o dono e
+ * guardado em FILIAL_ID ou PESSOA_ID (exatamente uma preenchida) e nunca muda.
  */
 @Entity
 @Table(name = "CONTATO")
 public class Contato extends AuditoriaBase {
 
-    /** O cliente dono do contato nunca muda: o contato nao "troca de cliente". */
-    @ManyToOne(fetch = FetchType.LAZY, optional = false)
-    @JoinColumn(name = "CLIENTE_ID", nullable = false, updatable = false)
-    private Cliente cliente;
+    @Column(name = "FILIAL_ID", updatable = false)
+    private Long filialId;
 
-    @Column(name = "NOME", nullable = false, length = 150)
-    private String nome;
+    @Column(name = "PESSOA_ID", updatable = false)
+    private Long pessoaId;
 
-    /** Sempre em minuscula. */
-    @Column(name = "EMAIL", length = 150)
-    private String email;
+    @Enumerated(EnumType.STRING)
+    @Column(name = "TIPO", nullable = false, length = 20, updatable = false)
+    private TipoDeContato tipo;
 
-    /** Somente digitos (DDD + numero). */
-    @Column(name = "TELEFONE", length = 11)
-    private String telefone;
+    /** E-mail em minuscula, ou telefone so com digitos (DDD + numero). */
+    @Column(name = "VALOR", nullable = false, length = 150)
+    private String valor;
 
     @Column(name = "PRINCIPAL", nullable = false)
     private boolean principal;
@@ -41,18 +38,16 @@ public class Contato extends AuditoriaBase {
         // exigido pelo JPA
     }
 
-    public Contato(Cliente cliente, String nome, String email, String telefone, boolean principal) {
-        this.cliente = cliente;
-        this.nome = nome;
-        this.email = email;
-        this.telefone = telefone;
+    public Contato(Dono dono, TipoDeContato tipo, String valor, boolean principal) {
+        this.filialId = dono.filialId();
+        this.pessoaId = dono.pessoaId();
+        this.tipo = tipo;
+        this.valor = valor;
         this.principal = principal;
     }
 
-    public void atualizar(String nome, String email, String telefone, boolean principal) {
-        this.nome = nome;
-        this.email = email;
-        this.telefone = telefone;
+    public void atualizar(String valor, boolean principal) {
+        this.valor = valor;
         this.principal = principal;
     }
 
@@ -60,25 +55,24 @@ public class Contato extends AuditoriaBase {
         this.principal = false;
     }
 
-    /**
-     * Nao existe um "getClienteId()" de proposito: o Spring Data trata qualquer getter como
-     * propriedade consultavel e "findByClienteId" passaria a procurar um atributo "clienteId" que o
-     * Hibernate nao conhece (o caminho certo e cliente.id).
-     */
-    public Cliente getCliente() {
-        return cliente;
+    public Dono dono() {
+        return Dono.de(filialId, pessoaId);
     }
 
-    public String getNome() {
-        return nome;
+    public Long getFilialId() {
+        return filialId;
     }
 
-    public String getEmail() {
-        return email;
+    public Long getPessoaId() {
+        return pessoaId;
     }
 
-    public String getTelefone() {
-        return telefone;
+    public TipoDeContato getTipo() {
+        return tipo;
+    }
+
+    public String getValor() {
+        return valor;
     }
 
     public boolean isPrincipal() {

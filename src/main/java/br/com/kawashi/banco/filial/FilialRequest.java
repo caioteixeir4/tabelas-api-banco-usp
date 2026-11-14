@@ -7,9 +7,9 @@ import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
 
 /**
- * Corpo de criacao e de atualizacao. O CNPJ aceita pontuacao ("12.345.678/0002-71") e e guardado so
- * com digitos. Na atualizacao ele precisa ser o mesmo do cadastro: so o nome muda. Os textos chegam
- * aparados ANTES da validacao.
+ * Corpo de criacao e de atualizacao. O CNPJ aceita pontuacao e e guardado so com digitos; precisa
+ * ter a mesma raiz da empresa e ordem diferente de 0001. Na atualizacao o CNPJ precisa ser o mesmo:
+ * so o nome muda.
  */
 public record FilialRequest(
         @NotBlank(message = "O CNPJ é obrigatório")

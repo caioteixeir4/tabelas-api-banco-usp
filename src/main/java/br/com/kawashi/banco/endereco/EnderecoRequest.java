@@ -10,7 +10,7 @@ import jakarta.validation.constraints.Size;
 /**
  * Corpo de criacao e de atualizacao de endereco. O CEP aceita "12345-678" ou "12345678" e e guardado
  * so com digitos; a UF aceita minuscula e e guardada em maiuscula. "principal" nulo vale falso (o
- * primeiro endereco do cliente, porem, e sempre o principal: regra do servico). Os textos chegam
+ * primeiro endereco do dono, porem, e sempre o principal: regra do servico). Os textos chegam
  * aparados ANTES da validacao.
  */
 public record EnderecoRequest(

@@ -1,16 +1,17 @@
 # API e regras de negócio
 
-Referência das 6 fatias da API: endpoints, regras e as decisões de interpretação tomadas. A
-estrutura das tabelas está nas migrações (`src/main/resources/db/migration`); aqui está o que a API
-faz por cima delas.
+Referência da API de cadastros: endpoints, regras e as decisões de interpretação tomadas. A
+estrutura das tabelas está na migração `V5` (`src/main/resources/db/migration`) e desenhada em
+[`diagrama-tabelas.html`](diagrama-tabelas.html); o porquê do modelo está em
+[`modelo-de-dados.md`](modelo-de-dados.md). Aqui está o que a API faz por cima das tabelas.
 
 ## Convenções
 
 - **Caminho base:** `/api`. JSON em UTF-8. Datas em ISO-8601, em UTC e sem fuso (`criadoEm`,
   `atualizadoEm`).
 - **Status:** `201` com header `Location` ao criar, `204` ao excluir, `400` para campo inválido,
-  `404` para registro que não existe, `409` para duplicidade ou registro com dependentes, `422`
-  para regra de negócio violada.
+  `404` para registro que não existe, `409` para duplicidade ou registro com dependentes, `413`
+  para corpo grande demais, `422` para regra de negócio violada.
 - **Erros** no formato RFC 9457 (`application/problem+json`). Validação de campos devolve a lista
   em `erros`:
 
@@ -19,101 +20,119 @@ faz por cima delas.
     "title": "Dados inválidos",
     "status": 400,
     "detail": "Um ou mais campos não passaram na validação.",
-    "erros": [{ "campo": "cnpj", "mensagem": "CNPJ inválido" }]
+    "erros": [{ "campo": "documento", "mensagem": "CPF inválido" }]
   }
   ```
 
 - **Paginação:** `?page=0&size=20&sort=campo,asc` (páginas começam em 0, `size` vai até 100).
   Resposta: `{ "itens": [...], "pagina": 0, "tamanho": 20, "total": 3, "totalPaginas": 1 }`.
-  Ordenar por campo que não existe devolve `400`, e `page` grande demais (o deslocamento não cabe
-  num inteiro) também, em vez de estourar em `500`. Toda listagem tem desempate por `id`, então a
-  ordem é estável mesmo quando o campo ordenado se repete (várias razões sociais iguais) e nenhuma
-  linha some ou aparece duas vezes entre páginas.
-- **`PUT` é substituição completa**: o corpo traz todos os campos editáveis. Campos opcionais
-  omitidos viram nulos, e `principal` omitido vale `false`.
-- **Normalização na entrada:** CNPJ, CPF, CEP e telefone aceitam pontuação e são gravados só com
-  dígitos; e-mail em minúscula; UF em maiúscula; textos aparados, e texto opcional em branco vira
-  nulo.
+  Ordenar por campo que não existe devolve `400`, e `page` grande demais também, em vez de `500`.
+  Toda listagem tem desempate por `id`, então a ordem é estável.
+- **`PUT` é substituição completa**: o corpo traz todos os campos editáveis. Opcionais omitidos
+  viram nulos, e `principal` omitido vale `false`.
+- **Normalização na entrada:** todo texto é aparado antes de validar; CNPJ, CPF, CEP e telefone
+  aceitam pontuação e são gravados só com dígitos; e-mail em minúscula; UF, tipo e natureza em
+  maiúscula; texto opcional em branco vira nulo.
 
 ## Endpoints
 
 | Recurso | Endpoints |
 |---|---|
-| Cliente | `POST /api/clientes`, `GET /api/clientes` (filtros `cnpj`, `razaoSocial`, `ativo`), `GET/PUT/DELETE /api/clientes/{id}`, `POST /api/clientes/{id}/inativar`, `POST /api/clientes/{id}/reativar` |
-| Endereço | `POST/GET /api/clientes/{clienteId}/enderecos`, `GET/PUT/DELETE /api/clientes/{clienteId}/enderecos/{id}` |
-| Contato | `POST/GET /api/clientes/{clienteId}/contatos`, `GET/PUT/DELETE /api/clientes/{clienteId}/contatos/{id}` |
-| Empresa | `POST/GET /api/clientes/{clienteId}/empresas`, `GET/PUT/DELETE /api/empresas/{id}`, `POST /api/empresas/{id}/inativar`, `POST /api/empresas/{id}/reativar` |
+| Empresa | `POST /api/empresas`, `GET /api/empresas` (filtros `cnpj`, `razaoSocial`, `ativa`), `GET/PUT/DELETE /api/empresas/{id}`, `POST /api/empresas/{id}/inativar`, `POST /api/empresas/{id}/reativar` |
 | Filial | `POST/GET /api/empresas/{empresaId}/filiais`, `GET/PUT/DELETE /api/filiais/{id}`, `POST /api/filiais/{id}/inativar`, `POST /api/filiais/{id}/reativar` |
-| Sócio | `POST/GET /api/empresas/{empresaId}/socios`, `GET/PUT/DELETE /api/socios/{id}` |
+| Pessoa | `POST/GET /api/empresas/{empresaId}/pessoas` (filtros `tipo`, `ativa`), `GET/PUT/DELETE /api/pessoas/{id}`, `POST /api/pessoas/{id}/inativar`, `POST /api/pessoas/{id}/reativar` |
+| Contato | `POST/GET /api/filiais/{filialId}/contatos`, `POST/GET /api/pessoas/{pessoaId}/contatos`, `GET/PUT/DELETE /api/contatos/{id}` |
+| Endereço | `POST/GET /api/filiais/{filialId}/enderecos`, `POST/GET /api/pessoas/{pessoaId}/enderecos`, `GET/PUT/DELETE /api/enderecos/{id}` |
 
-Criar e listar são aninhados no pai. Operar sobre um registro específico usa o caminho plano
-quando o pai não faz parte da identidade (empresa, filial e sócio). Endereço e contato ficam
-sempre sob o cliente, e um registro de outro cliente é tratado como inexistente (`404`).
+Criar e listar são aninhados no pai (a empresa, ou o dono do contato e do endereço). Operar sobre
+um registro específico usa o caminho plano, já que o id basta.
 
 ## Regras por tabela
 
-### Cliente
+### Empresa
 - CNPJ válido (dígitos verificadores), normalizado, único (`409`) e **imutável** (`422` se o `PUT`
   trouxer outro).
-- Razão social obrigatória. Nome fantasia opcional.
-- Excluir cliente que tem empresas, endereços ou contatos dá `409` dizendo quantos são. O caminho
-  correto nesse caso é inativar.
-
-### Endereço
-- O cliente precisa existir (`404`) e estar **ativo** para receber endereço novo (`422`).
-- UF existente (as 27) e CEP com 8 dígitos (aceita `12345-678`).
-- O **primeiro** endereço do cliente é sempre o principal, mesmo que o pedido diga `false`.
-- No máximo **um** principal por cliente: marcar um como principal rebaixa o outro, na mesma
-  transação.
-- Um cliente com endereços nunca fica sem principal: rebaixar o principal atual dá `422`
-  ("promova outro a principal antes"), e excluir o principal enquanto existirem outros também.
-  Excluir o único endereço é permitido.
-
-### Contato
-- Mesmas regras de principal e de cliente ativo do endereço.
-- Pelo menos um meio de contato: e-mail **ou** telefone (`422`, na criação e no `PUT`).
-- E-mail válido, gravado em minúscula. Telefone com 10 ou 11 dígitos (aceita
-  `(11) 98765-4321`).
-
-### Empresa
 - A empresa é sempre a **matriz**: o CNPJ precisa ter ordem `0001` (dígitos 9 a 12), senão `422`
   explicando que filiais se cadastram em `/api/empresas/{id}/filiais`.
-- CNPJ único (`409`) e imutável (`422`). Cliente ativo para criar (`422`).
-- Excluir empresa que tem filiais ou sócios dá `409` dizendo quantos são.
+- Excluir empresa que tem filiais ou pessoas dá `409` dizendo quantas são. O caminho é inativar.
 
 ### Filial
-- A empresa precisa estar **ativa** para receber filial (`422`).
-- A filial compartilha a **raiz** do CNPJ (8 primeiros dígitos) com a empresa (`422` se for
-  outra), e a ordem não pode ser `0001`, que é a matriz (`422`).
+- A empresa precisa existir (`404`) e estar **ativa** (`422`).
+- A filial compartilha a **raiz** do CNPJ (8 primeiros dígitos) com a empresa (`422` se for outra),
+  e a ordem não pode ser `0001`, que é a matriz (`422`).
 - CNPJ único (`409`) e imutável (`422`); só o nome muda.
+- Excluir filial que tem contatos ou endereços dá `409`.
 
-### Sócio
-- A empresa precisa estar **ativa** para receber sócio (`422`).
-- CPF válido, único **dentro da mesma empresa** (`409`; o mesmo CPF pode ser sócio de empresas
-  diferentes) e imutável (`422`).
-- Participação maior que 0 e até 100, com no máximo 2 casas decimais.
-- A **soma** das participações dos sócios de uma empresa não passa de 100% (`422`, a mensagem diz
-  quanto ainda está disponível). No `PUT` a soma desconta o próprio sócio.
+### Pessoa
+Toda pessoa pertence a uma empresa. O papel dela fica no campo `tipo`, e não em uma tabela por
+papel.
+
+- `tipo`: `CLIENTE`, `COLABORADOR`, `SOCIO` ou `FORNECEDOR` (`400` fora da lista).
+- `natureza`: `F` (pessoa física) ou `J` (jurídica). O `documento` precisa ser um CPF válido para
+  `F` e um CNPJ válido para `J`; o erro sai no campo `documento` (`400`).
+- A empresa precisa existir (`404`) e estar **ativa** (`422`).
+- O documento é único **por empresa e por tipo** (`409`). A mesma pessoa pode ter dois tipos na
+  mesma empresa, ou aparecer em duas empresas: são cadastros separados.
+- `tipo`, `natureza` e `documento` são **imutáveis** (`422`).
+- `participacao` (0,01 a 100, até 2 casas) é **obrigatória para sócio** e proibida nos demais
+  (`422`). A **soma** das participações dos sócios de uma empresa não passa de 100% (`422`, a
+  mensagem diz quanto ainda está disponível). No `PUT` a soma desconta o próprio sócio.
+- `cargo` é opcional e só existe para **colaborador** (`422` nos demais).
+- Excluir pessoa que tem contatos ou endereços dá `409`.
+
+### Contato e endereço (tabelas auxiliares)
+Servem a uma **filial** ou a uma **pessoa**. O dono vem do caminho e nunca muda; a resposta traz
+`filialId` ou `pessoaId`, exatamente um preenchido.
+
+- O dono precisa existir (`404`) e estar **ativo** para receber um novo (`422`).
+- **Contato:** `tipo` é `EMAIL` ou `TELEFONE`, e o `valor` precisa combinar: um e-mail, ou um
+  telefone com DDD de 10 ou 11 dígitos (aceita `(11) 98765-4321`). Erro no campo `valor` (`400`).
+  O tipo não muda (`422`). O mesmo valor não se repete no mesmo dono (`409`).
+- **Endereço:** UF existente (as 27) e CEP com 8 dígitos (aceita `12345-678`).
+- **Principal:** o **primeiro** endereço do dono é sempre o principal, mesmo que o pedido diga
+  `false`. Para contato a regra vale **por tipo**: um e-mail principal e um telefone principal.
+- No máximo **um** principal: marcar outro como principal rebaixa o anterior, na mesma transação.
+- Um dono com registros nunca fica sem principal: desmarcar o principal atual dá `422`, e excluí-lo
+  enquanto houver outros (do mesmo tipo, no contato) também. Excluir o único é permitido.
 
 ## Decisões de interpretação
 
-Pontos em que a especificação dava margem e a implementação escolheu a leitura literal. Todos
-estão cobertos por teste.
+Todas cobertas por teste.
 
-- **"Cliente/empresa ativo" vale só para criar.** Atualizar, inativar e excluir continuam
-  permitidos em registro cujo pai está inativo, porque a regra pedida restringe o cadastro novo.
-- **Principal e `PUT`.** Como `PUT` é substituição completa e `principal` omitido vale `false`,
-  editar o endereço ou contato **principal atual** exige mandar `principal: true`. Para trocar o
-  principal, marca-se outro registro como principal.
-- **Listar filhos de um pai que não existe** devolve `404`, não lista vazia. Listar filhos de um pai
-  inativo continua permitido.
-- **Inativar e reativar são idempotentes** (repetir devolve `200`).
+- **"Pai ativo" vale só para criar.** Atualizar e excluir continuam permitidos em registro cujo pai
+  (ou dono) está inativo; a regra restringe o cadastro novo.
+- **Principal e `PUT`.** Como `principal` omitido vale `false`, editar o registro **principal
+  atual** exige mandar `principal: true`. Para trocar o principal, marca-se outro.
+- **Listar filhos de um pai que não existe** devolve `404`, não lista vazia.
+- **Inativar e reativar são idempotentes** (repetir devolve `200` e não gera novo log).
 - **Ordem das verificações na criação:** campos (`400`), pai existe (`404`), pai ativo (`422`),
-  regras do próprio registro (`422`) e, por último, duplicidade (`409`). **Exceção, o sócio:** a
-  duplicidade do CPF (`409`) é verificada **antes** da soma das participações (`422`). Um sócio com
-  CPF repetido que também estouraria os 100% recebe `409`, que é a causa mais direta.
-- **Filtro por razão social** (`GET /api/clientes?razaoSocial=`) é "contém", sem diferenciar
-  maiúscula de minúscula, e trata `%` e `_` como texto comum: buscar `100%` não casa `1000`.
+  regras do próprio registro (`422`), duplicidade (`409`) e, para sócio, por último a soma das
+  participações (`422`). Um sócio repetido que também estouraria os 100% recebe `409`.
+- **Filtro por razão social** é "contém", sem diferenciar maiúscula de minúscula, e trata `%` e
+  `_` como texto comum.
+
+## Logs da aplicação
+
+Ficam em outro schema, `KAWASHI_ENV_<AMBIENTE>_LOG`, cujas tabelas são criadas pelo repositório de
+regras. A conta da API só tem `INSERT` e `SELECT` nele.
+
+- **`LOG_ALTERACAO`**: toda criação, alteração e exclusão de cadastro gera uma linha (tabela, id,
+  ação), gravada na **mesma transação** da mudança: mudança desfeita não deixa log, e não existe
+  mudança gravada sem log. Pedido recusado não gera linha.
+- **`LOG_ACESSO`**: cada chamada a `/api/**` (IP, método, caminho, status). Só o caminho entra,
+  nunca a query string nem o corpo.
+- **Encadeamento:** um gatilho do banco numera cada linha de `LOG_ALTERACAO` sem buraco, carimba a
+  hora do servidor e grava um hash que inclui o da linha anterior. A API não escolhe nenhum desses
+  valores. A view `V_LOG_ALTERACAO_QUEBRAS` devolve as linhas com problema (vazia = corrente
+  inteira).
+- Enquanto a API não tem login, o campo `USUARIO` do log é sempre `API`.
+
+O que a API tenta e não consegue (`LogDaAplicacaoTest`): alterar ou apagar linhas de log
+(`ORA-41900`, falta o privilégio) e enxergar a tabela de controle da corrente (`ORA-00942`).
+
+**Custo conhecido:** o gatilho trava a linha de controle até o fim da transação de quem insere,
+então as gravações de um mesmo ambiente são feitas uma de cada vez. Os serviços registram o log
+por último, para a trava durar o mínimo.
 
 ## Concorrência
 
@@ -124,77 +143,49 @@ fim da transação (`PESSIMISTIC_WRITE`, que no Oracle é `SELECT ... FOR UPDATE
 
 | Operação | Linha travada |
 |---|---|
-| criar, alterar e excluir endereço | cliente |
-| criar, alterar e excluir contato | cliente |
-| criar empresa | cliente |
 | criar filial | empresa |
-| criar e alterar sócio | empresa |
+| criar pessoa; alterar sócio | empresa |
+| criar, alterar e excluir contato ou endereço | o dono (filial ou pessoa) |
 
-Leituras não travam. A API **não usa coluna de versão** (`@Version`). Dois pedidos simultâneos sobre o
-mesmo registro (por exemplo o mesmo `DELETE` enviado duas vezes) se resolvem assim: o segundo não
-encontra mais a linha, o Hibernate acusa a falha de atualização e a API responde `409`, não `500`.
-Esse tratamento está coberto por teste de unidade do handler (`TratadorDeErrosTest`); a corrida real
-entre duas threads **não** é testada, por depender de timing.
+Leituras não travam. As travas são testadas com concorrência de verdade em `ServidorRealTest`: o
+servidor sobe numa porta real e 12 pedidos chegam ao mesmo tempo. Doze sócios de 30% na mesma
+empresa resultam em exatamente três gravados (90%) e nove recusados com `422`; doze endereços (ou
+contatos) "principais" no mesmo dono deixam um único principal; e doze gravações simultâneas
+deixam doze linhas de log em sequência, com a corrente inteira. Tirando as travas de propósito, os
+três primeiros testes falham.
 
-`Cliente`, `Empresa` e `Filial` usam `@DynamicUpdate`: o `UPDATE` grava só as colunas que mudaram.
-Sem isso, um `PUT` que muda a razão social regravava também `ATIVO` com o valor lido antes e
-desfazia um "inativar" que tivesse acontecido no meio.
+A API **não usa coluna de versão** (`@Version`). Dois pedidos simultâneos sobre o mesmo registro
+(por exemplo o mesmo `DELETE` enviado duas vezes) se resolvem assim: o segundo não encontra mais a
+linha e a API responde `409`, não `500` (`TratadorDeErrosTest`).
 
-## Limites de texto: bytes ou caracteres
+`Empresa`, `Filial` e `Pessoa` usam `@DynamicUpdate`: o `UPDATE` grava só as colunas que mudaram.
+Sem isso, um `PUT` que muda o nome regravava também `ATIVA` com o valor lido antes e desfazia um
+"inativar" que tivesse acontecido no meio.
 
-No Oracle, `VARCHAR2(200)` sem a palavra `CHAR` mede o limite em **bytes**, e este banco usa
-`AL32UTF8`: letra acentuada ocupa 2 bytes. Uma razão social de 150 letras "ã" tem 300 bytes e
-estouraria uma coluna de 200 bytes (`ORA-12899`) mesmo passando em `@Size(max = 200)`, que conta
-caracteres. A migração `V4` muda as colunas de texto livre para `CHAR` (`VARCHAR2(200 CHAR)`), e um
-teste (`LimitesDeTextoTest`) envia o tamanho máximo em letras acentuadas para cada campo, em todas
-as fatias, e exige que um caractere a mais seja recusado com `400`. As colunas só de dígitos e a
-sigla da UF (ASCII) não precisam. A `V4` foi escrita depois de o teste **falhar** com
-`ORA-12899 (real: 400, máximo: 200)` em seis tabelas.
+## Entradas de borda tratadas
 
-## Entradas de borda já tratadas
-
-Casos que passavam pela validação e só falhavam no banco (ou viravam `500`). Foram achados por uma
-revisão independente do código, e cada um tem teste em `EntradasDeBordaTest`.
-
-- **Espaço Unicode no lugar de CNPJ, CPF ou UF** (por exemplo U+2003). O `@NotBlank` usa `trim()`,
-  que não remove esse espaço, e os validadores aceitavam "em branco" como válido, então o valor
-  passava, virava texto vazio ao normalizar e estourava no banco. Agora só o "em branco comum" é
-  assunto do `@NotBlank`; qualquer outro texto precisa ser um documento ou UF válido (`400`).
-- **Participação com zeros à direita.** `"participacao": 33.330` ou `100.000` chegava com 3 casas e o
-  `@Digits` recusava. O `SocioRequest` tira os zeros à direita antes de validar, então `33.330`
-  vale `33.33`, e `0.001` continua sendo recusado de verdade.
-- **E-mail que cresce ao virar minúsculo.** Em alguns alfabetos a minúscula tem mais caracteres (o
-  "İ" turco vira dois). O `ContatoRequest` normaliza o e-mail **antes** de validar o `@Size`.
-- **Conversão de maiúscula e minúscula** sempre com `Locale.ROOT`, para o resultado não depender do
-  idioma da máquina.
-
-## Endurecimento (segunda revisão independente)
-
-Uma segunda revisão, feita por agentes separados do código e sem rodar nada, achou 19 problemas
-reais (outros 7 apontados foram refutados por teste ou leitura). Os corrigidos têm teste em
-`EndurecimentoTest` e em `DocumentosTest`. Três delas (paginação, `%`/`_` no filtro e formato de
-documento) foram conferidas **quebrando a correção de propósito** e vendo os testes falharem
-(11 falhas); as demais passam, mas esse teste de "o teste pega a falha" não foi feito para elas.
-
-- **Texto é aparado antes de validar.** Todo texto dos pedidos passa por `strip()` no construtor do
-  `Request`, antes do `@NotBlank` e do `@Size`. Por isso `razaoSocial` com 200 letras e um espaço no
-  fim é aceita (vira 200), e `razaoSocial` só com espaço Unicode (U+2003) é recusada.
-- **Documento só com dígitos e pontuação.** CNPJ e CPF aceitam apenas `0-9 . / - espaço`. Antes,
-  `abc11222333000181xyz` passava, porque a validação descartava tudo que não era dígito.
-- **Carimbos de tempo em microssegundos.** `criadoEm` e `atualizadoEm` são truncados para a precisão
-  da coluna (`TIMESTAMP(6)`), então o `POST` devolve o mesmo valor que o `GET` seguinte.
-- **Limite de corpo.** Requisição que declara mais de 64 KiB (`app.limite-corpo-bytes`) recebe `413`
-  sem o corpo ser lido.
-- **Criar filho não corre contra a inativação do pai** (ver a tabela em Concorrência).
+- **Texto aparado antes de validar** (`strip()`, que remove também espaços Unicode como U+2003): um
+  campo só de espaços é recusado, e 200 letras mais um espaço no fim cabem em 200.
+- **Limites em caracteres, não em bytes.** As colunas de texto livre são `VARCHAR2(n CHAR)`: 200
+  letras acentuadas cabem numa coluna de 200. Testado com o tamanho máximo em letras acentuadas.
+- **Documento só com dígitos e pontuação.** `abc11222333000181xyz` é recusado em vez de ter as
+  letras descartadas.
+- **Participação com zeros à direita:** `33.330` vale `33.33`; `0.001` é recusado.
+- **Maiúscula e minúscula** sempre com `Locale.ROOT`, e o e-mail é normalizado antes de conferir o
+  tamanho.
+- **Carimbos de tempo em microssegundos**, a precisão da coluna: o `POST` devolve o mesmo valor que
+  o `GET` seguinte.
+- **Limite de corpo:** mais de 64 KiB (`app.limite-corpo-bytes`) recebe `413`. Vale para o corpo que
+  declara o tamanho (recusado sem ser lido) e para o que não declara (transferência fragmentada,
+  contado durante a leitura).
 
 ## Limitações conhecidas
 
-Aceitas de propósito e documentadas para não parecerem esquecimento:
-
-- **`@Size` conta unidades UTF-16**, não pontos de código. Um emoji vale 2, então um campo de 200
-  caracteres aceita 100 emojis. É o lado seguro: a coluna (`CHAR`) comporta o dobro.
-- **Limite de corpo só vale com `Content-Length`.** Corpo em transferência fragmentada (*chunked*) não
-  declara tamanho; o teto efetivo é o do leitor de JSON. O limite completo é papel do proxy reverso
-  na frente da API.
+- **`@Size` conta unidades UTF-16**, não pontos de código: um emoji vale 2. É o lado seguro.
 - **Não há autenticação nem autorização na API ainda.** Qualquer cliente que alcance a porta lê e
-  grava tudo. É o próximo passo do projeto (microsserviço de autenticação e schema `LOGIN`).
+  grava tudo. São as próximas duas etapas, já desenhadas em
+  [`modelo-de-dados.md`](modelo-de-dados.md).
+- **O log de alteração não guarda o valor antigo nem o novo**, só que o registro mudou. Guardar os
+  valores levaria dado pessoal (CPF, nome) para o log.
+- **Os testes que gravam de verdade deixam linhas de log** no ambiente de teste, porque a API não
+  tem como apagá-las.

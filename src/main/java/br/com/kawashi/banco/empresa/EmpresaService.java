@@ -1,50 +1,48 @@
 package br.com.kawashi.banco.empresa;
 
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Locale;
+
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.jpa.domain.Specification;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import br.com.kawashi.banco.cliente.Cliente;
-import br.com.kawashi.banco.cliente.ClienteRepository;
 import br.com.kawashi.banco.compartilhado.Documentos;
 import br.com.kawashi.banco.compartilhado.Textos;
 import br.com.kawashi.banco.compartilhado.erros.ConflitoException;
 import br.com.kawashi.banco.compartilhado.erros.RecursoNaoEncontradoException;
 import br.com.kawashi.banco.compartilhado.erros.RegraDeNegocioException;
+import br.com.kawashi.banco.log.RegistroDeAlteracoes;
 
 /**
- * Regras de negocio de Empresa. O banco garante formato, tamanho, unicidade e chaves; o que e REGRA
- * mora aqui: o cliente existe e esta ativo, a empresa e sempre a matriz (ordem 0001), o CNPJ nao
- * muda, e empresa com filiais ou socios nao e apagada.
+ * Regras de negocio de Empresa. O banco garante formato, tamanho e unicidade; o que e REGRA mora
+ * aqui: CNPJ valido, a empresa e sempre a matriz (ordem 0001), o CNPJ nao muda, e empresa com
+ * filiais ou pessoas nao e apagada.
  */
 @Service
 @Transactional
 public class EmpresaService {
 
+    static final String TABELA = "EMPRESA";
+
     /** Ordem do CNPJ (digitos 9 a 12) que identifica a matriz. */
     private static final String ORDEM_MATRIZ = "0001";
 
     private final EmpresaRepository repositorio;
-    private final ClienteRepository clientes;
     private final JdbcTemplate jdbc;
+    private final RegistroDeAlteracoes log;
 
-    public EmpresaService(EmpresaRepository repositorio, ClienteRepository clientes, JdbcTemplate jdbc) {
+    public EmpresaService(EmpresaRepository repositorio, JdbcTemplate jdbc, RegistroDeAlteracoes log) {
         this.repositorio = repositorio;
-        this.clientes = clientes;
         this.jdbc = jdbc;
+        this.log = log;
     }
 
-    public Empresa criar(Long clienteId, EmpresaRequest dados) {
-        // Trava a linha do cliente ate o fim da transacao: sem isso, "inativar" concorrente comitava
-        // entre a leitura de "ativo" e o INSERT, e a empresa nascia num cliente ja inativo.
-        Cliente cliente = clientes.buscarTravando(clienteId)
-                .orElseThrow(() -> new RecursoNaoEncontradoException("Cliente", clienteId));
-        if (!cliente.isAtivo()) {
-            throw new RegraDeNegocioException("O cliente " + clienteId
-                    + " está inativo: só é possível cadastrar empresa para cliente ativo. Reative o cliente primeiro.");
-        }
+    public Empresa criar(EmpresaRequest dados) {
         String cnpj = Documentos.somenteDigitos(dados.cnpj());
         if (!ORDEM_MATRIZ.equals(Documentos.ordemCnpj(cnpj))) {
             throw new RegraDeNegocioException("A empresa é sempre a matriz, então o CNPJ precisa ter a ordem "
@@ -54,7 +52,9 @@ public class EmpresaService {
         if (repositorio.existsByCnpj(cnpj)) {
             throw new ConflitoException("Já existe uma empresa com o CNPJ " + cnpj + ".");
         }
-        return repositorio.save(new Empresa(cliente, cnpj, Textos.aparar(dados.razaoSocial()), Textos.limpar(dados.nomeFantasia())));
+        Empresa criada = repositorio.save(new Empresa(cnpj, dados.razaoSocial(), Textos.limpar(dados.nomeFantasia())));
+        log.criou(TABELA, criada.getId());
+        return criada;
     }
 
     @Transactional(readOnly = true)
@@ -62,11 +62,23 @@ public class EmpresaService {
         return repositorio.findById(id).orElseThrow(() -> new RecursoNaoEncontradoException("Empresa", id));
     }
 
-    /** Empresas de um cliente. Cliente que nao existe e 404 (e nao uma lista vazia). */
     @Transactional(readOnly = true)
-    public Page<Empresa> listar(Long clienteId, Pageable paginacao) {
-        buscarCliente(clienteId);
-        return repositorio.findByClienteId(clienteId, paginacao);
+    public Page<Empresa> listar(String cnpj, String razaoSocial, Boolean ativa, Pageable paginacao) {
+        List<Specification<Empresa>> filtros = new ArrayList<>();
+        if (cnpj != null && !cnpj.isBlank()) {
+            String digitos = Documentos.somenteDigitos(cnpj);
+            filtros.add((raiz, consulta, cb) -> cb.equal(raiz.get("cnpj"), digitos));
+        }
+        if (razaoSocial != null && !razaoSocial.isBlank()) {
+            // % e _ digitados pelo usuario sao texto, nao curinga: escapados, senao "?razaoSocial=%"
+            // devolvia todas as empresas e "_" casava qualquer razao social.
+            String trecho = "%" + Textos.escaparCuringas(Textos.aparar(razaoSocial).toLowerCase(Locale.ROOT)) + "%";
+            filtros.add((raiz, consulta, cb) -> cb.like(cb.lower(raiz.get("razaoSocial")), trecho, '\\'));
+        }
+        if (ativa != null) {
+            filtros.add((raiz, consulta, cb) -> cb.equal(raiz.get("ativa"), ativa));
+        }
+        return repositorio.findAll(Specification.allOf(filtros), paginacao);
     }
 
     public Empresa atualizar(Long id, EmpresaRequest dados) {
@@ -74,44 +86,46 @@ public class EmpresaService {
         if (!empresa.getCnpj().equals(Documentos.somenteDigitos(dados.cnpj()))) {
             throw new RegraDeNegocioException("O CNPJ de uma empresa não pode ser alterado depois do cadastro.");
         }
-        empresa.atualizar(Textos.aparar(dados.razaoSocial()), Textos.limpar(dados.nomeFantasia()));
+        empresa.atualizar(dados.razaoSocial(), Textos.limpar(dados.nomeFantasia()));
+        log.alterou(TABELA, id, "dados cadastrais");
         return empresa;
     }
 
-    /** Apenas troca a situacao: nao ha cascata para filiais nem socios. */
+    /** Apenas troca a situacao: nao ha cascata para filiais nem pessoas. */
     public Empresa inativar(Long id) {
         Empresa empresa = buscar(id);
-        empresa.inativar();
+        if (empresa.isAtiva()) {
+            empresa.inativar();
+            log.alterou(TABELA, id, "inativada");
+        }
         return empresa;
     }
 
     public Empresa reativar(Long id) {
         Empresa empresa = buscar(id);
-        empresa.reativar();
+        if (!empresa.isAtiva()) {
+            empresa.reativar();
+            log.alterou(TABELA, id, "reativada");
+        }
         return empresa;
     }
 
     /**
-     * Apaga uma empresa SEM vinculos. Com filiais ou socios a resposta e um 409 dizendo quantos sao,
-     * e o caminho correto e inativar. A checagem e por SQL direto para esta fatia nao depender das
-     * outras: o banco ainda barraria pela chave estrangeira.
+     * Apaga uma empresa SEM vinculos. Com filiais ou pessoas a resposta e um 409 dizendo quantos
+     * sao, e o caminho correto e inativar. A checagem e por SQL direto para esta fatia nao depender
+     * das outras: o banco ainda barraria pela chave estrangeira.
      */
     public void excluir(Long id) {
         Empresa empresa = buscar(id);
         long filiais = contar("FILIAL", id);
-        long socios = contar("SOCIO", id);
-        if (filiais + socios > 0) {
-            throw new ConflitoException("A empresa possui vínculos (" + filiais + " filial(is), " + socios
-                    + " sócio(s)) e não pode ser excluída. Inative-a em vez de excluir.");
+        long pessoas = contar("PESSOA", id);
+        if (filiais + pessoas > 0) {
+            throw new ConflitoException("A empresa possui vínculos (" + filiais + " filial(is), " + pessoas
+                    + " pessoa(s)) e não pode ser excluída. Inative-a em vez de excluir.");
         }
         repositorio.delete(empresa);
-        // Grava ja: quem consulta por SQL direto na mesma transacao (como a exclusao de Cliente,
-        // que conta as empresas) precisa enxergar a empresa como apagada.
         repositorio.flush();
-    }
-
-    private Cliente buscarCliente(Long clienteId) {
-        return clientes.findById(clienteId).orElseThrow(() -> new RecursoNaoEncontradoException("Cliente", clienteId));
+        log.apagou(TABELA, id);
     }
 
     private long contar(String tabela, Long empresaId) {
@@ -119,5 +133,4 @@ public class EmpresaService {
         Long total = jdbc.queryForObject("SELECT COUNT(*) FROM " + tabela + " WHERE EMPRESA_ID = ?", Long.class, empresaId);
         return total == null ? 0 : total;
     }
-
 }

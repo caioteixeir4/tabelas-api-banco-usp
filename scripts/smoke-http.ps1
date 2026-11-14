@@ -5,9 +5,9 @@
 .DESCRIPTION
   Os testes de integracao rodam dentro de uma transacao que e desfeita, e isso esconde erros que so
   aparecem em producao (como LazyInitializationException fora da transacao). Este roteiro chama a
-  API de verdade: cria cliente, endereco, contato, empresa, filial e socios, viola as regras de
-  proposito e confere o status de cada resposta. No fim apaga TUDO que criou (todo cliente criado
-  tem a marca da rodada na razao social) e confere que nada sobrou.
+  API de verdade: cria empresa, filial, pessoas de cada tipo, contatos e enderecos, viola as
+  regras de proposito e confere o status de cada resposta. No fim apaga os cadastros que criou (toda
+  empresa criada tem a marca da rodada na razao social) e confere que nada sobrou.
 
   A API precisa estar no ar (mvn spring-boot:run). Sai com codigo 1 se alguma verificacao falhar.
 
@@ -75,150 +75,120 @@ function NovoCpf {
 function Corpo($o) { $o | ConvertTo-Json -Compress }
 
 $aTil = [string][char]0xE3
-$saoPaulo = "S$aTil" + 'o Paulo'
 $marca = 'SMOKE' + (Get-Random -Maximum 1000000)
 Write-Host "marca desta rodada: $marca"
+$endereco = @{ logradouro = 'Rua das Flores'; cidade = "S$aTil" + 'o Paulo'; uf = 'sp'; cep = '01001-000' }
 
 try {
     Write-Host '== saude'
     $r = Chamar GET '/actuator/health'
     Confere 'health UP' ($r.Status -eq 200 -and $r.Json.status -eq 'UP')
 
-    Write-Host '== cliente'
+    Write-Host '== empresa e filial'
     $raiz = NovaRaiz
     $cnpjMatriz = NovoCnpj $raiz '0001'
-    $formatado = '{0}.{1}.{2}/{3}-{4}' -f $cnpjMatriz.Substring(0,2), $cnpjMatriz.Substring(2,3), $cnpjMatriz.Substring(5,3), $cnpjMatriz.Substring(8,4), $cnpjMatriz.Substring(12,2)
-    $r = Chamar POST '/api/clientes' (Corpo @{ cnpj = $formatado; razaoSocial = "  $marca Ltda  " })
-    Confere 'POST cliente 201' ($r.Status -eq 201) "status=$($r.Status) $($r.Texto)"
-    $cli = $r.Json
-    Confere 'CNPJ gravado so com digitos' ($cli.cnpj -eq $cnpjMatriz)
-    Confere 'razaoSocial aparada' ($cli.razaoSocial -eq "$marca Ltda")
-    Confere 'Location aponta para o cliente' ($r.Location -like "*/api/clientes/$($cli.id)")
-    $c = Chamar GET "/api/clientes/$($cli.id)"
-    Confere 'GET cliente 200' ($c.Status -eq 200)
-    Confere 'criadoEm do GET igual ao do POST' ($c.Json.criadoEm -eq $cli.criadoEm) "post=$($cli.criadoEm) get=$($c.Json.criadoEm)"
-    Confere 'atualizadoEm do GET igual ao do POST' ($c.Json.atualizadoEm -eq $cli.atualizadoEm)
-
-    $r = Chamar POST '/api/clientes' (Corpo @{ cnpj = $cnpjMatriz; razaoSocial = "$marca outro" })
-    Confere 'CNPJ duplicado 409' ($r.Status -eq 409)
-    $r = Chamar POST '/api/clientes' (Corpo @{ cnpj = ('abc' + (NovoCnpj (NovaRaiz) '0001') + 'xyz'); razaoSocial = "$marca lixo" })
-    Confere 'CNPJ com letras 400' ($r.Status -eq 400 -and $r.Tipo -like 'application/problem+json*')
-    $r = Chamar POST '/api/clientes' (Corpo @{ cnpj = (NovoCnpj (NovaRaiz) '0001'); razaoSocial = ($marca + ($aTil * (200 - $marca.Length))) })
-    Confere '200 caracteres acentuados cabem (V4)' ($r.Status -eq 201) "status=$($r.Status) $($r.Texto)"
-    $r = Chamar POST '/api/clientes' (Corpo @{ cnpj = (NovoCnpj (NovaRaiz) '0001'); razaoSocial = ($marca + ($aTil * (201 - $marca.Length))) })
-    Confere '201 caracteres 400' ($r.Status -eq 400)
-
-    Write-Host '== endereco'
-    $end = "/api/clientes/$($cli.id)/enderecos"
-    $r = Chamar POST $end (Corpo @{ logradouro = 'Rua das Flores'; cidade = $saoPaulo; uf = 'sp'; cep = '01001-000'; principal = $false })
-    Confere 'POST endereco 201' ($r.Status -eq 201) "status=$($r.Status) $($r.Texto)"
-    Confere 'primeiro endereco vira principal' ($r.Json.principal -eq $true)
-    Confere 'UF em maiuscula e CEP so digitos' ($r.Json.uf -eq 'SP' -and $r.Json.cep -eq '01001000')
-    $e1 = $r.Json.id
-    $r = Chamar POST $end (Corpo @{ logradouro = 'Av Paulista'; cidade = $saoPaulo; uf = 'SP'; cep = '01310100'; principal = $true })
-    Confere 'segundo endereco principal 201' ($r.Status -eq 201)
-    $r = Chamar GET $end
-    $principais = @($r.Json.itens | Where-Object { $_.principal }).Count
-    Confere 'dois enderecos, um so principal' ($r.Json.total -eq 2 -and $principais -eq 1)
-    $r = Chamar POST $end (Corpo @{ logradouro = 'X'; cidade = 'Y'; uf = 'XX'; cep = '01001000' })
-    Confere 'UF inexistente 400' ($r.Status -eq 400)
-
-    Write-Host '== contato'
-    $cont = "/api/clientes/$($cli.id)/contatos"
-    $r = Chamar POST $cont (Corpo @{ nome = 'Fulano'; email = 'FULANO@Exemplo.com.br' })
-    Confere 'POST contato 201' ($r.Status -eq 201) "status=$($r.Status) $($r.Texto)"
-    Confere 'e-mail em minuscula' ($r.Json.email -eq 'fulano@exemplo.com.br')
-    $r = Chamar POST $cont (Corpo @{ nome = 'Sem meio' })
-    Confere 'contato sem e-mail nem telefone 422' ($r.Status -eq 422)
-
-    Write-Host '== empresa e filial'
-    $emp = "/api/clientes/$($cli.id)/empresas"
-    $r = Chamar POST $emp (Corpo @{ cnpj = $cnpjMatriz; razaoSocial = "$marca Matriz" })
+    $r = Chamar POST '/api/empresas' (Corpo @{ cnpj = $cnpjMatriz; razaoSocial = "  $marca Ltda  " })
     Confere 'POST empresa 201' ($r.Status -eq 201) "status=$($r.Status) $($r.Texto)"
-    $empId = $r.Json.id
-    $r = Chamar POST $emp (Corpo @{ cnpj = (NovoCnpj $raiz '0002'); razaoSocial = "$marca Filial como empresa" })
+    $emp = $r.Json
+    Confere 'razaoSocial aparada e Location da empresa' ($emp.razaoSocial -eq "$marca Ltda" -and $r.Location -like "*/api/empresas/$($emp.id)")
+    $c = Chamar GET "/api/empresas/$($emp.id)"
+    Confere 'criadoEm do GET igual ao do POST' ($c.Status -eq 200 -and $c.Json.criadoEm -eq $emp.criadoEm)
+    $r = Chamar POST '/api/empresas' (Corpo @{ cnpj = $cnpjMatriz; razaoSocial = "$marca outra" })
+    Confere 'CNPJ duplicado 409' ($r.Status -eq 409)
+    $r = Chamar POST '/api/empresas' (Corpo @{ cnpj = (NovoCnpj (NovaRaiz) '0002'); razaoSocial = "$marca filial" })
     Confere 'empresa que nao e matriz 422' ($r.Status -eq 422)
-    $r = Chamar POST $emp (Corpo @{ cnpj = $cnpjMatriz; razaoSocial = "$marca Dup" })
-    Confere 'empresa CNPJ duplicado 409' ($r.Status -eq 409)
-    $fil = "/api/empresas/$empId/filiais"
-    $r = Chamar POST $fil (Corpo @{ cnpj = (NovoCnpj $raiz '0002'); nome = 'Filial Centro' })
+    $r = Chamar POST '/api/empresas' (Corpo @{ cnpj = (NovoCnpj (NovaRaiz) '0001'); razaoSocial = ($marca + ($aTil * (200 - $marca.Length))) })
+    Confere '200 caracteres acentuados cabem' ($r.Status -eq 201) "status=$($r.Status)"
+    $r = Chamar POST "/api/empresas/$($emp.id)/filiais" (Corpo @{ cnpj = (NovoCnpj $raiz '0002'); nome = 'Filial Centro' })
     Confere 'POST filial 201' ($r.Status -eq 201) "status=$($r.Status) $($r.Texto)"
-    $r = Chamar POST $fil (Corpo @{ cnpj = (NovoCnpj (NovaRaiz) '0002'); nome = 'Raiz diferente' })
+    $filialId = $r.Json.id
+    $r = Chamar POST "/api/empresas/$($emp.id)/filiais" (Corpo @{ cnpj = (NovoCnpj (NovaRaiz) '0002'); nome = 'Raiz diferente' })
     Confere 'filial com raiz diferente 422' ($r.Status -eq 422)
-    $r = Chamar POST $fil (Corpo @{ cnpj = $cnpjMatriz; nome = 'Ordem da matriz' })
-    Confere 'filial com ordem 0001 422' ($r.Status -eq 422)
 
-    Write-Host '== socios'
-    $soc = "/api/empresas/$empId/socios"
-    $cpfA = NovoCpf
-    $r = Chamar POST $soc (Corpo @{ nome = 'Primeiro'; cpf = $cpfA; participacao = 60 })
-    Confere 'POST socio 60% 201' ($r.Status -eq 201) "status=$($r.Status) $($r.Texto)"
-    $r = Chamar POST $soc (Corpo @{ nome = 'Estoura'; cpf = (NovoCpf); participacao = 50 })
-    Confere 'soma acima de 100% 422' ($r.Status -eq 422)
-    $r = Chamar POST $soc (Corpo @{ nome = 'Repetido'; cpf = $cpfA; participacao = 50 })
-    Confere 'CPF repetido (e soma estourada) responde 409' ($r.Status -eq 409)
-    $r = Chamar POST $soc (Corpo @{ nome = 'Segundo'; cpf = (NovoCpf); participacao = 40 })
-    Confere 'socio 40% completa 100% e passa' ($r.Status -eq 201)
-    $r = Chamar GET $soc
-    Confere 'dois socios listados' ($r.Json.total -eq 2)
+    Write-Host '== pessoa (o tipo e a separacao)'
+    $pes = "/api/empresas/$($emp.id)/pessoas"
+    $cpfCliente = NovoCpf
+    $r = Chamar POST $pes (Corpo @{ tipo = 'cliente'; natureza = 'f'; documento = $cpfCliente; nome = 'Cliente Um' })
+    Confere 'POST pessoa CLIENTE 201 (tipo e natureza normalizados)' ($r.Status -eq 201 -and $r.Json.tipo -eq 'CLIENTE' -and $r.Json.natureza -eq 'F') "status=$($r.Status) $($r.Texto)"
+    $clienteId = $r.Json.id
+    $r = Chamar POST $pes (Corpo @{ tipo = 'FORNECEDOR'; natureza = 'J'; documento = (NovoCnpj (NovaRaiz) '0001'); nome = 'Fornecedor Ltda' })
+    Confere 'fornecedor pessoa juridica 201' ($r.Status -eq 201)
+    $r = Chamar POST $pes (Corpo @{ tipo = 'COLABORADOR'; natureza = 'F'; documento = $cpfCliente; nome = 'Cliente Um'; cargo = 'Analista' })
+    Confere 'mesmo CPF com outro tipo e outra linha (201)' ($r.Status -eq 201)
+    $r = Chamar POST $pes (Corpo @{ tipo = 'CLIENTE'; natureza = 'F'; documento = $cpfCliente; nome = 'Repetido' })
+    Confere 'mesmo CPF e mesmo tipo 409' ($r.Status -eq 409)
+    $r = Chamar POST $pes (Corpo @{ tipo = 'CLIENTE'; natureza = 'F'; documento = (NovoCnpj (NovaRaiz) '0001'); nome = 'Doc errado' })
+    Confere 'CNPJ com natureza F 400 no campo documento' ($r.Status -eq 400 -and $r.Json.erros[0].campo -eq 'documento')
+    $r = Chamar POST $pes (Corpo @{ tipo = 'SOCIO'; natureza = 'F'; documento = (NovoCpf); nome = 'Socio A'; participacao = 60 })
+    Confere 'socio 60% 201' ($r.Status -eq 201)
+    $r = Chamar POST $pes (Corpo @{ tipo = 'SOCIO'; natureza = 'F'; documento = (NovoCpf); nome = 'Estoura'; participacao = 50 })
+    Confere 'soma dos socios acima de 100% 422' ($r.Status -eq 422)
+    $r = Chamar POST $pes (Corpo @{ tipo = 'SOCIO'; natureza = 'F'; documento = (NovoCpf); nome = 'Sem participacao' })
+    Confere 'socio sem participacao 422' ($r.Status -eq 422)
+    $r = Chamar POST $pes (Corpo @{ tipo = 'CLIENTE'; natureza = 'F'; documento = (NovoCpf); nome = 'Com cargo'; cargo = 'Chefe' })
+    Confere 'cargo em quem nao e colaborador 422' ($r.Status -eq 422)
+    $r = Chamar GET "$pes`?tipo=SOCIO"
+    Confere 'filtro por tipo devolve so os socios' ($r.Status -eq 200 -and $r.Json.total -eq 1)
 
-    Write-Host '== listagens'
-    $r = Chamar GET "/api/clientes?razaoSocial=$marca&size=100"
-    Confere 'filtro por razao social acha os 2 clientes da rodada' ($r.Status -eq 200 -and $r.Json.total -eq 2) "total=$($r.Json.total)"
-    $r = Chamar GET '/api/clientes?page=2147483647'
-    Confere 'page gigante 400 (nao 500)' ($r.Status -eq 400) "status=$($r.Status)"
-    $r = Chamar GET '/api/clientes?sort=naoExiste,asc'
-    Confere 'sort por campo inexistente 400' ($r.Status -eq 400) "status=$($r.Status)"
-    $r = Chamar GET '/api/clientes?size=1000'
-    Confere 'size acima do maximo e limitado a 100' ($r.Status -eq 200 -and $r.Json.tamanho -eq 100)
-    $r = Chamar GET "/api/clientes?razaoSocial=$([uri]::EscapeDataString('%'))&size=1"
-    Confere 'filtro "%" nao vira curinga (so acha razao social com % literal)' ($r.Status -eq 200 -and $r.Json.total -eq 0) "total=$($r.Json.total)"
-    $r = Chamar GET '/api/clientes/999999999'
-    Confere 'cliente inexistente 404' ($r.Status -eq 404 -and $r.Tipo -like 'application/problem+json*')
-    foreach ($caminho in @("/api/empresas/$empId", "/api/empresas/$empId/filiais", "/api/clientes/$($cli.id)/empresas", "/api/clientes/$($cli.id)/contatos")) {
-        $r = Chamar GET $caminho
-        Confere "GET $caminho 200 (sem LazyInitialization)" ($r.Status -eq 200) "status=$($r.Status)"
+    Write-Host '== contato e endereco (de filial e de pessoa)'
+    foreach ($dono in @("/api/filiais/$filialId", "/api/pessoas/$clienteId")) {
+        $r = Chamar POST "$dono/contatos" (Corpo @{ tipo = 'EMAIL'; valor = 'FULANO@Exemplo.com.br' })
+        Confere "$dono contato e-mail 201, minusculo e principal" ($r.Status -eq 201 -and $r.Json.valor -eq 'fulano@exemplo.com.br' -and $r.Json.principal -eq $true) "status=$($r.Status) $($r.Texto)"
+        $r = Chamar POST "$dono/contatos" (Corpo @{ tipo = 'TELEFONE'; valor = '(11) 98765-4321' })
+        Confere "$dono contato telefone 201, so digitos" ($r.Status -eq 201 -and $r.Json.valor -eq '11987654321')
+        $r = Chamar POST "$dono/contatos" (Corpo @{ tipo = 'EMAIL'; valor = 'sem-arroba' })
+        Confere "$dono e-mail invalido 400" ($r.Status -eq 400)
+        $r = Chamar POST "$dono/enderecos" (Corpo $endereco)
+        Confere "$dono endereco 201, UF maiuscula, CEP so digitos, principal" ($r.Status -eq 201 -and $r.Json.uf -eq 'SP' -and $r.Json.cep -eq '01001000' -and $r.Json.principal -eq $true) "status=$($r.Status) $($r.Texto)"
+        $r = Chamar GET "$dono/contatos"
+        Confere "$dono lista 2 contatos" ($r.Status -eq 200 -and $r.Json.total -eq 2)
     }
 
-    Write-Host '== limites e conflitos'
-    $r = Chamar POST '/api/clientes' -bytes (New-Object byte[] 70000)
-    Confere 'corpo de 70000 bytes 413 problem+json' ($r.Status -eq 413 -and $r.Tipo -like 'application/problem+json*') "status=$($r.Status)"
-    $r = Chamar DELETE "/api/empresas/$empId"
-    Confere 'excluir empresa com filiais e socios 409' ($r.Status -eq 409)
-    $r = Chamar DELETE "/api/clientes/$($cli.id)"
-    Confere 'excluir cliente com dependentes 409' ($r.Status -eq 409)
-    $r = Chamar POST "/api/clientes/$($cli.id)/inativar"
-    Confere 'inativar cliente 200' ($r.Status -eq 200 -and $r.Json.ativo -eq $false)
-    $r = Chamar POST $end (Corpo @{ logradouro = 'Nova'; cidade = 'SP'; uf = 'SP'; cep = '01001000' })
-    Confere 'endereco novo em cliente inativo 422' ($r.Status -eq 422)
-    $r = Chamar PUT "/api/clientes/$($cli.id)" (Corpo @{ cnpj = $cnpjMatriz; razaoSocial = "$marca Renomeado" })
-    Confere 'PUT em cliente inativo e permitido e nao reativa' ($r.Status -eq 200 -and $r.Json.ativo -eq $false)
-    $r = Chamar POST "/api/clientes/$($cli.id)/reativar"
-    Confere 'reativar cliente 200' ($r.Status -eq 200 -and $r.Json.ativo -eq $true)
+    Write-Host '== limites, conflitos e erros'
+    $r = Chamar GET '/api/empresas?page=2147483647'
+    Confere 'page gigante 400 (nao 500)' ($r.Status -eq 400)
+    $r = Chamar GET '/api/empresas?sort=naoExiste,asc'
+    Confere 'sort por campo inexistente 400' ($r.Status -eq 400)
+    $r = Chamar GET "/api/empresas?razaoSocial=$([uri]::EscapeDataString('%'))&size=1"
+    Confere 'filtro "%" nao vira curinga' ($r.Status -eq 200 -and $r.Json.total -eq 0)
+    $r = Chamar POST '/api/empresas' -bytes (New-Object byte[] 70000)
+    Confere 'corpo de 70000 bytes 413 problem+json' ($r.Status -eq 413 -and $r.Tipo -like 'application/problem+json*')
+    $r = Chamar GET '/api/pessoas/999999999'
+    Confere 'pessoa inexistente 404 problem+json' ($r.Status -eq 404 -and $r.Tipo -like 'application/problem+json*')
+    $r = Chamar DELETE "/api/pessoas/$clienteId"
+    Confere 'excluir pessoa com contato e endereco 409' ($r.Status -eq 409)
+    $r = Chamar DELETE "/api/empresas/$($emp.id)"
+    Confere 'excluir empresa com filial e pessoas 409' ($r.Status -eq 409)
+    $r = Chamar POST "/api/empresas/$($emp.id)/inativar"
+    Confere 'inativar empresa 200' ($r.Status -eq 200 -and $r.Json.ativa -eq $false)
+    $r = Chamar POST $pes (Corpo @{ tipo = 'CLIENTE'; natureza = 'F'; documento = (NovoCpf); nome = 'Tarde demais' })
+    Confere 'pessoa nova em empresa inativa 422' ($r.Status -eq 422)
 }
 finally {
     Write-Host '== limpeza (tudo que tem a marca da rodada)'
-    $apagados = 0
-    $lista = Chamar GET "/api/clientes?razaoSocial=$marca&size=100"
-    foreach ($cl in @($lista.Json.itens)) {
-        $empresas = Chamar GET "/api/clientes/$($cl.id)/empresas?size=100"
-        foreach ($em in @($empresas.Json.itens)) {
-            foreach ($s in @((Chamar GET "/api/empresas/$($em.id)/socios?size=100").Json.itens)) { [void](Chamar DELETE "/api/socios/$($s.id)") }
-            foreach ($f in @((Chamar GET "/api/empresas/$($em.id)/filiais?size=100").Json.itens)) { [void](Chamar DELETE "/api/filiais/$($f.id)") }
-            [void](Chamar DELETE "/api/empresas/$($em.id)")
+    $apagadas = 0
+    $lista = Chamar GET "/api/empresas?razaoSocial=$marca&size=100"
+    foreach ($e in @($lista.Json.itens)) {
+        $donos = @()
+        foreach ($f in @((Chamar GET "/api/empresas/$($e.id)/filiais?size=100").Json.itens)) { $donos += [pscustomobject]@{ base = "/api/filiais/$($f.id)" } }
+        foreach ($p in @((Chamar GET "/api/empresas/$($e.id)/pessoas?size=100").Json.itens)) { $donos += [pscustomobject]@{ base = "/api/pessoas/$($p.id)" } }
+        foreach ($d in $donos) {
+            foreach ($tipo in @('contatos', 'enderecos')) {
+                $itens = @((Chamar GET "$($d.base)/$tipo`?size=100").Json.itens)
+                # o principal so sai por ultimo: primeiro os demais
+                foreach ($i in ($itens | Where-Object { -not $_.principal })) { [void](Chamar DELETE "/api/$tipo/$($i.id)") }
+                foreach ($i in ($itens | Where-Object { $_.principal })) { [void](Chamar DELETE "/api/$tipo/$($i.id)") }
+            }
+            [void](Chamar DELETE $d.base)
         }
-        foreach ($tipo in @('enderecos', 'contatos')) {
-            $itens = @((Chamar GET "/api/clientes/$($cl.id)/$tipo`?size=100").Json.itens)
-            foreach ($i in ($itens | Where-Object { -not $_.principal })) { [void](Chamar DELETE "/api/clientes/$($cl.id)/$tipo/$($i.id)") }
-            foreach ($i in ($itens | Where-Object { $_.principal })) { [void](Chamar DELETE "/api/clientes/$($cl.id)/$tipo/$($i.id)") }
-        }
-        $d = Chamar DELETE "/api/clientes/$($cl.id)"
-        if ($d.Status -eq 204) { $apagados++ }
+        $x = Chamar DELETE "/api/empresas/$($e.id)"
+        if ($x.Status -eq 204) { $apagadas++ }
     }
-    $resto = Chamar GET "/api/clientes?razaoSocial=$marca&size=100"
-    Confere "limpeza: $apagados cliente(s) apagado(s), nada sobrou com a marca" ($resto.Json.total -eq 0) "sobraram=$($resto.Json.total)"
+    $resto = Chamar GET "/api/empresas?razaoSocial=$marca&size=100"
+    Confere "limpeza: $apagadas empresa(s) apagada(s), nada sobrou com a marca" ($resto.Json.total -eq 0) "sobraram=$($resto.Json.total)"
 }
 
 Write-Host ''
 Write-Host "RESULTADO: $($script:ok) ok, $($script:falhas.Count) falha(s)"
+Write-Host '(as linhas de LOG desta rodada ficam no banco: a API nao tem como apaga-las, e esse e o proposito)'
 if ($script:falhas.Count -gt 0) { $script:falhas | ForEach-Object { Write-Host "  - $_" }; exit 1 }

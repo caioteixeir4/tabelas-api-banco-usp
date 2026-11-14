@@ -1,132 +1,131 @@
 package br.com.kawashi.banco.contato;
 
-import java.util.Locale;
-
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import br.com.kawashi.banco.cliente.Cliente;
-import br.com.kawashi.banco.cliente.ClienteRepository;
+import br.com.kawashi.banco.auxiliar.Dono;
+import br.com.kawashi.banco.auxiliar.Donos;
 import br.com.kawashi.banco.compartilhado.Documentos;
+import br.com.kawashi.banco.compartilhado.erros.ConflitoException;
 import br.com.kawashi.banco.compartilhado.erros.RecursoNaoEncontradoException;
 import br.com.kawashi.banco.compartilhado.erros.RegraDeNegocioException;
+import br.com.kawashi.banco.log.RegistroDeAlteracoes;
 
 /**
- * Regras de negocio de Contato. O banco garante tipo, tamanho e formato do telefone; o que e REGRA
- * mora aqui: o contato sempre pertence a um cliente existente (e e procurado DENTRO dele), so se cria
- * contato para cliente ativo, todo contato tem email ou telefone, o primeiro contato e o principal,
- * existe um unico principal por cliente e o principal nao some enquanto houver outros contatos.
+ * Regras de negocio de Contato (tabela auxiliar de filial e de pessoa). O banco garante tipo,
+ * tamanho e que o dono existe; o que e REGRA mora aqui: so dono ativo recebe contato novo, o valor
+ * combina com o tipo, o mesmo valor nao se repete no mesmo dono, o primeiro contato de cada tipo e o
+ * principal, e ha um unico principal por dono e por tipo (um e-mail principal, um telefone principal).
  */
 @Service
 @Transactional
 public class ContatoService {
 
+    static final String TABELA = "CONTATO";
+
     private final ContatoRepository repositorio;
-    private final ClienteRepository clientes;
+    private final Donos donos;
+    private final RegistroDeAlteracoes log;
 
-    public ContatoService(ContatoRepository repositorio, ClienteRepository clientes) {
+    public ContatoService(ContatoRepository repositorio, Donos donos, RegistroDeAlteracoes log) {
         this.repositorio = repositorio;
-        this.clientes = clientes;
+        this.donos = donos;
+        this.log = log;
     }
 
-    public Contato criar(Long clienteId, ContatoRequest dados) {
-        Cliente cliente = clienteParaAlterar(clienteId);
-        if (!cliente.isAtivo()) {
-            throw new RegraDeNegocioException(
-                    "Não é possível cadastrar contato para um cliente inativo. Reative o cliente antes.");
+    public Contato criar(Dono dono, ContatoRequest dados) {
+        donos.travarAtivo(dono, "contato");
+        TipoDeContato tipo = TipoDeContato.valueOf(dados.tipo());
+        String valor = normalizar(tipo, dados.valor());
+        if (repositorio.count(doDono(dono, tipo).and(comValor(valor))) > 0) {
+            throw new ConflitoException("Este contato já está cadastrado para " + dono.descricao() + ".");
         }
-        String email = normalizarEmail(dados.email());
-        String telefone = normalizarTelefone(dados.telefone());
-        exigirMeioDeContato(email, telefone);
-
-        boolean primeiroContato = repositorio.countByClienteId(clienteId) == 0;
-        boolean principal = primeiroContato || Boolean.TRUE.equals(dados.principal());
+        // O primeiro contato de cada tipo e sempre o principal, mesmo que o pedido diga o contrario.
+        boolean principal = repositorio.count(doDono(dono, tipo)) == 0 || Boolean.TRUE.equals(dados.principal());
         if (principal) {
-            rebaixarOutrosPrincipais(clienteId, null);
+            rebaixarPrincipais(dono, tipo, null);
         }
-        return repositorio.save(new Contato(cliente, dados.nome().trim(), email, telefone, principal));
+        Contato criado = repositorio.save(new Contato(dono, tipo, valor, principal));
+        log.criou(TABELA, criado.getId());
+        return criado;
     }
 
     @Transactional(readOnly = true)
-    public Contato buscar(Long clienteId, Long id) {
-        clienteExistente(clienteId);
-        return contatoDoCliente(clienteId, id);
+    public Contato buscar(Long id) {
+        return repositorio.findById(id).orElseThrow(() -> new RecursoNaoEncontradoException("Contato", id));
     }
 
     @Transactional(readOnly = true)
-    public Page<Contato> listar(Long clienteId, Pageable paginacao) {
-        clienteExistente(clienteId);
-        return repositorio.findByClienteId(clienteId, paginacao);
+    public Page<Contato> listar(Dono dono, Pageable paginacao) {
+        donos.exigirQueExiste(dono);
+        return repositorio.findAll(dono.<Contato>filtro(), paginacao);
     }
 
-    public Contato atualizar(Long clienteId, Long id, ContatoRequest dados) {
-        clienteParaAlterar(clienteId);
-        Contato contato = contatoDoCliente(clienteId, id);
-        String email = normalizarEmail(dados.email());
-        String telefone = normalizarTelefone(dados.telefone());
-        exigirMeioDeContato(email, telefone);
-
+    public Contato atualizar(Long id, ContatoRequest dados) {
+        Contato contato = buscar(id);
+        Dono dono = contato.dono();
+        donos.travar(dono);
+        TipoDeContato tipo = contato.getTipo();
+        if (!tipo.name().equals(dados.tipo())) {
+            throw new RegraDeNegocioException("O tipo de um contato não pode ser alterado. Cadastre outro contato com o novo tipo.");
+        }
+        String valor = normalizar(tipo, dados.valor());
+        if (repositorio.count(doDono(dono, tipo).and(comValor(valor)).and(excetoId(id))) > 0) {
+            throw new ConflitoException("Este contato já está cadastrado para " + dono.descricao() + ".");
+        }
         boolean principal = Boolean.TRUE.equals(dados.principal());
-        if (contato.isPrincipal() && !principal
-                && !repositorio.existsByClienteIdAndPrincipalTrueAndIdNot(clienteId, id)) {
-            throw new RegraDeNegocioException("O cliente precisa ter um contato principal. Para trocar o principal, "
-                    + "marque outro contato como principal em vez de desmarcar este.");
+        if (contato.isPrincipal() && !principal) {
+            // Como ha sempre um unico principal, se este deixar de ser, o dono ficaria sem nenhum.
+            throw new RegraDeNegocioException("O contato principal não pode deixar de ser principal sem que outro assuma: "
+                    + "marque outro contato do mesmo tipo como principal.");
         }
-        if (principal) {
-            rebaixarOutrosPrincipais(clienteId, id);
+        if (principal && !contato.isPrincipal()) {
+            rebaixarPrincipais(dono, tipo, id);
         }
-        contato.atualizar(dados.nome().trim(), email, telefone, principal);
+        contato.atualizar(valor, principal);
+        log.alterou(TABELA, id, "dados do contato");
         return contato;
     }
 
-    public void excluir(Long clienteId, Long id) {
-        clienteParaAlterar(clienteId);
-        Contato contato = contatoDoCliente(clienteId, id);
-        if (contato.isPrincipal() && repositorio.countByClienteId(clienteId) > 1) {
-            throw new RegraDeNegocioException("O contato principal não pode ser excluído enquanto o cliente tiver "
-                    + "outros contatos. Marque outro contato como principal antes de excluir este.");
+    /** O principal so sai quando e o unico do tipo; havendo outros, antes e preciso promover um deles. */
+    public void excluir(Long id) {
+        Contato contato = buscar(id);
+        Dono dono = contato.dono();
+        donos.travar(dono);
+        if (contato.isPrincipal() && repositorio.count(doDono(dono, contato.getTipo())) > 1) {
+            throw new RegraDeNegocioException("O contato principal não pode ser excluído enquanto houver outros do mesmo tipo: "
+                    + "marque outro como principal antes.");
         }
         repositorio.delete(contato);
+        repositorio.flush();
+        log.apagou(TABELA, id);
     }
 
-    /** Leitura: o cliente do caminho precisa existir. */
-    private Cliente clienteExistente(Long clienteId) {
-        return clientes.findById(clienteId).orElseThrow(() -> new RecursoNaoEncontradoException("Cliente", clienteId));
-    }
-
-    /** Escrita: igual a leitura, mas trava a linha do cliente para serializar as alteracoes dos contatos dele. */
-    private Cliente clienteParaAlterar(Long clienteId) {
-        return repositorio.buscarClienteTravando(clienteId)
-                .orElseThrow(() -> new RecursoNaoEncontradoException("Cliente", clienteId));
-    }
-
-    /** Contato de outro cliente e tratado como inexistente. */
-    private Contato contatoDoCliente(Long clienteId, Long id) {
-        return repositorio.findByIdAndClienteId(id, clienteId)
-                .orElseThrow(() -> new RecursoNaoEncontradoException("Contato", id));
-    }
-
-    private static void exigirMeioDeContato(String email, String telefone) {
-        if (email == null && telefone == null) {
-            throw new RegraDeNegocioException(
-                    "O contato precisa de pelo menos um meio de contato: informe o e-mail ou o telefone.");
+    private void rebaixarPrincipais(Dono dono, TipoDeContato tipo, Long excetoId) {
+        Specification<Contato> principais = doDono(dono, tipo).and((raiz, consulta, cb) -> cb.isTrue(raiz.get("principal")));
+        for (Contato atual : repositorio.findAll(principais)) {
+            if (!atual.getId().equals(excetoId)) {
+                atual.rebaixar();
+            }
         }
     }
 
-    /** Garante um unico principal: quem esta sendo gravado como principal rebaixa os demais. */
-    private void rebaixarOutrosPrincipais(Long clienteId, Long idMantido) {
-        repositorio.findByClienteIdAndPrincipalTrue(clienteId).stream()
-                .filter(outro -> !outro.getId().equals(idMantido))
-                .forEach(Contato::rebaixar);
+    private static String normalizar(TipoDeContato tipo, String valor) {
+        return tipo == TipoDeContato.TELEFONE ? Documentos.somenteDigitos(valor) : valor;
     }
 
-    private static String normalizarEmail(String email) {
-        return email == null || email.isBlank() ? null : email.trim().toLowerCase(Locale.ROOT);
+    private static Specification<Contato> doDono(Dono dono, TipoDeContato tipo) {
+        return dono.<Contato>filtro().and((raiz, consulta, cb) -> cb.equal(raiz.get("tipo"), tipo));
     }
 
-    private static String normalizarTelefone(String telefone) {
-        return telefone == null || telefone.isBlank() ? null : Documentos.somenteDigitos(telefone);
+    private static Specification<Contato> comValor(String valor) {
+        return (raiz, consulta, cb) -> cb.equal(raiz.get("valor"), valor);
+    }
+
+    private static Specification<Contato> excetoId(Long id) {
+        return (raiz, consulta, cb) -> cb.notEqual(raiz.get("id"), id);
     }
 }

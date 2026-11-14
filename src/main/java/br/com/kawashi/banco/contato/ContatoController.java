@@ -15,12 +15,17 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.util.UriComponentsBuilder;
 
+import br.com.kawashi.banco.auxiliar.Dono;
 import br.com.kawashi.banco.compartilhado.Pagina;
 import br.com.kawashi.banco.compartilhado.Paginas;
 import jakarta.validation.Valid;
 
+/**
+ * Criar e listar sao aninhados no dono (uma filial ou uma pessoa); operar sobre um contato
+ * especifico usa o caminho plano /api/contatos/{id}.
+ */
 @RestController
-@RequestMapping("/api/clientes/{clienteId}/contatos")
+@RequestMapping("/api")
 public class ContatoController {
 
     private final ContatoService servico;
@@ -29,34 +34,48 @@ public class ContatoController {
         this.servico = servico;
     }
 
-    @PostMapping
-    public ResponseEntity<ContatoResponse> criar(@PathVariable Long clienteId,
+    @PostMapping("/filiais/{filialId}/contatos")
+    public ResponseEntity<ContatoResponse> criarNaFilial(@PathVariable Long filialId,
             @Valid @RequestBody ContatoRequest dados, UriComponentsBuilder uri) {
-        Contato criado = servico.criar(clienteId, dados);
-        URI local = uri.path("/api/clientes/{clienteId}/contatos/{id}").buildAndExpand(clienteId, criado.getId()).toUri();
-        return ResponseEntity.created(local).body(ContatoResponse.de(criado));
+        return criado(servico.criar(Dono.filial(filialId), dados), uri);
     }
 
-    @GetMapping
-    public Pagina<ContatoResponse> listar(@PathVariable Long clienteId,
+    @PostMapping("/pessoas/{pessoaId}/contatos")
+    public ResponseEntity<ContatoResponse> criarNaPessoa(@PathVariable Long pessoaId,
+            @Valid @RequestBody ContatoRequest dados, UriComponentsBuilder uri) {
+        return criado(servico.criar(Dono.pessoa(pessoaId), dados), uri);
+    }
+
+    @GetMapping("/filiais/{filialId}/contatos")
+    public Pagina<ContatoResponse> listarDaFilial(@PathVariable Long filialId,
             @PageableDefault(size = 20, sort = "id") Pageable paginacao) {
-        return Pagina.de(servico.listar(clienteId, Paginas.seguro(paginacao)), ContatoResponse::de);
+        return Pagina.de(servico.listar(Dono.filial(filialId), Paginas.seguro(paginacao)), ContatoResponse::de);
     }
 
-    @GetMapping("/{id}")
-    public ContatoResponse buscar(@PathVariable Long clienteId, @PathVariable Long id) {
-        return ContatoResponse.de(servico.buscar(clienteId, id));
+    @GetMapping("/pessoas/{pessoaId}/contatos")
+    public Pagina<ContatoResponse> listarDaPessoa(@PathVariable Long pessoaId,
+            @PageableDefault(size = 20, sort = "id") Pageable paginacao) {
+        return Pagina.de(servico.listar(Dono.pessoa(pessoaId), Paginas.seguro(paginacao)), ContatoResponse::de);
     }
 
-    @PutMapping("/{id}")
-    public ContatoResponse atualizar(@PathVariable Long clienteId, @PathVariable Long id,
-            @Valid @RequestBody ContatoRequest dados) {
-        return ContatoResponse.de(servico.atualizar(clienteId, id, dados));
+    @GetMapping("/contatos/{id}")
+    public ContatoResponse buscar(@PathVariable Long id) {
+        return ContatoResponse.de(servico.buscar(id));
     }
 
-    @DeleteMapping("/{id}")
-    public ResponseEntity<Void> excluir(@PathVariable Long clienteId, @PathVariable Long id) {
-        servico.excluir(clienteId, id);
+    @PutMapping("/contatos/{id}")
+    public ContatoResponse atualizar(@PathVariable Long id, @Valid @RequestBody ContatoRequest dados) {
+        return ContatoResponse.de(servico.atualizar(id, dados));
+    }
+
+    @DeleteMapping("/contatos/{id}")
+    public ResponseEntity<Void> excluir(@PathVariable Long id) {
+        servico.excluir(id);
         return ResponseEntity.noContent().build();
+    }
+
+    private static ResponseEntity<ContatoResponse> criado(Contato contato, UriComponentsBuilder uri) {
+        URI local = uri.path("/api/contatos/{id}").buildAndExpand(contato.getId()).toUri();
+        return ResponseEntity.created(local).body(ContatoResponse.de(contato));
     }
 }

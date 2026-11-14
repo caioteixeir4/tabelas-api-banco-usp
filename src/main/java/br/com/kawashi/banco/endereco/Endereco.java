@@ -1,27 +1,26 @@
 package br.com.kawashi.banco.endereco;
 
-import br.com.kawashi.banco.cliente.Cliente;
+import br.com.kawashi.banco.auxiliar.Dono;
 import br.com.kawashi.banco.compartilhado.AuditoriaBase;
 
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
-import jakarta.persistence.FetchType;
-import jakarta.persistence.JoinColumn;
-import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
 
 /**
- * Um endereco de um cliente. O cliente dono nao muda (updatable=false). UF e CEP ja chegam
- * normalizados do servico (UF em maiuscula, CEP com 8 digitos); o banco so confere o formato.
- * Quem garante "no maximo um principal por cliente" e o servico, nao o banco.
+ * Um endereco de uma filial ou de uma pessoa. Tabela auxiliar: o dono e guardado em FILIAL_ID ou
+ * PESSOA_ID (exatamente uma preenchida) e nunca muda. UF e CEP ja chegam normalizados do servico
+ * (UF em maiuscula, CEP com 8 digitos); o banco so confere o formato.
  */
 @Entity
 @Table(name = "ENDERECO")
 public class Endereco extends AuditoriaBase {
 
-    @ManyToOne(fetch = FetchType.LAZY, optional = false)
-    @JoinColumn(name = "CLIENTE_ID", nullable = false, updatable = false)
-    private Cliente cliente;
+    @Column(name = "FILIAL_ID", updatable = false)
+    private Long filialId;
+
+    @Column(name = "PESSOA_ID", updatable = false)
+    private Long pessoaId;
 
     @Column(name = "LOGRADOURO", nullable = false, length = 200)
     private String logradouro;
@@ -52,20 +51,19 @@ public class Endereco extends AuditoriaBase {
         // exigido pelo JPA
     }
 
-    public Endereco(Cliente cliente, String logradouro, String numero, String complemento, String bairro,
+    public Endereco(Dono dono, String logradouro, String numero, String complemento, String bairro,
             String cidade, String uf, String cep, boolean principal) {
-        this.cliente = cliente;
-        this.logradouro = logradouro;
-        this.numero = numero;
-        this.complemento = complemento;
-        this.bairro = bairro;
-        this.cidade = cidade;
-        this.uf = uf;
-        this.cep = cep;
-        this.principal = principal;
+        this.filialId = dono.filialId();
+        this.pessoaId = dono.pessoaId();
+        definir(logradouro, numero, complemento, bairro, cidade, uf, cep, principal);
     }
 
     public void atualizar(String logradouro, String numero, String complemento, String bairro, String cidade,
+            String uf, String cep, boolean principal) {
+        definir(logradouro, numero, complemento, bairro, cidade, uf, cep, principal);
+    }
+
+    private void definir(String logradouro, String numero, String complemento, String bairro, String cidade,
             String uf, String cep, boolean principal) {
         this.logradouro = logradouro;
         this.numero = numero;
@@ -81,8 +79,16 @@ public class Endereco extends AuditoriaBase {
         this.principal = false;
     }
 
-    public Cliente getCliente() {
-        return cliente;
+    public Dono dono() {
+        return Dono.de(filialId, pessoaId);
+    }
+
+    public Long getFilialId() {
+        return filialId;
+    }
+
+    public Long getPessoaId() {
+        return pessoaId;
     }
 
     public String getLogradouro() {

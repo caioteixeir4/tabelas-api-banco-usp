@@ -8,7 +8,7 @@
   :root {
     --bg: #f4f6f9; --surface: #ffffff; --ink: #18212d; --muted: #566475;
     --line: #d3dae4; --line-soft: #e6eaf0; --lig: #4b5b70; --accent: #1f55c9;
-    --padrao: #2a64e0; --sefaz: #b36d00; --login: #7a45d6; --org: #0b7c70; --adm: #bd3a73;
+    --padrao: #2a64e0; --sefaz: #b36d00; --login: #7a45d6; --org: #0b7c70; --adm: #bd3a73; --sessao: #0e7fa3; --log: #5d6b7c;
     --aviso-bg: #fff6df; --aviso-line: #e8c36a; --ok-bg: #e8f5ec; --ok-line: #9ccaa8;
     --sombra: 0 1px 2px rgba(20, 30, 50, .08), 0 4px 14px rgba(20, 30, 50, .06);
   }
@@ -16,7 +16,7 @@
     :root {
       --bg: #10151c; --surface: #19212b; --ink: #e8edf4; --muted: #9aa8ba;
       --line: #2f3b4b; --line-soft: #26313f; --lig: #93a4ba; --accent: #7aa2ff;
-      --padrao: #6b9bff; --sefaz: #e0a23a; --login: #a98bff; --org: #3cc3b3; --adm: #f07aa8;
+      --padrao: #6b9bff; --sefaz: #e0a23a; --login: #a98bff; --org: #3cc3b3; --adm: #f07aa8; --sessao: #4fc3e8; --log: #a3b1c4;
       --aviso-bg: #2b2411; --aviso-line: #6b5a1f; --ok-bg: #14281b; --ok-line: #2f6040;
       --sombra: 0 1px 2px rgba(0, 0, 0, .4), 0 4px 14px rgba(0, 0, 0, .3);
     }
@@ -66,11 +66,25 @@
   .selo { display: inline-block; font-size: 11px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; padding: 2px 8px; border-radius: 999px; vertical-align: middle; margin-left: 8px; }
   .selo.real { background: var(--ok-bg); border: 1px solid var(--ok-line); }
   .selo.ref { background: var(--aviso-bg); border: 1px solid var(--aviso-line); }
+  .selo.prop { background: color-mix(in srgb, var(--accent) 12%, var(--surface)); border: 1px solid var(--accent); }
+  .legenda-linha { margin: 14px 0 0; display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; font-size: 13px; color: var(--muted); }
+  .legenda-linha .flags { margin-left: 8px; }
+  .legenda-linha .flags:first-child { margin-left: 0; }
+  .chip-null { margin-left: 8px; font-size: 10px; padding: 0 4px; border: 1px solid var(--line); border-radius: 3px; }
+  .legenda-linha .sep { margin: 0 4px; }
+  .bloco.primeiro { margin-top: 26px; }
+  .subtitulo { margin: 22px 0 6px; font-size: 16px; }
+  .abertas { margin: 0; padding-left: 22px; display: grid; gap: 8px; font-size: 14px; max-width: 95ch; }
+  details.dobra { margin-top: 36px; border-top: 1px solid var(--line); padding-top: 4px; }
+  details.dobra > summary { font-size: 17px; font-weight: 700; padding: 12px 0; }
+  details.dobra .bloco { margin-top: 10px; }
+  .legenda-schemas { list-style: none; margin: 4px 0 0; padding: 0; display: flex; flex-wrap: wrap; gap: 6px 18px; font-size: 13px; }
+  .legenda-schemas li { display: flex; align-items: center; gap: 6px; }
 
   .scroller { overflow-x: auto; padding-bottom: 8px; }
-  .canvas { position: relative; width: max-content; min-width: 100%; padding: 22px 72px; }
-  .colunas { display: flex; gap: 130px; align-items: stretch; }
-  .coluna { display: flex; flex-direction: column; gap: 30px; width: 340px; flex: none; }
+  .canvas { position: relative; width: max-content; min-width: 100%; padding: 22px 92px; }
+  .colunas { display: flex; gap: 124px; align-items: stretch; justify-content: center; }
+  .coluna { display: flex; flex-direction: column; gap: 30px; width: 330px; flex: none; }
   .v-topo { justify-content: flex-start; }
   .v-centro { justify-content: center; }
   .v-fim { justify-content: flex-end; }
@@ -90,11 +104,12 @@
     border-radius: 8px; box-shadow: var(--sombra); outline-offset: 3px; transition: opacity .12s;
   }
   .tabela.ref { border-style: dashed; border-top-style: solid; }
-  .tabela.fantasma { opacity: .72; }
+  .tabela.fantasma { opacity: .78; border-style: dashed; border-top-style: dashed; }
+  .tabela.fantasma .ponte { border-style: dashed; }
   .tabela.dim { opacity: .35; }
   .tabela:focus-visible { outline: 2px solid var(--accent); }
   .tabela.s-padrao { --cor: var(--padrao); } .tabela.s-sefaz { --cor: var(--sefaz); }
-  .tabela.s-login { --cor: var(--login); } .tabela.s-org { --cor: var(--org); } .tabela.s-adm { --cor: var(--adm); }
+  .tabela.s-login { --cor: var(--login); } .tabela.s-sessao { --cor: var(--sessao); } .tabela.s-log { --cor: var(--log); } .tabela.s-org { --cor: var(--org); } .tabela.s-adm { --cor: var(--adm); }
   .tabela > header { padding: 9px 12px 8px; background: color-mix(in srgb, var(--cor) 11%, var(--surface)); border-radius: 4px 4px 0 0; }
   .tabela h3 { margin: 0; font: 700 15px/1.25 ui-monospace, SFMono-Regular, Consolas, monospace; letter-spacing: .01em; overflow-wrap: anywhere; }
   .tabela .esq { font: 600 10.5px/1.3 ui-monospace, Consolas, monospace; color: color-mix(in srgb, var(--cor) 72%, var(--ink)); }
@@ -163,78 +178,46 @@
   <header>
     <h1>Diagrama das tabelas</h1>
     <p class="sub" id="estado"></p>
-    <nav class="ancoras" aria-label="Seções">
-      <a href="#banco">1 · O que existe no banco</a>
-      <a href="#repete">2 · O que se repete hoje</a>
-      <a href="#login">3 · Referência: LOGIN e ORGANIZACOES</a>
-      <a href="#adm">4 · Referência: ADMINISTRACAO</a>
-      <a href="#atualizar">Como atualizar</a>
-    </nav>
+    <p class="legenda-linha">
+      <span class="flags"><b class="pk">PK</b></span> chave primária
+      <span class="flags"><b class="fk">FK</b></span> aponta para outra tabela
+      <span class="flags"><b class="uq">UQ</b></span> valor único
+      <span class="flags"><b class="uq comp">UQ</b></span> único em conjunto
+      <span class="mono chip-null">null</span> opcional
+      <span class="sep">·</span> linha: <b>1</b> pai <span class="mono">||—○&lt;</span> <b>N</b> filhos
+    </p>
+    <ul id="legenda-schemas" class="legenda-schemas" aria-label="Cor de cada schema"></ul>
   </header>
 
   <noscript>Este diagrama é desenhado por JavaScript a partir do bloco <code>#modelo</code> no fim do arquivo. Ative o JavaScript para ver as tabelas.</noscript>
 
-  <section class="cartao legenda" aria-label="Legenda">
-    <div>
-      <h4>Campos</h4>
-      <ul>
-        <li><span class="flags"><b class="pk">PK</b></span> chave primária</li>
-        <li><span class="flags"><b class="fk">FK</b></span> chave estrangeira (aponta para <span class="mono">TABELA.CAMPO</span>)</li>
-        <li><span class="flags"><b class="uq">UQ</b></span> valor único na tabela</li>
-        <li><span class="flags"><b class="uq comp">UQ</b></span> único em conjunto com outra coluna (tracejado)</li>
-        <li><span class="mono" style="font-size:10px;padding:0 4px;border:1px solid var(--line);border-radius:3px;color:var(--muted)">null</span> campo opcional; sem a marca o campo é <span class="mono">NOT NULL</span></li>
-        <li><span class="nota-chip" style="display:inline-block;width:15px;height:15px;line-height:14px;text-align:center;border-radius:50%;font:700 10px system-ui;background:var(--aviso-bg);border:1px solid var(--aviso-line)">i</span> tem nota logo abaixo do diagrama</li>
-      </ul>
-    </div>
-    <div>
-      <h4>Linhas (cardinalidade)</h4>
-      <ul>
-        <li>
-          <svg width="92" height="22" viewBox="0 0 92 22" aria-hidden="true"><g fill="none" stroke="var(--lig)" stroke-width="1.6"><path d="M2 11H90"/><path d="M9 4v14M14 4v14"/><path d="M90 11L74 4M90 11L74 11M90 11L74 18"/><circle cx="68" cy="11" r="4" fill="var(--surface)"/></g></svg>
-          <span><b>1 : N</b> — um pai, zero ou muitos filhos</span>
-        </li>
-        <li><span style="width:92px;flex:none;text-align:center" class="mono"><b>||</b></span><span>lado do pai: exatamente 1 (a FK é <span class="mono">NOT NULL</span>)</span></li>
-        <li><span style="width:92px;flex:none;text-align:center" class="mono"><b>○&lt;</b></span><span>lado do filho: 0, 1 ou muitos</span></li>
-        <li><span>Passe o mouse (ou foque com Tab) numa tabela para destacar as ligações dela.</span></li>
-      </ul>
-    </div>
-    <div>
-      <h4>Cor = schema do Oracle</h4>
-      <ul id="legenda-schemas"></ul>
-    </div>
-  </section>
+  <section class="bloco primeiro" id="proposta"></section>
 
-  <div class="placar" id="placar"></div>
-  <div class="aviso" id="aviso-11"></div>
+  <section class="bloco" id="seguranca"></section>
 
-  <section class="bloco" id="banco"></section>
+  <section class="bloco" id="autorizacao"></section>
 
-  <section class="bloco" id="repete">
+  <section class="bloco" id="semtabela">
     <header>
-      <h2>2 · O que se repete hoje <span class="selo real">fatos do esquema</span></h2>
-      <p class="sub">Onde cada dado de pessoa ou de organização aparece nas tabelas, para ajudar a decidir o que a futura <span class="mono">PESSOA</span> absorve. Só descreve o que existe; não é proposta de desenho.</p>
+      <h2>Segurança que não vira tabela</h2>
+      <p class="sub">Regras da API que completam as tabelas acima.</p>
     </header>
-    <div class="tabelao-wrap"><table class="tabelao" id="repete-tabela"><thead><tr><th>Dado</th><th>Onde aparece hoje</th><th>O que o banco garante</th></tr></thead><tbody></tbody></table></div>
+    <ul class="abertas" id="sem-tabela"></ul>
   </section>
 
-  <section class="bloco" id="login"></section>
-  <section class="bloco" id="adm"></section>
-
-  <section class="bloco" id="atualizar">
-    <header><h2>Como atualizar este diagrama</h2></header>
-    <div class="cartao" style="padding:14px 18px">
-      <p>Tudo o que aparece vem do bloco <code>&lt;script id="modelo" type="application/json"&gt;</code> no fim deste arquivo: tabelas, campos, tipos, ligações e as tabelas de apoio. Para mudar o desenho, edite o JSON e recarregue a página (o <code>README</code> do repositório explica o formato).</p>
-      <ul style="margin:0 0 10px;padding-left:20px">
-        <li><b>Tabela nova</b>: acrescente um objeto em <code>tabelas</code> e o <code>id</code> dela em alguma coluna de <code>colunas</code>.</li>
-        <li><b>Relação nova</b>: acrescente em <code>relacoes</code> (<code>pai</code>, <code>filho</code>, <code>fk</code>, <code>pk</code>) e marque <code>"fk"</code> no campo do filho.</li>
-        <li><b>Depois de uma migração</b>: confira com <code>SELECT ... FROM user_tab_columns</code> no schema e atualize <code>estado</code>.</li>
-      </ul>
-      <p class="sub" style="margin:0">Fontes deste desenho: <code>src/main/resources/db/migration/V1</code> a <code>V4</code> (Flyway), conferidas no Oracle ao vivo; e <code>oracle-init/12_exemplo_dominio_kawashi_core.sql</code> (referência, nunca aplicada). As 4 tabelas de controle de segurança ficam no repositório <code>regras-banco-usp</code> e não entram aqui.</p>
-    </div>
+  <section class="bloco" id="depara">
+    <header>
+      <h2>O que mudou em relação ao modelo antigo</h2>
+      <p class="sub">Para onde foi cada tabela que existia até a migração V4.</p>
+    </header>
+    <div class="tabelao-wrap"><table class="tabelao" id="depara-tabela"><thead><tr><th>Antes</th><th>Agora</th></tr></thead><tbody></tbody></table></div>
+    <h3 class="subtitulo">Decisões e pendências</h3>
+    <ol class="abertas" id="abertas"></ol>
   </section>
 
-  <footer>Gerado para o TCC (USP/Esalq). Os nomes de schema usam <span class="mono">&lt;AMB&gt;</span> no lugar do ambiente (<span class="mono">TESTE_DEV</span>, <span class="mono">DEV</span>, <span class="mono">INFRA</span>, <span class="mono">HOMOLOG</span>, <span class="mono">PROD</span>...).</footer>
+  <footer>Tudo vem do bloco <code>&lt;script id="modelo"&gt;</code> no fim deste arquivo: para mudar o desenho, edite o JSON e recarregue. Nos nomes de schema, <span class="mono">&lt;AMB&gt;</span> é o ambiente (<span class="mono">TESTE_DEV</span>, <span class="mono">DEV</span>...).</footer>
 </main>
+
 
 <!-- =====================================================================================
      MODELO DO DIAGRAMA. Edite aqui; o resto da página só desenha o que está neste bloco.
@@ -243,111 +226,32 @@
      ===================================================================================== -->
 <script id="modelo" type="application/json">
 {
-  "estado": "Reflete o Flyway até a V4 (conferido no Oracle em 02/11/2026). Aplicado hoje só em KAWASHI_ENV_TESTE_DEV.",
+  "estado": "Cadastros e logs existem no Oracle (Flyway V5 e schema de LOG, conferidos em 14/11/2026). Login e autorização ainda são proposta.",
   "esquemas": {
-    "padrao": { "rotulo": "KAWASHI_ENV_<AMB>", "nome": "Padrão (tabelas compartilhadas)" },
-    "sefaz": { "rotulo": "KAWASHI_ENV_<AMB>_SEFAZ", "nome": "SEFAZ (serviço)" },
-    "login": { "rotulo": "KAWASHI_ENV_<AMB>_LOGIN", "nome": "LOGIN (referência)" },
-    "org": { "rotulo": "KAWASHI_ENV_<AMB>_ORGANIZACOES", "nome": "ORGANIZACOES (referência)" },
-    "adm": { "rotulo": "KAWASHI_ENV_<AMB>_ADMINISTRACAO", "nome": "ADMINISTRACAO (referência)" }
+    "padrao": { "rotulo": "KAWASHI_ENV_<AMB>", "nome": "cadastros" },
+    "login": { "rotulo": "KAWASHI_ENV_<AMB>_LOGIN", "nome": "login: usuário, senha, 2FA, aparelhos" },
+    "sessao": { "rotulo": "KAWASHI_ENV_<AMB>_SESSAO", "nome": "o que expira: tokens, pedidos de senha, bloqueios" },
+    "log": { "rotulo": "KAWASHI_ENV_<AMB>_LOG", "nome": "logs: só recebem linhas novas" }
   },
   "diagramas": [
     {
-      "id": "banco",
-      "titulo": "1 · O que existe no banco",
+      "id": "proposta",
+      "titulo": "Cadastros e logs",
       "selo": "real",
       "seloTexto": "no Oracle hoje",
-      "subtitulo": "As 6 tabelas criadas pelo Flyway (V1 a V4) mais CONFIGURACAO_FISCAL, a tabela de serviço SEFAZ que vem da fixture do repositório de regras.",
+      "subtitulo": "EMPRESA, FILIAL e PESSOA são os cadastros. CONTATO e ENDERECO são tabelas auxiliares, de uma filial ou de uma pessoa. Os logs ficam num schema só deles, em que a API só insere, e não têm ligação: guardam o nome da tabela e o id do registro.",
       "colunas": [
-        { "v": "centro", "tabelas": ["CLIENTE", "CONFIGURACAO_FISCAL"] },
-        { "v": "topo", "tabelas": ["ENDERECO", "CONTATO", "EMPRESA"] },
-        { "v": "fim", "tabelas": ["FILIAL", "SOCIO"] }
+        { "v": "centro", "tabelas": ["CONTATO", "LOG_ALTERACAO", "LOG_CADEIA"] },
+        { "v": "centro", "tabelas": ["EMPRESA", "FILIAL", "PESSOA"] },
+        { "v": "centro", "tabelas": ["ENDERECO", "LOG_ACESSO"] }
       ],
       "tabelas": [
         {
-          "id": "CLIENTE", "nome": "CLIENTE", "schema": "padrao",
-          "desc": "cliente da Kawashi; raiz de endereços, contatos e empresas",
-          "campos": [
-            { "n": "ID", "t": "NUMBER", "pk": true, "ident": true },
-            { "n": "CNPJ", "t": "VARCHAR2(14)", "uq": "nome gerado pelo Oracle" },
-            { "n": "RAZAO_SOCIAL", "t": "VARCHAR2(200 CHAR)" },
-            { "n": "NOME_FANTASIA", "t": "VARCHAR2(200 CHAR)", "nulo": true },
-            { "n": "ATIVO", "t": "BOOLEAN", "pad": "TRUE" },
-            { "n": "CRIADO_EM", "t": "TIMESTAMP(6)", "pad": "SYSTIMESTAMP" },
-            { "n": "ATUALIZADO_EM", "t": "TIMESTAMP(6)", "pad": "SYSTIMESTAMP" }
-          ],
-          "restricoes": [
-            { "tipo": "PK", "nome": "SYS_C008613 (nome gerado)", "regra": "ID" },
-            { "tipo": "UNIQUE", "nome": "SYS_C008614 (nome gerado)", "regra": "CNPJ" },
-            { "tipo": "CHECK", "nome": "CK_CLIENTE_CNPJ", "regra": "REGEXP_LIKE(CNPJ, '^[0-9]{14}$')" }
-          ]
-        },
-        {
-          "id": "CONFIGURACAO_FISCAL", "nome": "CONFIGURACAO_FISCAL", "schema": "sefaz",
-          "desc": "exemplo de tabela de serviço (SEFAZ), vem da fixture do repo de regras",
-          "campos": [
-            { "n": "ID", "t": "NUMBER", "pk": true, "ident": true },
-            { "n": "CLIENTE_ID", "t": "NUMBER", "fk": { "t": "CLIENTE", "c": "ID" }, "nota": "Sem UNIQUE: o banco aceita várias configurações fiscais para o mesmo cliente. Se a regra for uma por cliente, hoje só a API poderia garantir." },
-            { "n": "REGIME_TRIBUTARIO", "t": "VARCHAR2(50)" },
-            { "n": "INSCRICAO_ESTADUAL", "t": "VARCHAR2(20)", "nulo": true }
-          ],
-          "restricoes": [
-            { "tipo": "PK", "nome": "nome gerado pelo Oracle", "regra": "ID" },
-            { "tipo": "FK", "nome": "nome gerado pelo Oracle", "regra": "CLIENTE_ID → KAWASHI_ENV_<AMB>.CLIENTE (ID), sem cascade" }
-          ]
-        },
-        {
-          "id": "ENDERECO", "nome": "ENDERECO", "schema": "padrao",
-          "desc": "endereços do cliente (empresa e filial não têm endereço próprio)",
-          "campos": [
-            { "n": "ID", "t": "NUMBER", "pk": true, "ident": true },
-            { "n": "CLIENTE_ID", "t": "NUMBER", "fk": { "t": "CLIENTE", "c": "ID" } },
-            { "n": "LOGRADOURO", "t": "VARCHAR2(200 CHAR)" },
-            { "n": "NUMERO", "t": "VARCHAR2(20 CHAR)", "nulo": true },
-            { "n": "COMPLEMENTO", "t": "VARCHAR2(100 CHAR)", "nulo": true },
-            { "n": "BAIRRO", "t": "VARCHAR2(100 CHAR)", "nulo": true },
-            { "n": "CIDADE", "t": "VARCHAR2(100 CHAR)" },
-            { "n": "UF", "t": "VARCHAR2(2)" },
-            { "n": "CEP", "t": "VARCHAR2(8)" },
-            { "n": "PRINCIPAL", "t": "BOOLEAN", "pad": "FALSE", "nota": "No máximo um endereço principal por cliente: regra só da API. O banco aceitaria vários." },
-            { "n": "CRIADO_EM", "t": "TIMESTAMP(6)", "pad": "SYSTIMESTAMP" },
-            { "n": "ATUALIZADO_EM", "t": "TIMESTAMP(6)", "pad": "SYSTIMESTAMP" }
-          ],
-          "restricoes": [
-            { "tipo": "PK", "nome": "PK_ENDERECO", "regra": "ID" },
-            { "tipo": "FK", "nome": "FK_ENDERECO_CLIENTE", "regra": "CLIENTE_ID → CLIENTE (ID), sem cascade" },
-            { "tipo": "CHECK", "nome": "CK_ENDERECO_UF", "regra": "REGEXP_LIKE(UF, '^[A-Z]{2}$')" },
-            { "tipo": "CHECK", "nome": "CK_ENDERECO_CEP", "regra": "REGEXP_LIKE(CEP, '^[0-9]{8}$')" },
-            { "tipo": "INDEX", "nome": "IX_ENDERECO_CLIENTE", "regra": "CLIENTE_ID" }
-          ]
-        },
-        {
-          "id": "CONTATO", "nome": "CONTATO", "schema": "padrao",
-          "desc": "contatos do cliente",
-          "campos": [
-            { "n": "ID", "t": "NUMBER", "pk": true, "ident": true },
-            { "n": "CLIENTE_ID", "t": "NUMBER", "fk": { "t": "CLIENTE", "c": "ID" } },
-            { "n": "NOME", "t": "VARCHAR2(150 CHAR)" },
-            { "n": "EMAIL", "t": "VARCHAR2(150 CHAR)", "nulo": true },
-            { "n": "TELEFONE", "t": "VARCHAR2(11)", "nulo": true, "nota": "Pelo menos um entre EMAIL e TELEFONE é exigido: regra só da API. O banco aceita os dois vazios." },
-            { "n": "PRINCIPAL", "t": "BOOLEAN", "pad": "FALSE", "nota": "No máximo um contato principal por cliente: regra só da API." },
-            { "n": "CRIADO_EM", "t": "TIMESTAMP(6)", "pad": "SYSTIMESTAMP" },
-            { "n": "ATUALIZADO_EM", "t": "TIMESTAMP(6)", "pad": "SYSTIMESTAMP" }
-          ],
-          "restricoes": [
-            { "tipo": "PK", "nome": "PK_CONTATO", "regra": "ID" },
-            { "tipo": "FK", "nome": "FK_CONTATO_CLIENTE", "regra": "CLIENTE_ID → CLIENTE (ID), sem cascade" },
-            { "tipo": "CHECK", "nome": "CK_CONTATO_TELEFONE", "regra": "TELEFONE IS NULL OR REGEXP_LIKE(TELEFONE, '^[0-9]{10,11}$')" },
-            { "tipo": "INDEX", "nome": "IX_CONTATO_CLIENTE", "regra": "CLIENTE_ID" }
-          ]
-        },
-        {
           "id": "EMPRESA", "nome": "EMPRESA", "schema": "padrao",
-          "desc": "empresa do cliente (a API só aceita a matriz, CNPJ de ordem 0001)",
+          "desc": "a empresa (matriz)",
           "campos": [
             { "n": "ID", "t": "NUMBER", "pk": true, "ident": true },
-            { "n": "CLIENTE_ID", "t": "NUMBER", "fk": { "t": "CLIENTE", "c": "ID" } },
-            { "n": "CNPJ", "t": "VARCHAR2(14)", "uq": "UK_EMPRESA_CNPJ" },
+            { "n": "CNPJ", "t": "VARCHAR2(14)", "uq": true },
             { "n": "RAZAO_SOCIAL", "t": "VARCHAR2(200 CHAR)" },
             { "n": "NOME_FANTASIA", "t": "VARCHAR2(200 CHAR)", "nulo": true },
             { "n": "ATIVA", "t": "BOOLEAN", "pad": "TRUE" },
@@ -357,18 +261,16 @@
           "restricoes": [
             { "tipo": "PK", "nome": "PK_EMPRESA", "regra": "ID" },
             { "tipo": "UNIQUE", "nome": "UK_EMPRESA_CNPJ", "regra": "CNPJ" },
-            { "tipo": "FK", "nome": "FK_EMPRESA_CLIENTE", "regra": "CLIENTE_ID → CLIENTE (ID), sem cascade" },
-            { "tipo": "CHECK", "nome": "CK_EMPRESA_CNPJ", "regra": "REGEXP_LIKE(CNPJ, '^[0-9]{14}$')" },
-            { "tipo": "INDEX", "nome": "IX_EMPRESA_CLIENTE", "regra": "CLIENTE_ID" }
+            { "tipo": "CHECK", "nome": "CK_EMPRESA_CNPJ", "regra": "REGEXP_LIKE(CNPJ, '^[0-9]{14}$')" }
           ]
         },
         {
           "id": "FILIAL", "nome": "FILIAL", "schema": "padrao",
-          "desc": "filial de uma empresa (a API exige a mesma raiz de CNPJ)",
+          "desc": "filial de uma empresa",
           "campos": [
             { "n": "ID", "t": "NUMBER", "pk": true, "ident": true },
             { "n": "EMPRESA_ID", "t": "NUMBER", "fk": { "t": "EMPRESA", "c": "ID" } },
-            { "n": "CNPJ", "t": "VARCHAR2(14)", "uq": "UK_FILIAL_CNPJ" },
+            { "n": "CNPJ", "t": "VARCHAR2(14)", "uq": true },
             { "n": "NOME", "t": "VARCHAR2(150 CHAR)" },
             { "n": "ATIVA", "t": "BOOLEAN", "pad": "TRUE" },
             { "n": "CRIADO_EM", "t": "TIMESTAMP(6)", "pad": "SYSTIMESTAMP" },
@@ -383,230 +285,547 @@
           ]
         },
         {
-          "id": "SOCIO", "nome": "SOCIO", "schema": "padrao",
-          "desc": "sócio de uma empresa (pessoa física, identificada pelo CPF)",
+          "id": "PESSOA", "nome": "PESSOA", "schema": "padrao",
+          "desc": "cliente, colaborador, sócio ou fornecedor de uma empresa",
           "campos": [
             { "n": "ID", "t": "NUMBER", "pk": true, "ident": true },
-            { "n": "EMPRESA_ID", "t": "NUMBER", "fk": { "t": "EMPRESA", "c": "ID" }, "uqCom": ["EMPRESA_ID", "CPF"], "uq": "UK_SOCIO_EMPRESA_CPF" },
-            { "n": "NOME", "t": "VARCHAR2(150 CHAR)" },
-            { "n": "CPF", "t": "VARCHAR2(11)", "uqCom": ["EMPRESA_ID", "CPF"], "uq": "UK_SOCIO_EMPRESA_CPF", "nota": "O CPF é único só dentro da empresa (par EMPRESA_ID + CPF). A mesma pessoa em duas empresas vira duas linhas SOCIO sem ligação entre elas." },
-            { "n": "PARTICIPACAO", "t": "NUMBER(5,2)", "nota": "O banco só exige maior que 0 e até 100 em cada linha. A soma por empresa não passar de 100% é regra só da API." },
+            { "n": "EMPRESA_ID", "t": "NUMBER", "fk": { "t": "EMPRESA", "c": "ID" }, "uq": "UK_PESSOA", "uqCom": ["EMPRESA_ID", "DOCUMENTO", "TIPO"] },
+            { "n": "TIPO", "t": "VARCHAR2(20)", "uq": "UK_PESSOA", "uqCom": ["EMPRESA_ID", "DOCUMENTO", "TIPO"], "nota": "A separação fica aqui (enum): 'CLIENTE', 'COLABORADOR', 'SOCIO' ou 'FORNECEDOR'. Tipo novo é um valor novo na lista, sem tabela nova." },
+            { "n": "NATUREZA", "t": "VARCHAR2(1)", "nota": "'F' pessoa física (CPF) ou 'J' jurídica (CNPJ). Cliente e fornecedor costumam ser empresas, por isso a pessoa aceita os dois." },
+            { "n": "DOCUMENTO", "t": "VARCHAR2(14)", "uq": "UK_PESSOA", "uqCom": ["EMPRESA_ID", "DOCUMENTO", "TIPO"], "nota": "CPF (11 dígitos) ou CNPJ (14), conforme a NATUREZA. Único por empresa e tipo: a mesma pessoa pode ser sócia e colaboradora, ou aparecer em duas empresas, em linhas separadas." },
+            { "n": "NOME", "t": "VARCHAR2(200 CHAR)" },
+            { "n": "PARTICIPACAO", "t": "NUMBER(5,2)", "nulo": true, "nota": "Só para SOCIO: percentual de 0,01 a 100." },
+            { "n": "CARGO", "t": "VARCHAR2(100 CHAR)", "nulo": true, "nota": "Só para COLABORADOR." },
+            { "n": "ATIVA", "t": "BOOLEAN", "pad": "TRUE" },
             { "n": "CRIADO_EM", "t": "TIMESTAMP(6)", "pad": "SYSTIMESTAMP" },
             { "n": "ATUALIZADO_EM", "t": "TIMESTAMP(6)", "pad": "SYSTIMESTAMP" }
           ],
           "restricoes": [
-            { "tipo": "PK", "nome": "PK_SOCIO", "regra": "ID" },
-            { "tipo": "UNIQUE", "nome": "UK_SOCIO_EMPRESA_CPF", "regra": "(EMPRESA_ID, CPF)" },
-            { "tipo": "FK", "nome": "FK_SOCIO_EMPRESA", "regra": "EMPRESA_ID → EMPRESA (ID), sem cascade" },
-            { "tipo": "CHECK", "nome": "CK_SOCIO_CPF", "regra": "REGEXP_LIKE(CPF, '^[0-9]{11}$')" },
-            { "tipo": "CHECK", "nome": "CK_SOCIO_PARTICIPACAO", "regra": "PARTICIPACAO > 0 AND PARTICIPACAO <= 100" },
-            { "tipo": "INDEX", "nome": "IX_SOCIO_EMPRESA", "regra": "EMPRESA_ID" }
+            { "tipo": "PK", "nome": "PK_PESSOA", "regra": "ID" },
+            { "tipo": "UNIQUE", "nome": "UK_PESSOA", "regra": "(EMPRESA_ID, DOCUMENTO, TIPO)" },
+            { "tipo": "FK", "nome": "FK_PESSOA_EMPRESA", "regra": "EMPRESA_ID → EMPRESA (ID), sem cascade" },
+            { "tipo": "CHECK", "nome": "CK_PESSOA_TIPO", "regra": "TIPO IN ('CLIENTE', 'COLABORADOR', 'SOCIO', 'FORNECEDOR')" },
+            { "tipo": "CHECK", "nome": "CK_PESSOA_NATUREZA", "regra": "NATUREZA IN ('F', 'J')" },
+            { "tipo": "CHECK", "nome": "CK_PESSOA_DOCUMENTO", "regra": "(NATUREZA = 'F' AND REGEXP_LIKE(DOCUMENTO, '^[0-9]{11}$')) OR (NATUREZA = 'J' AND REGEXP_LIKE(DOCUMENTO, '^[0-9]{14}$'))" },
+            { "tipo": "CHECK", "nome": "CK_PESSOA_PARTICIPACAO", "regra": "PARTICIPACAO IS NULL OR (TIPO = 'SOCIO' AND PARTICIPACAO > 0 AND PARTICIPACAO <= 100)" },
+            { "tipo": "CHECK", "nome": "CK_PESSOA_CARGO", "regra": "CARGO IS NULL OR TIPO = 'COLABORADOR'" }
+          ]
+        },
+        {
+          "id": "CONTATO", "nome": "CONTATO", "schema": "padrao",
+          "desc": "um e-mail ou telefone de uma filial ou de uma pessoa",
+          "campos": [
+            { "n": "ID", "t": "NUMBER", "pk": true, "ident": true },
+            { "n": "FILIAL_ID", "t": "NUMBER", "nulo": true, "fk": { "t": "FILIAL", "c": "ID" }, "nota": "Dono do contato: exatamente UM entre FILIAL_ID e PESSOA_ID é preenchido (CHECK)." },
+            { "n": "PESSOA_ID", "t": "NUMBER", "nulo": true, "fk": { "t": "PESSOA", "c": "ID" } },
+            { "n": "TIPO", "t": "VARCHAR2(20)", "nota": "'EMAIL' ou 'TELEFONE'." },
+            { "n": "VALOR", "t": "VARCHAR2(150 CHAR)" },
+            { "n": "PRINCIPAL", "t": "BOOLEAN", "pad": "FALSE" },
+            { "n": "CRIADO_EM", "t": "TIMESTAMP(6)", "pad": "SYSTIMESTAMP" },
+            { "n": "ATUALIZADO_EM", "t": "TIMESTAMP(6)", "pad": "SYSTIMESTAMP" }
+          ],
+          "restricoes": [
+            { "tipo": "PK", "nome": "PK_CONTATO", "regra": "ID" },
+            { "tipo": "FK", "nome": "FK_CONTATO_FILIAL", "regra": "FILIAL_ID → FILIAL (ID), sem cascade" },
+            { "tipo": "FK", "nome": "FK_CONTATO_PESSOA", "regra": "PESSOA_ID → PESSOA (ID), sem cascade" },
+            { "tipo": "CHECK", "nome": "CK_CONTATO_DONO", "regra": "(FILIAL_ID IS NOT NULL AND PESSOA_ID IS NULL) OR (FILIAL_ID IS NULL AND PESSOA_ID IS NOT NULL)" },
+            { "tipo": "CHECK", "nome": "CK_CONTATO_TIPO", "regra": "TIPO IN ('EMAIL', 'TELEFONE')" },
+            { "tipo": "INDEX", "nome": "IX_CONTATO_FILIAL", "regra": "FILIAL_ID" },
+            { "tipo": "INDEX", "nome": "IX_CONTATO_PESSOA", "regra": "PESSOA_ID" }
+          ]
+        },
+        {
+          "id": "ENDERECO", "nome": "ENDERECO", "schema": "padrao",
+          "desc": "um endereço de uma filial ou de uma pessoa",
+          "campos": [
+            { "n": "ID", "t": "NUMBER", "pk": true, "ident": true },
+            { "n": "FILIAL_ID", "t": "NUMBER", "nulo": true, "fk": { "t": "FILIAL", "c": "ID" }, "nota": "Dono do endereço: exatamente UM entre FILIAL_ID e PESSOA_ID é preenchido (CHECK)." },
+            { "n": "PESSOA_ID", "t": "NUMBER", "nulo": true, "fk": { "t": "PESSOA", "c": "ID" } },
+            { "n": "LOGRADOURO", "t": "VARCHAR2(200 CHAR)" },
+            { "n": "NUMERO", "t": "VARCHAR2(20 CHAR)", "nulo": true },
+            { "n": "COMPLEMENTO", "t": "VARCHAR2(100 CHAR)", "nulo": true },
+            { "n": "BAIRRO", "t": "VARCHAR2(100 CHAR)", "nulo": true },
+            { "n": "CIDADE", "t": "VARCHAR2(100 CHAR)" },
+            { "n": "UF", "t": "VARCHAR2(2)" },
+            { "n": "CEP", "t": "VARCHAR2(8)" },
+            { "n": "PRINCIPAL", "t": "BOOLEAN", "pad": "FALSE" },
+            { "n": "CRIADO_EM", "t": "TIMESTAMP(6)", "pad": "SYSTIMESTAMP" },
+            { "n": "ATUALIZADO_EM", "t": "TIMESTAMP(6)", "pad": "SYSTIMESTAMP" }
+          ],
+          "restricoes": [
+            { "tipo": "PK", "nome": "PK_ENDERECO", "regra": "ID" },
+            { "tipo": "FK", "nome": "FK_ENDERECO_FILIAL", "regra": "FILIAL_ID → FILIAL (ID), sem cascade" },
+            { "tipo": "FK", "nome": "FK_ENDERECO_PESSOA", "regra": "PESSOA_ID → PESSOA (ID), sem cascade" },
+            { "tipo": "CHECK", "nome": "CK_ENDERECO_DONO", "regra": "(FILIAL_ID IS NOT NULL AND PESSOA_ID IS NULL) OR (FILIAL_ID IS NULL AND PESSOA_ID IS NOT NULL)" },
+            { "tipo": "CHECK", "nome": "CK_ENDERECO_UF", "regra": "REGEXP_LIKE(UF, '^[A-Z]{2}$')" },
+            { "tipo": "CHECK", "nome": "CK_ENDERECO_CEP", "regra": "REGEXP_LIKE(CEP, '^[0-9]{8}$')" },
+            { "tipo": "INDEX", "nome": "IX_ENDERECO_FILIAL", "regra": "FILIAL_ID" },
+            { "tipo": "INDEX", "nome": "IX_ENDERECO_PESSOA", "regra": "PESSOA_ID" }
+          ]
+        },
+        {
+          "id": "LOG_ALTERACAO", "nome": "LOG_ALTERACAO", "schema": "log",
+          "desc": "quem mudou o quê e quando, em qualquer tabela",
+          "campos": [
+            { "n": "ID", "t": "NUMBER", "pk": true, "ident": true },
+            { "n": "ORDEM", "t": "NUMBER", "uq": "UK_LOG_ALTERACAO_ORDEM", "nota": "Numeração sem buraco, dada pelo gatilho do banco (não por quem insere). Uma linha apagada aparece como um número faltando." },
+            { "n": "TABELA", "t": "VARCHAR2(30)", "nota": "TABELA + REGISTRO_ID dizem qual registro mudou. Não é chave estrangeira, para o log sobreviver à exclusão do registro." },
+            { "n": "REGISTRO_ID", "t": "NUMBER" },
+            { "n": "ACAO", "t": "VARCHAR2(10)", "nota": "'INSERT', 'UPDATE' ou 'DELETE'." },
+            { "n": "USUARIO", "t": "VARCHAR2(128)" },
+            { "n": "DATA_HORA", "t": "TIMESTAMP(6)", "pad": "SYSTIMESTAMP" },
+            { "n": "DETALHE", "t": "VARCHAR2(1000 CHAR)", "nulo": true },
+            { "n": "HASH_ANTERIOR", "t": "VARCHAR2(64)", "nulo": true, "nota": "Encadeamento: o HASH da linha anterior. Vazio só na primeira linha." },
+            { "n": "HASH", "t": "VARCHAR2(64)", "nota": "SHA-256 desta linha junto com o HASH_ANTERIOR, calculado pelo gatilho. Apagar ou alterar uma linha direto no banco quebra a corrente; a view V_LOG_ALTERACAO_QUEBRAS aponta onde." }
+          ],
+          "restricoes": [
+            { "tipo": "PK", "nome": "PK_LOG_ALTERACAO", "regra": "ID" },
+            { "tipo": "UNIQUE", "nome": "UK_LOG_ALTERACAO_ORDEM", "regra": "ORDEM" },
+            { "tipo": "CHECK", "nome": "CK_LOG_ALTERACAO_ACAO", "regra": "ACAO IN ('INSERT', 'UPDATE', 'DELETE')" },
+            { "tipo": "INDEX", "nome": "IX_LOG_ALTERACAO_REGISTRO", "regra": "(TABELA, REGISTRO_ID)" }
+          ]
+        },
+        {
+          "id": "LOG_ACESSO", "nome": "LOG_ACESSO", "schema": "log",
+          "desc": "cada chamada à API: de onde, o quê e o resultado",
+          "campos": [
+            { "n": "ID", "t": "NUMBER", "pk": true, "ident": true },
+            { "n": "USUARIO", "t": "VARCHAR2(128)", "nulo": true },
+            { "n": "IP_ORIGEM", "t": "VARCHAR2(45)", "nulo": true },
+            { "n": "METODO", "t": "VARCHAR2(10)" },
+            { "n": "CAMINHO", "t": "VARCHAR2(500 CHAR)" },
+            { "n": "STATUS", "t": "NUMBER(3)" },
+            { "n": "DATA_HORA", "t": "TIMESTAMP(6)", "pad": "SYSTIMESTAMP" }
+          ],
+          "restricoes": [
+            { "tipo": "PK", "nome": "PK_LOG_ACESSO", "regra": "ID" },
+            { "tipo": "INDEX", "nome": "IX_LOG_ACESSO_DATA", "regra": "DATA_HORA" }
+          ]
+        },
+        {
+          "id": "LOG_CADEIA", "nome": "LOG_CADEIA", "schema": "log",
+          "desc": "controle interno do encadeamento; a API nem enxerga",
+          "campos": [
+            { "n": "TABELA", "t": "VARCHAR2(30)", "pk": true, "nota": "Uma linha por tabela encadeada (hoje só LOG_ALTERACAO). O gatilho trava esta linha para numerar e encadear sem buraco." },
+            { "n": "ULTIMA_ORDEM", "t": "NUMBER", "pad": "0" },
+            { "n": "ULTIMO_HASH", "t": "VARCHAR2(64)", "nulo": true }
+          ],
+          "restricoes": [
+            { "tipo": "PK", "nome": "PK_LOG_CADEIA", "regra": "TABELA" }
           ]
         }
       ],
       "relacoes": [
-        { "pai": "CLIENTE", "filho": "ENDERECO", "fk": "CLIENTE_ID", "pk": "ID", "card": "1:N", "nome": "FK_ENDERECO_CLIENTE" },
-        { "pai": "CLIENTE", "filho": "CONTATO", "fk": "CLIENTE_ID", "pk": "ID", "card": "1:N", "nome": "FK_CONTATO_CLIENTE" },
-        { "pai": "CLIENTE", "filho": "EMPRESA", "fk": "CLIENTE_ID", "pk": "ID", "card": "1:N", "nome": "FK_EMPRESA_CLIENTE" },
-        { "pai": "EMPRESA", "filho": "FILIAL", "fk": "EMPRESA_ID", "pk": "ID", "card": "1:N", "nome": "FK_FILIAL_EMPRESA" },
-        { "pai": "EMPRESA", "filho": "SOCIO", "fk": "EMPRESA_ID", "pk": "ID", "card": "1:N", "nome": "FK_SOCIO_EMPRESA" },
-        { "pai": "CLIENTE", "filho": "CONFIGURACAO_FISCAL", "fk": "CLIENTE_ID", "pk": "ID", "card": "1:N", "nome": "(nome gerado)", "lado": "esq", "apagar": "Recusado pelo banco (ORA-02292). A API não conhece esta tabela: devolve só o 409 genérico, sem dizer o motivo.", "obs": "FK entre schemas: SEFAZ aponta para o schema padrão." }
+        { "pai": "EMPRESA", "filho": "FILIAL", "fk": "EMPRESA_ID", "pk": "ID", "card": "1:N", "nome": "FK_FILIAL_EMPRESA", "lado": "esq", "obs": "Uma empresa tem várias filiais." },
+        { "pai": "EMPRESA", "filho": "PESSOA", "fk": "EMPRESA_ID", "pk": "ID", "card": "1:N", "nome": "FK_PESSOA_EMPRESA", "lado": "dir", "obs": "Uma empresa tem várias pessoas (clientes, colaboradores, sócios, fornecedores)." },
+        { "pai": "FILIAL", "filho": "CONTATO", "fk": "FILIAL_ID", "pk": "ID", "card": "1:N", "nome": "FK_CONTATO_FILIAL" },
+        { "pai": "PESSOA", "filho": "CONTATO", "fk": "PESSOA_ID", "pk": "ID", "card": "1:N", "nome": "FK_CONTATO_PESSOA" },
+        { "pai": "FILIAL", "filho": "ENDERECO", "fk": "FILIAL_ID", "pk": "ID", "card": "1:N", "nome": "FK_ENDERECO_FILIAL" },
+        { "pai": "PESSOA", "filho": "ENDERECO", "fk": "PESSOA_ID", "pk": "ID", "card": "1:N", "nome": "FK_ENDERECO_PESSOA" }
       ],
       "extras": []
     },
     {
-      "id": "login",
-      "titulo": "3 · Referência: LOGIN e ORGANIZACOES",
-      "selo": "ref",
-      "seloTexto": "só desenho, não existe no banco",
-      "subtitulo": "Do script oracle-init/12_exemplo_dominio_kawashi_core.sql, que nunca foi aplicado. Atenção ao nome: a EMPRESA de ORGANIZACOES (quem usa o sistema Kawashi) não é a EMPRESA do schema padrão (empresa de um cliente), apesar do mesmo nome.",
+      "id": "seguranca",
+      "titulo": "Proposta: login e segurança",
+      "selo": "prop",
+      "seloTexto": "proposta, ainda não existe no banco",
+      "subtitulo": "Três schemas, pela cor: LOGIN (o que é permanente do usuário), SESSAO (o que expira e pode ser apagado depois de vencido) e LOG (histórico, encadeado por hash). Tudo gira em torno de USUARIO. A PESSOA aparece repetida, em cinza, só para mostrar a ligação. À esquerda, senha e segundo fator; à direita, sessões, aparelhos e tentativas de login.",
       "colunas": [
-        { "v": "centro", "tabelas": ["USUARIO"] },
-        { "v": "topo", "tabelas": ["USUARIO_EMPRESA", "LOG_LOGIN", "LOG_TROCA_SENHA"] },
-        { "v": "centro", "tabelas": ["ORG_EMPRESA", "ORG_FILIAL", "LOG_ALTERACAO"] }
+        { "v": "centro", "tabelas": ["HISTORICO_SENHA", "SEGUNDO_FATOR", "CODIGO_RECUPERACAO", "ACEITE_TERMO", "BLOQUEIO_IP"] },
+        { "v": "centro", "tabelas": ["PESSOA_REF", "USUARIO"] },
+        { "v": "centro", "tabelas": ["TOKEN", "DISPOSITIVO", "CODIGO_TEMPORARIO", "TENTATIVA_LOGIN", "LOG_SEGURANCA"] }
       ],
       "tabelas": [
         {
-          "id": "USUARIO", "nome": "USUARIO", "schema": "login", "ref": true,
-          "desc": "quem se autentica com e-mail e senha",
-          "campos": [
-            { "n": "ID", "t": "NUMBER", "pk": true, "ident": true },
-            { "n": "EMAIL", "t": "VARCHAR2(150)", "uq": true },
-            { "n": "SENHA_HASH", "t": "VARCHAR2(200)" },
-            { "n": "SENHA_ALTERADA_EM", "t": "TIMESTAMP", "pad": "SYSTIMESTAMP" },
-            { "n": "MFA_HABILITADO", "t": "CHAR(1)", "pad": "'N'" },
-            { "n": "ATIVO", "t": "CHAR(1)", "pad": "'S'" }
-          ],
-          "restricoes": [
-            { "tipo": "PK", "nome": "(nome gerado)", "regra": "ID" },
-            { "tipo": "UNIQUE", "nome": "(nome gerado)", "regra": "EMAIL" }
-          ]
-        },
-        {
-          "id": "USUARIO_EMPRESA", "nome": "USUARIO_EMPRESA", "schema": "login", "ref": true,
-          "desc": "em quais empresas o usuário atua e com que cargo",
-          "ponte": "tabela de junção: USUARIO × ORGANIZACOES.EMPRESA (N:N)",
-          "campos": [
-            { "n": "ID", "t": "NUMBER", "pk": true, "ident": true },
-            { "n": "USUARIO_ID", "t": "NUMBER", "fk": { "t": "USUARIO", "c": "ID" }, "uqCom": ["USUARIO_ID", "EMPRESA_ID"], "uq": "UQ_USUARIO_EMPRESA" },
-            { "n": "EMPRESA_ID", "t": "NUMBER", "fk": { "t": "EMPRESA", "c": "ID", "esquema": "ORGANIZACOES" }, "uqCom": ["USUARIO_ID", "EMPRESA_ID"], "uq": "UQ_USUARIO_EMPRESA" },
-            { "n": "CARGO", "t": "VARCHAR2(50)" }
-          ],
-          "restricoes": [
-            { "tipo": "PK", "nome": "(nome gerado)", "regra": "ID" },
-            { "tipo": "UNIQUE", "nome": "UQ_USUARIO_EMPRESA", "regra": "(USUARIO_ID, EMPRESA_ID)" },
-            { "tipo": "FK", "nome": "(nome gerado)", "regra": "USUARIO_ID → USUARIO (ID), sem cascade" },
-            { "tipo": "FK", "nome": "(nome gerado)", "regra": "EMPRESA_ID → ORGANIZACOES.EMPRESA (ID), entre schemas, sem cascade" }
-          ]
-        },
-        {
-          "id": "LOG_LOGIN", "nome": "LOG_LOGIN", "schema": "login", "ref": true,
-          "desc": "histórico de tentativas de login",
-          "campos": [
-            { "n": "ID", "t": "NUMBER", "pk": true, "ident": true },
-            { "n": "USUARIO_ID", "t": "NUMBER", "fk": { "t": "USUARIO", "c": "ID" } },
-            { "n": "EMPRESA_ESCOLHIDA_ID", "t": "NUMBER", "nulo": true, "nota": "Guarda o id da empresa escolhida no login, mas não é chave estrangeira: o banco não confere se ela existe." },
-            { "n": "DATA_HORA", "t": "TIMESTAMP", "pad": "SYSTIMESTAMP" },
-            { "n": "IP_ORIGEM", "t": "VARCHAR2(45)", "nulo": true },
-            { "n": "SUCESSO", "t": "CHAR(1)" }
-          ],
-          "restricoes": [
-            { "tipo": "PK", "nome": "(nome gerado)", "regra": "ID" },
-            { "tipo": "FK", "nome": "(nome gerado)", "regra": "USUARIO_ID → USUARIO (ID), sem cascade" }
-          ]
-        },
-        {
-          "id": "LOG_TROCA_SENHA", "nome": "LOG_TROCA_SENHA", "schema": "login", "ref": true,
-          "desc": "histórico de troca de senha",
-          "campos": [
-            { "n": "ID", "t": "NUMBER", "pk": true, "ident": true },
-            { "n": "USUARIO_ID", "t": "NUMBER", "fk": { "t": "USUARIO", "c": "ID" } },
-            { "n": "DATA_HORA", "t": "TIMESTAMP", "pad": "SYSTIMESTAMP" }
-          ],
-          "restricoes": [
-            { "tipo": "PK", "nome": "(nome gerado)", "regra": "ID" },
-            { "tipo": "FK", "nome": "(nome gerado)", "regra": "USUARIO_ID → USUARIO (ID), sem cascade" }
-          ]
-        },
-        {
-          "id": "ORG_EMPRESA", "nome": "EMPRESA", "schema": "org", "ref": true,
-          "desc": "empresa que USA o sistema Kawashi (não é o EMPRESA do schema padrão)",
-          "campos": [
-            { "n": "ID", "t": "NUMBER", "pk": true, "ident": true },
-            { "n": "CNPJ", "t": "VARCHAR2(14)", "uq": true },
-            { "n": "RAZAO_SOCIAL", "t": "VARCHAR2(200)" },
-            { "n": "ATIVA", "t": "CHAR(1)", "pad": "'S'" }
-          ],
-          "restricoes": [
-            { "tipo": "PK", "nome": "(nome gerado)", "regra": "ID" },
-            { "tipo": "UNIQUE", "nome": "(nome gerado)", "regra": "CNPJ" }
-          ]
-        },
-        {
-          "id": "ORG_FILIAL", "nome": "FILIAL", "schema": "org", "ref": true,
-          "desc": "filial da empresa que usa o sistema",
-          "campos": [
-            { "n": "ID", "t": "NUMBER", "pk": true, "ident": true },
-            { "n": "EMPRESA_ID", "t": "NUMBER", "fk": { "t": "ORG_EMPRESA", "c": "ID" } },
-            { "n": "CNPJ", "t": "VARCHAR2(14)", "uq": true },
-            { "n": "NOME", "t": "VARCHAR2(150)" }
-          ],
-          "restricoes": [
-            { "tipo": "PK", "nome": "(nome gerado)", "regra": "ID" },
-            { "tipo": "UNIQUE", "nome": "(nome gerado)", "regra": "CNPJ" },
-            { "tipo": "FK", "nome": "(nome gerado)", "regra": "EMPRESA_ID → EMPRESA (ID), sem cascade" }
-          ]
-        },
-        {
-          "id": "LOG_ALTERACAO", "nome": "LOG_ALTERACAO", "schema": "org", "ref": true,
-          "desc": "trilha de alterações, sem chave estrangeira",
-          "campos": [
-            { "n": "ID", "t": "NUMBER", "pk": true, "ident": true },
-            { "n": "TABELA_ORIGEM", "t": "VARCHAR2(30)", "nota": "TABELA_ORIGEM + REGISTRO_ID apontam para qualquer tabela por texto e número. Não há chave estrangeira, então não há ligação no diagrama." },
-            { "n": "REGISTRO_ID", "t": "NUMBER" },
-            { "n": "ACAO", "t": "VARCHAR2(20)" },
-            { "n": "DATA_HORA", "t": "TIMESTAMP", "pad": "SYSTIMESTAMP" }
-          ],
-          "restricoes": [
-            { "tipo": "PK", "nome": "(nome gerado)", "regra": "ID" }
-          ]
-        }
-      ],
-      "relacoes": [
-        { "pai": "USUARIO", "filho": "USUARIO_EMPRESA", "fk": "USUARIO_ID", "pk": "ID", "card": "1:N", "nome": "(nome gerado)" },
-        { "pai": "USUARIO", "filho": "LOG_LOGIN", "fk": "USUARIO_ID", "pk": "ID", "card": "1:N", "nome": "(nome gerado)" },
-        { "pai": "USUARIO", "filho": "LOG_TROCA_SENHA", "fk": "USUARIO_ID", "pk": "ID", "card": "1:N", "nome": "(nome gerado)" },
-        { "pai": "ORG_EMPRESA", "filho": "USUARIO_EMPRESA", "fk": "EMPRESA_ID", "pk": "ID", "card": "1:N", "nome": "(nome gerado)", "obs": "FK entre schemas: LOGIN aponta para ORGANIZACOES." },
-        { "pai": "ORG_EMPRESA", "filho": "ORG_FILIAL", "fk": "EMPRESA_ID", "pk": "ID", "card": "1:N", "nome": "(nome gerado)", "lado": "dir" }
-      ],
-      "extras": [
-        { "card": "N:N", "a": "USUARIO", "b": "ORGANIZACOES.EMPRESA", "via": "USUARIO_EMPRESA", "obs": "Uma pessoa atua em várias empresas, com cargo diferente em cada; uma empresa tem vários usuários. As duas relações 1:N acima, juntas, formam este N:N." }
-      ]
-    },
-    {
-      "id": "adm",
-      "titulo": "4 · Referência: ADMINISTRACAO",
-      "selo": "ref",
-      "seloTexto": "só desenho, não existe no banco",
-      "subtitulo": "Também de oracle-init/12_exemplo_dominio_kawashi_core.sql. O CLIENTE em cinza é a tabela padrão do bloco 1.",
-      "colunas": [
-        { "v": "centro", "tabelas": ["CLIENTE_FANTASMA"] },
-        { "v": "centro", "tabelas": ["FATURA"] },
-        { "v": "centro", "tabelas": ["PAGAMENTO"] }
-      ],
-      "tabelas": [
-        {
-          "id": "CLIENTE_FANTASMA", "nome": "CLIENTE", "schema": "padrao", "fantasma": true,
-          "desc": "tabela padrão (detalhes no bloco 1)",
+          "id": "PESSOA_REF", "nome": "PESSOA", "schema": "padrao", "fantasma": true,
+          "desc": "só a chave aparece aqui; os campos estão no quadro de cadastros",
+          "ponte": "repetida: esta tabela é do quadro de cadastros",
           "campos": [ { "n": "ID", "t": "NUMBER", "pk": true, "ident": true } ],
           "restricoes": []
         },
         {
-          "id": "FATURA", "nome": "FATURA", "schema": "adm", "ref": true,
-          "desc": "cobrança de um cliente da Kawashi",
+          "id": "USUARIO", "nome": "USUARIO", "schema": "login",
+          "desc": "o login de uma pessoa",
           "campos": [
             { "n": "ID", "t": "NUMBER", "pk": true, "ident": true },
-            { "n": "CLIENTE_ID", "t": "NUMBER", "fk": { "t": "CLIENTE", "c": "ID", "esquema": "padrão" } },
-            { "n": "COMPETENCIA", "t": "DATE" },
-            { "n": "VALOR", "t": "NUMBER(12,2)" },
-            { "n": "STATUS", "t": "VARCHAR2(20)", "pad": "'ABERTA'" }
+            { "n": "PESSOA_ID", "t": "NUMBER", "fk": { "t": "PESSOA_REF", "c": "ID", "esquema": "padrão" }, "uq": "UK_USUARIO_PESSOA", "nota": "Único: cada pessoa tem no máximo um usuário, relação 1 para 1. É a única ligação do login com os cadastros, e vai do LOGIN para o padrão, nunca o contrário." },
+            { "n": "EMAIL", "t": "VARCHAR2(150 CHAR)", "uq": "UK_USUARIO_EMAIL", "nota": "O e-mail é o nome de login." },
+            { "n": "EMAIL_VERIFICADO_EM", "t": "TIMESTAMP(6)", "nulo": true, "nota": "Vazio até a pessoa confirmar o e-mail pelo link enviado. Sem confirmar, não loga." },
+            { "n": "SENHA_HASH", "t": "VARCHAR2(200)", "nota": "Só o hash da senha (argon2 ou bcrypt). A senha em si nunca é gravada." },
+            { "n": "SENHA_ALTERADA_EM", "t": "TIMESTAMP(6)", "pad": "SYSTIMESTAMP", "nota": "Troca a cada 3 meses: passados 90 dias desta data, o login só deixa trocar a senha." },
+            { "n": "TENTATIVAS_FALHAS", "t": "NUMBER(3)", "pad": "0", "nota": "Erros de senha seguidos. Zera no login certo." },
+            { "n": "BLOQUEADO_ATE", "t": "TIMESTAMP(6)", "nulo": true, "nota": "Preenchido quando as tentativas passam do limite: até este instante a conta não loga, nem com a senha certa." },
+            { "n": "ATIVO", "t": "BOOLEAN", "pad": "TRUE" },
+            { "n": "CRIADO_EM", "t": "TIMESTAMP(6)", "pad": "SYSTIMESTAMP" },
+            { "n": "ATUALIZADO_EM", "t": "TIMESTAMP(6)", "pad": "SYSTIMESTAMP" }
           ],
           "restricoes": [
-            { "tipo": "PK", "nome": "(nome gerado)", "regra": "ID" },
-            { "tipo": "FK", "nome": "(nome gerado)", "regra": "CLIENTE_ID → KAWASHI_ENV_<AMB>.CLIENTE (ID), entre schemas, sem cascade" }
+            { "tipo": "PK", "nome": "PK_USUARIO", "regra": "ID" },
+            { "tipo": "UNIQUE", "nome": "UK_USUARIO_PESSOA", "regra": "PESSOA_ID" },
+            { "tipo": "UNIQUE", "nome": "UK_USUARIO_EMAIL", "regra": "EMAIL" },
+            { "tipo": "FK", "nome": "FK_USUARIO_PESSOA", "regra": "PESSOA_ID → PESSOA (ID), sem cascade" },
+            { "tipo": "CHECK", "nome": "CK_USUARIO_TENTATIVAS", "regra": "TENTATIVAS_FALHAS >= 0" }
           ]
         },
         {
-          "id": "PAGAMENTO", "nome": "PAGAMENTO", "schema": "adm", "ref": true,
-          "desc": "pagamento de uma fatura",
+          "id": "HISTORICO_SENHA", "nome": "HISTORICO_SENHA", "schema": "login",
+          "desc": "senhas antigas, para não repetir",
           "campos": [
             { "n": "ID", "t": "NUMBER", "pk": true, "ident": true },
-            { "n": "FATURA_ID", "t": "NUMBER", "fk": { "t": "FATURA", "c": "ID" } },
-            { "n": "DATA_PAGAMENTO", "t": "DATE" },
-            { "n": "VALOR_PAGO", "t": "NUMBER(12,2)" },
-            { "n": "FORMA_PAGAMENTO", "t": "VARCHAR2(30)" }
+            { "n": "USUARIO_ID", "t": "NUMBER", "fk": { "t": "USUARIO", "c": "ID" } },
+            { "n": "SENHA_HASH", "t": "VARCHAR2(200)", "nota": "Hash de cada senha já usada. Na troca, a nova é comparada com as últimas e recusada se repetir." },
+            { "n": "CRIADO_EM", "t": "TIMESTAMP(6)", "pad": "SYSTIMESTAMP" }
           ],
           "restricoes": [
-            { "tipo": "PK", "nome": "(nome gerado)", "regra": "ID" },
-            { "tipo": "FK", "nome": "(nome gerado)", "regra": "FATURA_ID → FATURA (ID), sem cascade" }
+            { "tipo": "PK", "nome": "PK_HISTORICO_SENHA", "regra": "ID" },
+            { "tipo": "FK", "nome": "FK_HISTORICO_SENHA_USUARIO", "regra": "USUARIO_ID → USUARIO (ID), sem cascade" },
+            { "tipo": "INDEX", "nome": "IX_HISTORICO_SENHA_USUARIO", "regra": "USUARIO_ID" }
+          ]
+        },
+        {
+          "id": "CODIGO_TEMPORARIO", "nome": "CODIGO_TEMPORARIO", "schema": "sessao",
+          "desc": "código de uso único enviado ao usuário, com validade curta",
+          "campos": [
+            { "n": "ID", "t": "NUMBER", "pk": true, "ident": true },
+            { "n": "USUARIO_ID", "t": "NUMBER", "fk": { "t": "USUARIO", "c": "ID" } },
+            { "n": "FINALIDADE", "t": "VARCHAR2(20)", "nota": "'REDEFINIR_SENHA' (esqueci minha senha), 'CONFIRMAR_EMAIL' (link de confirmação) ou 'SEGUNDO_FATOR' (senha certa, aguardando o código do 2FA). Um código só serve para a finalidade em que nasceu." },
+            { "n": "CODIGO_HASH", "t": "VARCHAR2(64)", "uq": "UK_CODIGO_TEMPORARIO_HASH", "nota": "Só o hash. O código em si vai por e-mail ou fica com o navegador." },
+            { "n": "TENTATIVAS", "t": "NUMBER(2)", "pad": "0", "nota": "Quantas vezes o código foi testado errado. Passou do limite, o código morre, mesmo dentro da validade." },
+            { "n": "EXPIRA_EM", "t": "TIMESTAMP(6)" },
+            { "n": "USADO_EM", "t": "TIMESTAMP(6)", "nulo": true },
+            { "n": "IP_ORIGEM", "t": "VARCHAR2(45)", "nulo": true },
+            { "n": "CRIADO_EM", "t": "TIMESTAMP(6)", "pad": "SYSTIMESTAMP" }
+          ],
+          "restricoes": [
+            { "tipo": "PK", "nome": "PK_CODIGO_TEMPORARIO", "regra": "ID" },
+            { "tipo": "UNIQUE", "nome": "UK_CODIGO_TEMPORARIO_HASH", "regra": "CODIGO_HASH" },
+            { "tipo": "FK", "nome": "FK_CODIGO_TEMPORARIO_USUARIO", "regra": "USUARIO_ID → USUARIO (ID), sem cascade" },
+            { "tipo": "CHECK", "nome": "CK_CODIGO_TEMPORARIO_FINALIDADE", "regra": "FINALIDADE IN ('REDEFINIR_SENHA', 'CONFIRMAR_EMAIL', 'SEGUNDO_FATOR')" },
+            { "tipo": "CHECK", "nome": "CK_CODIGO_TEMPORARIO_VALIDADE", "regra": "EXPIRA_EM > CRIADO_EM" }
+          ]
+        },
+        {
+          "id": "SEGUNDO_FATOR", "nome": "SEGUNDO_FATOR", "schema": "login",
+          "desc": "o 2FA, opcional: só existe linha para quem ativou",
+          "campos": [
+            { "n": "ID", "t": "NUMBER", "pk": true, "ident": true },
+            { "n": "USUARIO_ID", "t": "NUMBER", "fk": { "t": "USUARIO", "c": "ID" }, "uq": "UK_SEGUNDO_FATOR_USUARIO" },
+            { "n": "TIPO", "t": "VARCHAR2(10)", "pad": "'TOTP'", "nota": "'TOTP' é o código de 6 dígitos do aplicativo autenticador (Google Authenticator, Authy)." },
+            { "n": "SEGREDO_CIFRADO", "t": "VARCHAR2(500)", "nota": "A semente do autenticador, cifrada com uma chave que fica no Vault. Diferente da senha, ela precisa ser lida de volta, então é cifrada e não hash." },
+            { "n": "ATIVADO_EM", "t": "TIMESTAMP(6)", "nulo": true, "nota": "Vazio enquanto o usuário não confirmou o primeiro código." },
+            { "n": "ULTIMO_USO_EM", "t": "TIMESTAMP(6)", "nulo": true },
+            { "n": "CRIADO_EM", "t": "TIMESTAMP(6)", "pad": "SYSTIMESTAMP" }
+          ],
+          "restricoes": [
+            { "tipo": "PK", "nome": "PK_SEGUNDO_FATOR", "regra": "ID" },
+            { "tipo": "UNIQUE", "nome": "UK_SEGUNDO_FATOR_USUARIO", "regra": "USUARIO_ID" },
+            { "tipo": "FK", "nome": "FK_SEGUNDO_FATOR_USUARIO", "regra": "USUARIO_ID → USUARIO (ID), sem cascade" },
+            { "tipo": "CHECK", "nome": "CK_SEGUNDO_FATOR_TIPO", "regra": "TIPO IN ('TOTP')" }
+          ]
+        },
+        {
+          "id": "CODIGO_RECUPERACAO", "nome": "CODIGO_RECUPERACAO", "schema": "login",
+          "desc": "códigos de reserva para quem perdeu o celular",
+          "campos": [
+            { "n": "ID", "t": "NUMBER", "pk": true, "ident": true },
+            { "n": "USUARIO_ID", "t": "NUMBER", "fk": { "t": "USUARIO", "c": "ID" } },
+            { "n": "CODIGO_HASH", "t": "VARCHAR2(64)", "nota": "Hash de cada código de uso único entregue ao ativar o 2FA." },
+            { "n": "USADO_EM", "t": "TIMESTAMP(6)", "nulo": true },
+            { "n": "CRIADO_EM", "t": "TIMESTAMP(6)", "pad": "SYSTIMESTAMP" }
+          ],
+          "restricoes": [
+            { "tipo": "PK", "nome": "PK_CODIGO_RECUPERACAO", "regra": "ID" },
+            { "tipo": "FK", "nome": "FK_CODIGO_RECUPERACAO_USUARIO", "regra": "USUARIO_ID → USUARIO (ID), sem cascade" },
+            { "tipo": "INDEX", "nome": "IX_CODIGO_RECUPERACAO_USUARIO", "regra": "USUARIO_ID" }
+          ]
+        },
+        {
+          "id": "TOKEN", "nome": "TOKEN", "schema": "sessao",
+          "desc": "sessão: token de acesso com validade",
+          "campos": [
+            { "n": "ID", "t": "NUMBER", "pk": true, "ident": true },
+            { "n": "USUARIO_ID", "t": "NUMBER", "fk": { "t": "USUARIO", "c": "ID" } },
+            { "n": "DISPOSITIVO_ID", "t": "NUMBER", "nulo": true, "fk": { "t": "DISPOSITIVO", "c": "ID" }, "nota": "De qual aparelho veio o login. Permite encerrar todas as sessões de um aparelho." },
+            { "n": "TOKEN_HASH", "t": "VARCHAR2(64)", "uq": "UK_TOKEN_HASH", "nota": "SHA-256 do token. O token em si só existe na resposta do login: quem ler o banco não consegue usá-lo." },
+            { "n": "CRIADO_EM", "t": "TIMESTAMP(6)", "pad": "SYSTIMESTAMP" },
+            { "n": "EMPRESA_ID", "t": "NUMBER", "fk": { "t": "EMPRESA", "c": "ID", "esquema": "padrão" }, "nota": "Em qual empresa a sessão está. Só pode ser uma empresa em que o usuário tem linha em USUARIO_EMPRESA; para trocar de empresa, a API emite outro token." },
+            { "n": "EXPIRA_EM", "t": "TIMESTAMP(6)", "nota": "Obrigatório: não existe token sem validade. Renovado enquanto há uso." },
+            { "n": "EXPIRA_ABSOLUTO_EM", "t": "TIMESTAMP(6)", "nota": "Teto que a renovação não ultrapassa. Sem ele, um token roubado e mantido em uso viveria para sempre. Passado este instante, só com novo login." },
+            { "n": "REVOGADO_EM", "t": "TIMESTAMP(6)", "nulo": true, "nota": "Preenchido no logout, na troca de senha (derruba todas as sessões) ou quando o aparelho é removido." },
+            { "n": "IP_ORIGEM", "t": "VARCHAR2(45)", "nulo": true }
+          ],
+          "restricoes": [
+            { "tipo": "PK", "nome": "PK_TOKEN", "regra": "ID" },
+            { "tipo": "UNIQUE", "nome": "UK_TOKEN_HASH", "regra": "TOKEN_HASH" },
+            { "tipo": "FK", "nome": "FK_TOKEN_USUARIO", "regra": "USUARIO_ID → USUARIO (ID), sem cascade" },
+            { "tipo": "FK", "nome": "FK_TOKEN_DISPOSITIVO", "regra": "DISPOSITIVO_ID → DISPOSITIVO (ID), sem cascade" },
+            { "tipo": "CHECK", "nome": "CK_TOKEN_VALIDADE", "regra": "EXPIRA_EM > CRIADO_EM AND EXPIRA_EM <= EXPIRA_ABSOLUTO_EM" },
+            { "tipo": "FK", "nome": "FK_TOKEN_EMPRESA", "regra": "EMPRESA_ID → KAWASHI_ENV_<AMB>.EMPRESA (ID), entre schemas, sem cascade" },
+            { "tipo": "INDEX", "nome": "IX_TOKEN_USUARIO", "regra": "USUARIO_ID" },
+            { "tipo": "INDEX", "nome": "IX_TOKEN_EXPIRA", "regra": "EXPIRA_EM" }
+          ]
+        },
+        {
+          "id": "DISPOSITIVO", "nome": "DISPOSITIVO", "schema": "login",
+          "desc": "aparelhos que o usuário já usou; dispositivo de confiança",
+          "campos": [
+            { "n": "ID", "t": "NUMBER", "pk": true, "ident": true },
+            { "n": "USUARIO_ID", "t": "NUMBER", "fk": { "t": "USUARIO", "c": "ID" }, "uq": "UK_DISPOSITIVO", "uqCom": ["USUARIO_ID", "IDENTIFICADOR_HASH"] },
+            { "n": "IDENTIFICADOR_HASH", "t": "VARCHAR2(64)", "uq": "UK_DISPOSITIVO", "uqCom": ["USUARIO_ID", "IDENTIFICADOR_HASH"], "nota": "Hash de um identificador aleatório que a API grava no aparelho no primeiro login." },
+            { "n": "NOME", "t": "VARCHAR2(100 CHAR)", "nulo": true, "nota": "Como aparece para o usuário, por exemplo \"Chrome no Windows\"." },
+            { "n": "CONFIAVEL_ATE", "t": "TIMESTAMP(6)", "nulo": true, "nota": "Dispositivo de confiança: enquanto esta data não passar, o login neste aparelho não pede o 2FA. Vazio = sempre pede." },
+            { "n": "ULTIMO_IP", "t": "VARCHAR2(45)", "nulo": true },
+            { "n": "ULTIMO_USO_EM", "t": "TIMESTAMP(6)", "nulo": true },
+            { "n": "REVOGADO_EM", "t": "TIMESTAMP(6)", "nulo": true },
+            { "n": "CRIADO_EM", "t": "TIMESTAMP(6)", "pad": "SYSTIMESTAMP" }
+          ],
+          "restricoes": [
+            { "tipo": "PK", "nome": "PK_DISPOSITIVO", "regra": "ID" },
+            { "tipo": "UNIQUE", "nome": "UK_DISPOSITIVO", "regra": "(USUARIO_ID, IDENTIFICADOR_HASH)" },
+            { "tipo": "FK", "nome": "FK_DISPOSITIVO_USUARIO", "regra": "USUARIO_ID → USUARIO (ID), sem cascade" }
+          ]
+        },
+        {
+          "id": "TENTATIVA_LOGIN", "nome": "TENTATIVA_LOGIN", "schema": "log",
+          "desc": "toda tentativa de login, certa ou errada",
+          "campos": [
+            { "n": "ID", "t": "NUMBER", "pk": true, "ident": true },
+            { "n": "USUARIO_ID", "t": "NUMBER", "nulo": true, "fk": { "t": "USUARIO", "c": "ID" }, "nota": "Vazio quando o e-mail digitado não é de nenhum usuário (é assim que robôs testando e-mails aparecem)." },
+            { "n": "EMAIL_INFORMADO", "t": "VARCHAR2(150 CHAR)" },
+            { "n": "IP_ORIGEM", "t": "VARCHAR2(45)" },
+            { "n": "PAIS", "t": "VARCHAR2(2)", "nulo": true },
+            { "n": "CIDADE", "t": "VARCHAR2(100 CHAR)", "nulo": true },
+            { "n": "SUCESSO", "t": "BOOLEAN" },
+            { "n": "MOTIVO", "t": "VARCHAR2(30)", "nulo": true, "nota": "Por que falhou: SENHA_ERRADA, CONTA_BLOQUEADA, SEGUNDO_FATOR_ERRADO, IP_BLOQUEADO, SENHA_EXPIRADA..." },
+            { "n": "SUSPEITA", "t": "BOOLEAN", "pad": "FALSE", "nota": "Localização suspeita: TRUE quando o país ou a cidade nunca apareceu nos logins certos do usuário, ou quando dois logins seguidos vêm de lugares longe demais para o tempo entre eles. Login suspeito sempre pede o 2FA e avisa o usuário por e-mail." },
+            { "n": "DATA_HORA", "t": "TIMESTAMP(6)", "pad": "SYSTIMESTAMP" }
+          ],
+          "restricoes": [
+            { "tipo": "PK", "nome": "PK_TENTATIVA_LOGIN", "regra": "ID" },
+            { "tipo": "FK", "nome": "FK_TENTATIVA_LOGIN_USUARIO", "regra": "USUARIO_ID → USUARIO (ID), sem cascade" },
+            { "tipo": "INDEX", "nome": "IX_TENTATIVA_LOGIN_IP", "regra": "(IP_ORIGEM, DATA_HORA)" },
+            { "tipo": "INDEX", "nome": "IX_TENTATIVA_LOGIN_USUARIO", "regra": "(USUARIO_ID, DATA_HORA)" }
+          ]
+        },
+        {
+          "id": "BLOQUEIO_IP", "nome": "BLOQUEIO_IP", "schema": "sessao",
+          "desc": "IPs barrados por excesso de tentativas (robôs)",
+          "campos": [
+            { "n": "ID", "t": "NUMBER", "pk": true, "ident": true },
+            { "n": "IP", "t": "VARCHAR2(45)", "uq": "UK_BLOQUEIO_IP", "nota": "Um IP que errou demais em pouco tempo, contando por TENTATIVA_LOGIN, mesmo testando e-mails diferentes. Sem ligação com outra tabela." },
+            { "n": "MOTIVO", "t": "VARCHAR2(100 CHAR)" },
+            { "n": "BLOQUEADO_ATE", "t": "TIMESTAMP(6)" },
+            { "n": "CRIADO_EM", "t": "TIMESTAMP(6)", "pad": "SYSTIMESTAMP" }
+          ],
+          "restricoes": [
+            { "tipo": "PK", "nome": "PK_BLOQUEIO_IP", "regra": "ID" },
+            { "tipo": "UNIQUE", "nome": "UK_BLOQUEIO_IP", "regra": "IP" }
+          ]
+        },
+        {
+          "id": "ACEITE_TERMO", "nome": "ACEITE_TERMO", "schema": "login",
+          "desc": "o que o usuário aceitou, em qual versão (LGPD)",
+          "campos": [
+            { "n": "ID", "t": "NUMBER", "pk": true, "ident": true },
+            { "n": "USUARIO_ID", "t": "NUMBER", "fk": { "t": "USUARIO", "c": "ID" }, "uq": "UK_ACEITE_TERMO", "uqCom": ["USUARIO_ID", "DOCUMENTO", "VERSAO"] },
+            { "n": "DOCUMENTO", "t": "VARCHAR2(30)", "uq": "UK_ACEITE_TERMO", "uqCom": ["USUARIO_ID", "DOCUMENTO", "VERSAO"], "nota": "'TERMOS_DE_USO' ou 'POLITICA_DE_PRIVACIDADE'." },
+            { "n": "VERSAO", "t": "VARCHAR2(20)", "uq": "UK_ACEITE_TERMO", "uqCom": ["USUARIO_ID", "DOCUMENTO", "VERSAO"], "nota": "Quando sai uma versão nova, o login pede o aceite de novo." },
+            { "n": "IP_ORIGEM", "t": "VARCHAR2(45)", "nulo": true },
+            { "n": "ACEITO_EM", "t": "TIMESTAMP(6)", "pad": "SYSTIMESTAMP" }
+          ],
+          "restricoes": [
+            { "tipo": "PK", "nome": "PK_ACEITE_TERMO", "regra": "ID" },
+            { "tipo": "UNIQUE", "nome": "UK_ACEITE_TERMO", "regra": "(USUARIO_ID, DOCUMENTO, VERSAO)" },
+            { "tipo": "FK", "nome": "FK_ACEITE_TERMO_USUARIO", "regra": "USUARIO_ID → USUARIO (ID), sem cascade" }
+          ]
+        },
+        {
+          "id": "LOG_SEGURANCA", "nome": "LOG_SEGURANCA", "schema": "log",
+          "desc": "tudo que muda a segurança de uma conta",
+          "campos": [
+            { "n": "ID", "t": "NUMBER", "pk": true, "ident": true },
+            { "n": "USUARIO_ID", "t": "NUMBER", "nulo": true, "fk": { "t": "USUARIO", "c": "ID" }, "nota": "A conta afetada." },
+            { "n": "EVENTO", "t": "VARCHAR2(40)", "nota": "SENHA_ALTERADA, SEGUNDO_FATOR_ATIVADO, SEGUNDO_FATOR_REMOVIDO, DISPOSITIVO_CONFIAVEL, CONTA_BLOQUEADA, PERFIL_ALTERADO, SESSAO_ENCERRADA, PARAMETRO_ALTERADO..." },
+            { "n": "AUTOR", "t": "VARCHAR2(128)", "nulo": true, "nota": "Quem fez: o próprio usuário, um administrador ou o sistema." },
+            { "n": "IP_ORIGEM", "t": "VARCHAR2(45)", "nulo": true },
+            { "n": "DETALHE", "t": "VARCHAR2(1000 CHAR)", "nulo": true },
+            { "n": "DATA_HORA", "t": "TIMESTAMP(6)", "pad": "SYSTIMESTAMP" },
+            { "n": "HASH_ANTERIOR", "t": "VARCHAR2(64)", "nulo": true, "nota": "Encadeamento: o HASH da linha anterior. Vazio só na primeira linha." },
+            { "n": "HASH", "t": "VARCHAR2(64)", "nota": "SHA-256 desta linha junto com o HASH_ANTERIOR. Se alguém apagar ou alterar uma linha direto no banco, a corrente quebra dali em diante e a conferência acusa." }
+          ],
+          "restricoes": [
+            { "tipo": "PK", "nome": "PK_LOG_SEGURANCA", "regra": "ID" },
+            { "tipo": "FK", "nome": "FK_LOG_SEGURANCA_USUARIO", "regra": "USUARIO_ID → USUARIO (ID), sem cascade" },
+            { "tipo": "INDEX", "nome": "IX_LOG_SEGURANCA_USUARIO", "regra": "(USUARIO_ID, DATA_HORA)" }
           ]
         }
       ],
       "relacoes": [
-        { "pai": "CLIENTE_FANTASMA", "filho": "FATURA", "fk": "CLIENTE_ID", "pk": "ID", "card": "1:N", "nome": "(nome gerado)", "obs": "FK entre schemas: ADMINISTRACAO aponta para o schema padrão." },
-        { "pai": "FATURA", "filho": "PAGAMENTO", "fk": "FATURA_ID", "pk": "ID", "card": "1:N", "nome": "(nome gerado)" }
+        { "pai": "PESSOA_REF", "filho": "USUARIO", "fk": "PESSOA_ID", "pk": "ID", "card": "1:1", "nome": "FK_USUARIO_PESSOA", "lado": "esq", "obs": "Uma pessoa tem no máximo um usuário. FK entre schemas: LOGIN aponta para o padrão." },
+        { "pai": "USUARIO", "filho": "ACEITE_TERMO", "fk": "USUARIO_ID", "pk": "ID", "card": "1:N", "nome": "FK_ACEITE_TERMO_USUARIO" },
+        { "pai": "USUARIO", "filho": "LOG_SEGURANCA", "fk": "USUARIO_ID", "pk": "ID", "card": "1:N", "nome": "FK_LOG_SEGURANCA_USUARIO" },
+        { "pai": "USUARIO", "filho": "SEGUNDO_FATOR", "fk": "USUARIO_ID", "pk": "ID", "card": "1:1", "nome": "FK_SEGUNDO_FATOR_USUARIO", "obs": "Um usuário tem no máximo um 2FA." },
+        { "pai": "USUARIO", "filho": "CODIGO_RECUPERACAO", "fk": "USUARIO_ID", "pk": "ID", "card": "1:N", "nome": "FK_CODIGO_RECUPERACAO_USUARIO" },
+        { "pai": "USUARIO", "filho": "HISTORICO_SENHA", "fk": "USUARIO_ID", "pk": "ID", "card": "1:N", "nome": "FK_HISTORICO_SENHA_USUARIO" },
+        { "pai": "USUARIO", "filho": "CODIGO_TEMPORARIO", "fk": "USUARIO_ID", "pk": "ID", "card": "1:N", "nome": "FK_CODIGO_TEMPORARIO_USUARIO" },
+        { "pai": "USUARIO", "filho": "TOKEN", "fk": "USUARIO_ID", "pk": "ID", "card": "1:N", "nome": "FK_TOKEN_USUARIO", "obs": "Um token por login, em cada aparelho." },
+        { "pai": "USUARIO", "filho": "DISPOSITIVO", "fk": "USUARIO_ID", "pk": "ID", "card": "1:N", "nome": "FK_DISPOSITIVO_USUARIO" },
+        { "pai": "USUARIO", "filho": "TENTATIVA_LOGIN", "fk": "USUARIO_ID", "pk": "ID", "card": "1:N", "nome": "FK_TENTATIVA_LOGIN_USUARIO", "obs": "Opcional do lado da tentativa: e-mail desconhecido não tem usuário." },
+        { "pai": "DISPOSITIVO", "filho": "TOKEN", "fk": "DISPOSITIVO_ID", "pk": "ID", "card": "1:N", "nome": "FK_TOKEN_DISPOSITIVO", "lado": "dir" }
       ],
-      "extras": []
+      "extras": [
+      ]
+    },
+    {
+      "id": "autorizacao",
+      "titulo": "Proposta: autorização e parâmetros",
+      "selo": "prop",
+      "seloTexto": "proposta, ainda não existe no banco",
+      "subtitulo": "O login diz quem é o usuário; aqui fica o que ele pode fazer e em quais empresas. Tudo no schema LOGIN. USUARIO e EMPRESA aparecem repetidas, em cinza, só para mostrar as ligações.",
+      "colunas": [
+        { "v": "centro", "tabelas": ["PERMISSAO", "USUARIO_REF", "PARAMETRO_SEGURANCA"] },
+        { "v": "centro", "tabelas": ["PERFIL_PERMISSAO", "USUARIO_EMPRESA"] },
+        { "v": "centro", "tabelas": ["PERFIL", "EMPRESA_REF"] }
+      ],
+      "tabelas": [
+        {
+          "id": "USUARIO_REF", "nome": "USUARIO", "schema": "login", "fantasma": true,
+          "desc": "só a chave aparece aqui; os campos estão no quadro de login",
+          "ponte": "repetida: esta tabela é do quadro de login",
+          "campos": [ { "n": "ID", "t": "NUMBER", "pk": true, "ident": true } ],
+          "restricoes": []
+        },
+        {
+          "id": "EMPRESA_REF", "nome": "EMPRESA", "schema": "padrao", "fantasma": true,
+          "desc": "só a chave aparece aqui; os campos estão no quadro de cadastros",
+          "ponte": "repetida: esta tabela é do quadro de cadastros",
+          "campos": [ { "n": "ID", "t": "NUMBER", "pk": true, "ident": true } ],
+          "restricoes": []
+        },
+        {
+          "id": "PERMISSAO", "nome": "PERMISSAO", "schema": "login",
+          "desc": "cada ação que a API protege",
+          "campos": [
+            { "n": "ID", "t": "NUMBER", "pk": true, "ident": true },
+            { "n": "CODIGO", "t": "VARCHAR2(60)", "uq": "UK_PERMISSAO_CODIGO", "nota": "Por exemplo PESSOA_LER, PESSOA_ALTERAR, USUARIO_GERENCIAR. A API confere o código antes de cada operação." },
+            { "n": "DESCRICAO", "t": "VARCHAR2(200 CHAR)" }
+          ],
+          "restricoes": [
+            { "tipo": "PK", "nome": "PK_PERMISSAO", "regra": "ID" },
+            { "tipo": "UNIQUE", "nome": "UK_PERMISSAO_CODIGO", "regra": "CODIGO" }
+          ]
+        },
+        {
+          "id": "PERFIL", "nome": "PERFIL", "schema": "login",
+          "desc": "um conjunto de permissões com nome",
+          "campos": [
+            { "n": "ID", "t": "NUMBER", "pk": true, "ident": true },
+            { "n": "NOME", "t": "VARCHAR2(50)", "uq": "UK_PERFIL_NOME", "nota": "Por exemplo ADMINISTRADOR, OPERADOR, CONSULTA." },
+            { "n": "DESCRICAO", "t": "VARCHAR2(200 CHAR)", "nulo": true },
+            { "n": "ATIVO", "t": "BOOLEAN", "pad": "TRUE" },
+            { "n": "CRIADO_EM", "t": "TIMESTAMP(6)", "pad": "SYSTIMESTAMP" }
+          ],
+          "restricoes": [
+            { "tipo": "PK", "nome": "PK_PERFIL", "regra": "ID" },
+            { "tipo": "UNIQUE", "nome": "UK_PERFIL_NOME", "regra": "NOME" }
+          ]
+        },
+        {
+          "id": "PERFIL_PERMISSAO", "nome": "PERFIL_PERMISSAO", "schema": "login",
+          "desc": "quais permissões cada perfil tem",
+          "ponte": "tabela de junção: PERFIL × PERMISSAO (N:N)",
+          "campos": [
+            { "n": "ID", "t": "NUMBER", "pk": true, "ident": true },
+            { "n": "PERFIL_ID", "t": "NUMBER", "fk": { "t": "PERFIL", "c": "ID" }, "uq": "UK_PERFIL_PERMISSAO", "uqCom": ["PERFIL_ID", "PERMISSAO_ID"] },
+            { "n": "PERMISSAO_ID", "t": "NUMBER", "fk": { "t": "PERMISSAO", "c": "ID" }, "uq": "UK_PERFIL_PERMISSAO", "uqCom": ["PERFIL_ID", "PERMISSAO_ID"] },
+            { "n": "CRIADO_EM", "t": "TIMESTAMP(6)", "pad": "SYSTIMESTAMP" }
+          ],
+          "restricoes": [
+            { "tipo": "PK", "nome": "PK_PERFIL_PERMISSAO", "regra": "ID" },
+            { "tipo": "UNIQUE", "nome": "UK_PERFIL_PERMISSAO", "regra": "(PERFIL_ID, PERMISSAO_ID)" },
+            { "tipo": "FK", "nome": "FK_PERFIL_PERMISSAO_PERFIL", "regra": "PERFIL_ID → PERFIL (ID), sem cascade" },
+            { "tipo": "FK", "nome": "FK_PERFIL_PERMISSAO_PERMISSAO", "regra": "PERMISSAO_ID → PERMISSAO (ID), sem cascade" }
+          ]
+        },
+        {
+          "id": "USUARIO_EMPRESA", "nome": "USUARIO_EMPRESA", "schema": "login",
+          "desc": "em quais empresas o usuário entra, e com qual perfil em cada uma",
+          "ponte": "tabela de junção: USUARIO × EMPRESA (N:N), o multiempresa",
+          "campos": [
+            { "n": "ID", "t": "NUMBER", "pk": true, "ident": true },
+            { "n": "USUARIO_ID", "t": "NUMBER", "fk": { "t": "USUARIO_REF", "c": "ID" }, "uq": "UK_USUARIO_EMPRESA", "uqCom": ["USUARIO_ID", "EMPRESA_ID"] },
+            { "n": "EMPRESA_ID", "t": "NUMBER", "fk": { "t": "EMPRESA_REF", "c": "ID", "esquema": "padrão" }, "uq": "UK_USUARIO_EMPRESA", "uqCom": ["USUARIO_ID", "EMPRESA_ID"], "nota": "Sem uma linha aqui, o usuário não enxerga nada daquela empresa." },
+            { "n": "PERFIL_ID", "t": "NUMBER", "fk": { "t": "PERFIL", "c": "ID" }, "nota": "O mesmo usuário pode ser administrador numa empresa e só consulta em outra." },
+            { "n": "ATIVO", "t": "BOOLEAN", "pad": "TRUE" },
+            { "n": "CRIADO_EM", "t": "TIMESTAMP(6)", "pad": "SYSTIMESTAMP" }
+          ],
+          "restricoes": [
+            { "tipo": "PK", "nome": "PK_USUARIO_EMPRESA", "regra": "ID" },
+            { "tipo": "UNIQUE", "nome": "UK_USUARIO_EMPRESA", "regra": "(USUARIO_ID, EMPRESA_ID)" },
+            { "tipo": "FK", "nome": "FK_USUARIO_EMPRESA_USUARIO", "regra": "USUARIO_ID → USUARIO (ID), sem cascade" },
+            { "tipo": "FK", "nome": "FK_USUARIO_EMPRESA_EMPRESA", "regra": "EMPRESA_ID → KAWASHI_ENV_<AMB>.EMPRESA (ID), entre schemas, sem cascade" },
+            { "tipo": "FK", "nome": "FK_USUARIO_EMPRESA_PERFIL", "regra": "PERFIL_ID → PERFIL (ID), sem cascade" }
+          ]
+        },
+        {
+          "id": "PARAMETRO_SEGURANCA", "nome": "PARAMETRO_SEGURANCA", "schema": "login",
+          "desc": "os números das regras de segurança",
+          "campos": [
+            { "n": "ID", "t": "NUMBER", "pk": true, "ident": true },
+            { "n": "CHAVE", "t": "VARCHAR2(60)", "uq": "UK_PARAMETRO_CHAVE", "nota": "Por exemplo SENHA_VALIDADE_DIAS, LOGIN_MAX_TENTATIVAS, TOKEN_MINUTOS, TOKEN_TETO_HORAS, DISPOSITIVO_CONFIAVEL_DIAS." },
+            { "n": "VALOR", "t": "VARCHAR2(100)" },
+            { "n": "DESCRICAO", "t": "VARCHAR2(200 CHAR)" },
+            { "n": "ATUALIZADO_POR", "t": "VARCHAR2(128)", "nulo": true },
+            { "n": "ATUALIZADO_EM", "t": "TIMESTAMP(6)", "pad": "SYSTIMESTAMP", "nota": "Toda mudança também gera uma linha em LOG_SEGURANCA (PARAMETRO_ALTERADO): afrouxar uma regra não passa despercebido." }
+          ],
+          "restricoes": [
+            { "tipo": "PK", "nome": "PK_PARAMETRO_SEGURANCA", "regra": "ID" },
+            { "tipo": "UNIQUE", "nome": "UK_PARAMETRO_CHAVE", "regra": "CHAVE" }
+          ]
+        }
+      ],
+      "relacoes": [
+        { "pai": "PERMISSAO", "filho": "PERFIL_PERMISSAO", "fk": "PERMISSAO_ID", "pk": "ID", "card": "1:N", "nome": "FK_PERFIL_PERMISSAO_PERMISSAO" },
+        { "pai": "PERFIL", "filho": "PERFIL_PERMISSAO", "fk": "PERFIL_ID", "pk": "ID", "card": "1:N", "nome": "FK_PERFIL_PERMISSAO_PERFIL" },
+        { "pai": "PERFIL", "filho": "USUARIO_EMPRESA", "fk": "PERFIL_ID", "pk": "ID", "card": "1:N", "nome": "FK_USUARIO_EMPRESA_PERFIL" },
+        { "pai": "USUARIO_REF", "filho": "USUARIO_EMPRESA", "fk": "USUARIO_ID", "pk": "ID", "card": "1:N", "nome": "FK_USUARIO_EMPRESA_USUARIO", "obs": "Um usuário tem acesso a várias empresas." },
+        { "pai": "EMPRESA_REF", "filho": "USUARIO_EMPRESA", "fk": "EMPRESA_ID", "pk": "ID", "card": "1:N", "nome": "FK_USUARIO_EMPRESA_EMPRESA", "obs": "Uma empresa tem vários usuários. FK entre schemas: LOGIN aponta para o padrão." }
+      ],
+      "extras": [
+        { "card": "N:N", "a": "USUARIO", "b": "EMPRESA", "via": "USUARIO_EMPRESA", "obs": "Não é uma ligação a mais: é o efeito das duas ligações 1:N acima. No banco, usuário e empresa nunca se ligam direto; a tabela do meio USUARIO_EMPRESA resolve o N para N." },
+        { "card": "N:N", "a": "PERFIL", "b": "PERMISSAO", "via": "PERFIL_PERMISSAO", "obs": "Resolvido pela tabela do meio PERFIL_PERMISSAO, com duas ligações 1:N. Não existe N para N direto no banco." }
+      ]
     }
   ],
-  "repete": [
-    { "dado": "CNPJ", "onde": "CLIENTE, EMPRESA e FILIAL (e EMPRESA e FILIAL de ORGANIZACOES, na referência)", "garante": "Cada tabela tem o próprio UNIQUE. Nada impede o mesmo CNPJ em CLIENTE e em EMPRESA ao mesmo tempo." },
-    { "dado": "Razão social / nome", "onde": "RAZAO_SOCIAL em CLIENTE e EMPRESA; NOME em CONTATO, SOCIO e FILIAL", "garante": "Só tipo e tamanho. Texto livre em cada tabela, sem ligação entre eles." },
-    { "dado": "CPF", "onde": "Só em SOCIO", "garante": "Único por empresa (EMPRESA_ID + CPF), não no banco todo." },
-    { "dado": "E-mail", "onde": "CONTATO.EMAIL (e USUARIO.EMAIL, na referência)", "garante": "Nada. EMAIL de CONTATO não é único nem tem formato validado no banco; em USUARIO é único." },
-    { "dado": "Telefone", "onde": "Só em CONTATO.TELEFONE", "garante": "10 ou 11 dígitos (CHECK)." },
-    { "dado": "Endereço", "onde": "Só ENDERECO, preso a CLIENTE", "garante": "EMPRESA, FILIAL e SOCIO não têm endereço." },
-    { "dado": "Mesma pessoa em papéis diferentes", "onde": "SOCIO, CONTATO e (na referência) USUARIO", "garante": "Nenhuma coluna liga um SOCIO a um CONTATO ou a um USUARIO. Cada papel guarda seus próprios dados." }
+  "dePara": [
+    { "de": "CLIENTE", "para": "Deixou de existir: é uma PESSOA com TIPO = 'CLIENTE'" },
+    { "de": "SOCIO", "para": "PESSOA com TIPO = 'SOCIO' e a PARTICIPACAO" },
+    { "de": "colaborador e fornecedor (não existem hoje)", "para": "PESSOA com TIPO = 'COLABORADOR' (com o CARGO) ou 'FORNECEDOR'" },
+    { "de": "EMPRESA", "para": "EMPRESA, sem o CLIENTE_ID (deixa de pertencer a um cliente)" },
+    { "de": "FILIAL", "para": "FILIAL, igual a hoje" },
+    { "de": "CONTATO (nome, e-mail, telefone de um cliente)", "para": "CONTATO: uma linha por e-mail ou telefone, de uma filial ou de uma pessoa" },
+    { "de": "ENDERECO (só de cliente)", "para": "ENDERECO de uma filial ou de uma pessoa" },
+    { "de": "sem log na API", "para": "LOG_ALTERACAO e LOG_ACESSO (existem); LOG_SEGURANCA e TENTATIVA_LOGIN (entram com o login)" },
+    { "de": "sem controle de quem pode o quê", "para": "PERFIL, PERMISSAO e USUARIO_EMPRESA (perfil do usuário em cada empresa)" },
+    { "de": "CONFIGURACAO_FISCAL e os schemas SEFAZ e SIMPLES_NACIONAL", "para": "Removidos: eram só material de teste" }
+  ],
+  "abertas": [
+    "Feito (etapa 1): cadastros em torno de PESSOA e logs da aplicação, com a API e os testes.",
+    "Próxima (etapa 2): login. Schemas LOGIN e SESSAO, senha, token, bloqueios, 2FA opcional, dispositivos.",
+    "Depois (etapa 3): autorização por perfil e por empresa.",
+    "Em aberto: os números do login (validade da senha, limite de tentativas, duração do token). Ficam em PARAMETRO_SEGURANCA e podem ser ajustados depois."
+  ],
+  "semTabela": [
+    "Senha com argon2id (ou bcrypt), nunca SHA puro; mínimo de 12 caracteres e recusa de senhas conhecidas de vazamentos.",
+    "A mesma resposta para \"e-mail não existe\" e \"senha errada\", para ninguém descobrir quais e-mails têm conta.",
+    "Atraso crescente a cada erro de senha, além do bloqueio.",
+    "Troca de senha derruba todas as sessões (preenche REVOGADO_EM dos tokens).",
+    "Aviso por e-mail em login suspeito, aparelho novo, troca de senha e ativação ou remoção do 2FA.",
+    "Token só por HTTPS, enviado no cabeçalho ou em cookie HttpOnly + Secure + SameSite.",
+    "A chave que cifra a semente do 2FA fica no Vault, não no banco nem no código.",
+    "Permissão por schema: no LOG a conta da API só insere (não altera nem apaga), então nem a própria API consegue adulterar o histórico. No SESSAO ela pode apagar, porque ali tudo vence.",
+    "Limpeza periódica: tokens expirados e tentativas de login antigas são apagados por um job."
   ]
 }
 </script>
@@ -695,7 +914,9 @@
   function tabelaRelacoes(d) {
     var nome = function (id) { var t = d.tabelas.filter(function (x) { return x.id === id; })[0]; return t ? t.nome : id; };
     var corpo = h('tbody');
-    var apagarPadrao = d.selo === 'ref'
+    var apagarPadrao = d.selo === 'prop'
+      ? 'Recusado pelo banco (sem cascade), como é hoje.'
+      : d.selo === 'ref'
       ? 'Seria recusado pelo banco (ORA-02292), se o script fosse aplicado. Não há API para estas tabelas.'
       : 'Recusado pelo banco (ORA-02292); a API avisa antes, com 409.';
     d.relacoes.forEach(function (r, i) {
@@ -703,7 +924,7 @@
       var filho = d.tabelas.filter(function (x) { return x.id === r.filho; })[0];
       corpo.appendChild(h('tr', { 'data-rel': i },
         h('td', { class: 'mono' }, h('b', { text: nome(r.pai) }), '.' + r.pk),
-        h('td', { class: 'card n1', text: '1 : N' }),
+        h('td', { class: 'card n1', text: r.card.replace(':', ' : ') }),
         h('td', { class: 'mono' }, h('b', { text: nome(r.filho) }), '.' + r.fk),
         h('td', { class: 'mono', text: r.nome }),
         h('td', {}, r.apagar || apagarPadrao,
@@ -713,7 +934,7 @@
     (d.extras || []).forEach(function (x) {
       corpo.appendChild(h('tr', {},
         h('td', { class: 'mono' }, h('b', { text: x.a })),
-        h('td', { class: 'card nn', text: x.card.replace(':', ' : ') }),
+        h('td', { class: 'card nn', text: x.card === 'N:N' ? 'N : N (via tabela do meio)' : x.card.replace(':', ' : ') }),
         h('td', { class: 'mono' }, h('b', { text: x.b })),
         h('td', { class: 'mono', text: 'via ' + x.via }),
         h('td', { colspan: '2', text: x.obs })));
@@ -752,11 +973,11 @@
   }
 
   // ---- ligacoes (SVG) ----
-  var BASE = 50, PASSO = 12;
+  var BASE = 50, PASSO = 8;
   function ligar(canvas, d) {
     var svg = canvas.querySelector('svg.ligacoes');
     while (svg.firstChild) svg.removeChild(svg.firstChild);
-    if (getComputedStyle(svg).display === 'none') return;
+    if (getComputedStyle(svg).display === 'none' || !canvas.offsetWidth) return;
     var cr = canvas.getBoundingClientRect();
     svg.setAttribute('width', canvas.offsetWidth);
     svg.setAttribute('height', canvas.offsetHeight);
@@ -783,7 +1004,8 @@
     // faixas (lanes): para filhos abaixo/acima da origem, o mais perto vira por ultimo (faixa mais longe)
     var grupos = {};
     conj.forEach(function (c) {
-      var k = c.r.pai + '|' + c.sp + '|' + (c.y2 >= c.y1 ? 'b' : 'a');
+      // uma faixa por ligacao em cada lado de cada coluna: ligacoes de pais diferentes nunca se sobrepoem
+      var k = colDe[c.r.pai] + '|' + c.sp;
       (grupos[k] = grupos[k] || []).push(c);
     });
     Object.keys(grupos).forEach(function (k) {
@@ -807,6 +1029,14 @@
       });
       var t1 = s('text', { x: c.x1 + c.sp * 26, y: c.y1 - 6 }); t1.textContent = '1'; g.appendChild(t1);
       // lado do filho: pe de galinha + circulo = zero ou muitos
+      if (r.card === '1:1') {
+        [7, 12].forEach(function (o) {
+          g.appendChild(s('path', { class: 'glifo', d: 'M' + (c.x2 + c.sc * o) + ',' + (c.y2 - 6) + ' V' + (c.y2 + 6) }));
+        });
+        var tu = s('text', { x: c.x2 + c.sc * 26, y: c.y2 - 6 }); tu.textContent = '1'; g.appendChild(tu);
+        svg.appendChild(g);
+        return;
+      }
       var ax = c.x2 + c.sc * 16;
       g.appendChild(s('path', { class: 'glifo', d: 'M' + ax + ',' + c.y2 + ' L' + c.x2 + ',' + (c.y2 - 7) + ' M' + ax + ',' + c.y2 + ' L' + c.x2 + ',' + c.y2 + ' M' + ax + ',' + c.y2 + ' L' + c.x2 + ',' + (c.y2 + 7) }));
       g.appendChild(s('circle', { class: 'glifo', cx: c.x2 + c.sc * 22, cy: c.y2, r: 4 }));
@@ -894,38 +1124,22 @@
   redesenhar();
   window.addEventListener('resize', redesenhar);
   window.addEventListener('load', redesenhar);
+  document.querySelectorAll('details.dobra').forEach(function (el) { el.addEventListener('toggle', redesenhar); });
   if (document.fonts && document.fonts.ready) document.fonts.ready.then(redesenhar);
   if (window.ResizeObserver) {
     var ro = new ResizeObserver(redesenhar);
     canvases.forEach(function (x) { ro.observe(x.canvas); });
   }
 
-  // ---- placar e aviso do 1:1 (calculados do bloco "banco") ----
-  var A = M.diagramas[0];
-  var conta = function (c) { return A.relacoes.filter(function (r) { return r.card === c; }).length; };
-  var placar = document.getElementById('placar');
-  [
-    [A.tabelas.length, 'tabelas no banco hoje', ''],
-    [conta('1:N'), 'relações 1 : N', ''],
-    [conta('1:1'), 'relações 1 : 1', conta('1:1') === 0 ? 'zero' : ''],
-    [conta('N:N'), 'relações N : N', '']
-  ].forEach(function (x) {
-    placar.appendChild(h('div', { class: 'cartao num ' + x[2] }, h('b', { text: x[0] }), h('span', { text: x[1] })));
+  // ---- "de hoje para a proposta" e decisoes em aberto ----
+  var dp = document.querySelector('#depara-tabela tbody');
+  M.dePara.forEach(function (x) {
+    dp.appendChild(h('tr', {}, h('td', { class: 'mono' }, h('b', { text: x.de })), h('td', { text: x.para })));
   });
-  var av = document.getElementById('aviso-11');
-  if (conta('1:1') === 0) {
-    av.appendChild(h('strong', { text: 'Não existe relação 1 para 1 no banco hoje.' }));
-    av.appendChild(document.createTextNode(
-      'Para ser 1:1, a coluna de chave estrangeira teria de ser UNIQUE, e nenhuma é. Os "só um" que aparecem são regras da API, não do banco: um endereço principal e um contato principal por cliente, e a soma das participações dos sócios até 100%. Quando decidirem a PESSOA, é aqui que um 1:1 (por exemplo, uma pessoa para um usuário) apareceria, com UNIQUE na FK.'));
-  } else {
-    av.style.display = 'none';
-  }
-
-  // ---- tabela "o que se repete" ----
-  var rb = document.querySelector('#repete-tabela tbody');
-  M.repete.forEach(function (x) {
-    rb.appendChild(h('tr', {}, h('td', {}, h('b', { text: x.dado })), h('td', { text: x.onde }), h('td', { text: x.garante })));
-  });
+  var ab = document.getElementById('abertas');
+  M.abertas.forEach(function (x) { ab.appendChild(h('li', { text: x })); });
+  var st = document.getElementById('sem-tabela');
+  M.semTabela.forEach(function (x) { st.appendChild(h('li', { text: x })); });
 })();
 </script>
 </body>

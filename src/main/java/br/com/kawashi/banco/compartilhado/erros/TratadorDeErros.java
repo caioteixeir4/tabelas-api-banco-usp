@@ -114,6 +114,15 @@ public class TratadorDeErros extends ResponseEntityExceptionHandler {
     @Override
     protected ResponseEntity<Object> handleHttpMessageNotReadable(HttpMessageNotReadableException ex,
             HttpHeaders headers, HttpStatusCode status, WebRequest request) {
+        // Corpo sem Content-Length que passou do limite durante a leitura (ver LimiteDeCorpoFilter):
+        // o erro chega embrulhado no de leitura do JSON, mas a resposta certa e 413, nao 400.
+        for (Throwable causa = ex; causa != null; causa = causa.getCause()) {
+            if (causa instanceof CorpoGrandeDemaisException grande) {
+                HttpStatus grandeDemais = HttpStatus.valueOf(413);
+                return handleExceptionInternal(ex, problema(grandeDemais, "Corpo grande demais", grande.getMessage()),
+                        headers, grandeDemais, request);
+            }
+        }
         ProblemDetail problema = problema(HttpStatus.BAD_REQUEST, "Corpo da requisição ilegível",
                 "O corpo da requisição não é um JSON válido ou tem um campo com tipo errado.");
         return handleExceptionInternal(ex, problema, headers, status, request);

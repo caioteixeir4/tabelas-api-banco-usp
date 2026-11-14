@@ -12,6 +12,7 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.util.UriComponentsBuilder;
 
@@ -19,12 +20,8 @@ import br.com.kawashi.banco.compartilhado.Pagina;
 import br.com.kawashi.banco.compartilhado.Paginas;
 import jakarta.validation.Valid;
 
-/**
- * Criar e listar sao aninhados no cliente (a empresa nasce dentro de um cliente); operar sobre uma
- * empresa especifica usa o caminho plano /api/empresas/{id}.
- */
 @RestController
-@RequestMapping("/api")
+@RequestMapping("/api/empresas")
 public class EmpresaController {
 
     private final EmpresaService servico;
@@ -33,41 +30,43 @@ public class EmpresaController {
         this.servico = servico;
     }
 
-    @PostMapping("/clientes/{clienteId}/empresas")
-    public ResponseEntity<EmpresaResponse> criar(@PathVariable Long clienteId, @Valid @RequestBody EmpresaRequest dados,
-            UriComponentsBuilder uri) {
-        Empresa criada = servico.criar(clienteId, dados);
+    @PostMapping
+    public ResponseEntity<EmpresaResponse> criar(@Valid @RequestBody EmpresaRequest dados, UriComponentsBuilder uri) {
+        Empresa criada = servico.criar(dados);
         URI local = uri.path("/api/empresas/{id}").buildAndExpand(criada.getId()).toUri();
         return ResponseEntity.created(local).body(EmpresaResponse.de(criada));
     }
 
-    @GetMapping("/clientes/{clienteId}/empresas")
-    public Pagina<EmpresaResponse> listar(@PathVariable Long clienteId,
-            @PageableDefault(size = 20, sort = "id") Pageable paginacao) {
-        return Pagina.de(servico.listar(clienteId, Paginas.seguro(paginacao)), EmpresaResponse::de);
+    @GetMapping
+    public Pagina<EmpresaResponse> listar(
+            @RequestParam(required = false) String cnpj,
+            @RequestParam(required = false) String razaoSocial,
+            @RequestParam(required = false) Boolean ativa,
+            @PageableDefault(size = 20, sort = "razaoSocial") Pageable paginacao) {
+        return Pagina.de(servico.listar(cnpj, razaoSocial, ativa, Paginas.seguro(paginacao)), EmpresaResponse::de);
     }
 
-    @GetMapping("/empresas/{id}")
+    @GetMapping("/{id}")
     public EmpresaResponse buscar(@PathVariable Long id) {
         return EmpresaResponse.de(servico.buscar(id));
     }
 
-    @PutMapping("/empresas/{id}")
+    @PutMapping("/{id}")
     public EmpresaResponse atualizar(@PathVariable Long id, @Valid @RequestBody EmpresaRequest dados) {
         return EmpresaResponse.de(servico.atualizar(id, dados));
     }
 
-    @PostMapping("/empresas/{id}/inativar")
+    @PostMapping("/{id}/inativar")
     public EmpresaResponse inativar(@PathVariable Long id) {
         return EmpresaResponse.de(servico.inativar(id));
     }
 
-    @PostMapping("/empresas/{id}/reativar")
+    @PostMapping("/{id}/reativar")
     public EmpresaResponse reativar(@PathVariable Long id) {
         return EmpresaResponse.de(servico.reativar(id));
     }
 
-    @DeleteMapping("/empresas/{id}")
+    @DeleteMapping("/{id}")
     public ResponseEntity<Void> excluir(@PathVariable Long id) {
         servico.excluir(id);
         return ResponseEntity.noContent().build();

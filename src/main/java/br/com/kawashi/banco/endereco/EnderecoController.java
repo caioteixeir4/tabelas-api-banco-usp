@@ -15,12 +15,17 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.util.UriComponentsBuilder;
 
+import br.com.kawashi.banco.auxiliar.Dono;
 import br.com.kawashi.banco.compartilhado.Pagina;
 import br.com.kawashi.banco.compartilhado.Paginas;
 import jakarta.validation.Valid;
 
+/**
+ * Criar e listar sao aninhados no dono (uma filial ou uma pessoa); operar sobre um endereco
+ * especifico usa o caminho plano /api/enderecos/{id}.
+ */
 @RestController
-@RequestMapping("/api/clientes/{clienteId}/enderecos")
+@RequestMapping("/api")
 public class EnderecoController {
 
     private final EnderecoService servico;
@@ -29,34 +34,48 @@ public class EnderecoController {
         this.servico = servico;
     }
 
-    @PostMapping
-    public ResponseEntity<EnderecoResponse> criar(@PathVariable Long clienteId,
+    @PostMapping("/filiais/{filialId}/enderecos")
+    public ResponseEntity<EnderecoResponse> criarNaFilial(@PathVariable Long filialId,
             @Valid @RequestBody EnderecoRequest dados, UriComponentsBuilder uri) {
-        Endereco criado = servico.criar(clienteId, dados);
-        URI local = uri.path("/api/clientes/{clienteId}/enderecos/{id}").buildAndExpand(clienteId, criado.getId()).toUri();
-        return ResponseEntity.created(local).body(EnderecoResponse.de(criado));
+        return criado(servico.criar(Dono.filial(filialId), dados), uri);
     }
 
-    @GetMapping
-    public Pagina<EnderecoResponse> listar(@PathVariable Long clienteId,
+    @PostMapping("/pessoas/{pessoaId}/enderecos")
+    public ResponseEntity<EnderecoResponse> criarNaPessoa(@PathVariable Long pessoaId,
+            @Valid @RequestBody EnderecoRequest dados, UriComponentsBuilder uri) {
+        return criado(servico.criar(Dono.pessoa(pessoaId), dados), uri);
+    }
+
+    @GetMapping("/filiais/{filialId}/enderecos")
+    public Pagina<EnderecoResponse> listarDaFilial(@PathVariable Long filialId,
             @PageableDefault(size = 20, sort = "id") Pageable paginacao) {
-        return Pagina.de(servico.listar(clienteId, Paginas.seguro(paginacao)), EnderecoResponse::de);
+        return Pagina.de(servico.listar(Dono.filial(filialId), Paginas.seguro(paginacao)), EnderecoResponse::de);
     }
 
-    @GetMapping("/{id}")
-    public EnderecoResponse buscar(@PathVariable Long clienteId, @PathVariable Long id) {
-        return EnderecoResponse.de(servico.buscar(clienteId, id));
+    @GetMapping("/pessoas/{pessoaId}/enderecos")
+    public Pagina<EnderecoResponse> listarDaPessoa(@PathVariable Long pessoaId,
+            @PageableDefault(size = 20, sort = "id") Pageable paginacao) {
+        return Pagina.de(servico.listar(Dono.pessoa(pessoaId), Paginas.seguro(paginacao)), EnderecoResponse::de);
     }
 
-    @PutMapping("/{id}")
-    public EnderecoResponse atualizar(@PathVariable Long clienteId, @PathVariable Long id,
-            @Valid @RequestBody EnderecoRequest dados) {
-        return EnderecoResponse.de(servico.atualizar(clienteId, id, dados));
+    @GetMapping("/enderecos/{id}")
+    public EnderecoResponse buscar(@PathVariable Long id) {
+        return EnderecoResponse.de(servico.buscar(id));
     }
 
-    @DeleteMapping("/{id}")
-    public ResponseEntity<Void> excluir(@PathVariable Long clienteId, @PathVariable Long id) {
-        servico.excluir(clienteId, id);
+    @PutMapping("/enderecos/{id}")
+    public EnderecoResponse atualizar(@PathVariable Long id, @Valid @RequestBody EnderecoRequest dados) {
+        return EnderecoResponse.de(servico.atualizar(id, dados));
+    }
+
+    @DeleteMapping("/enderecos/{id}")
+    public ResponseEntity<Void> excluir(@PathVariable Long id) {
+        servico.excluir(id);
         return ResponseEntity.noContent().build();
+    }
+
+    private static ResponseEntity<EnderecoResponse> criado(Endereco endereco, UriComponentsBuilder uri) {
+        URI local = uri.path("/api/enderecos/{id}").buildAndExpand(endereco.getId()).toUri();
+        return ResponseEntity.created(local).body(EnderecoResponse.de(endereco));
     }
 }

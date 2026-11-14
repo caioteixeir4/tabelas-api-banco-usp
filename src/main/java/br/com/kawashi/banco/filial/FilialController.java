@@ -20,8 +20,8 @@ import br.com.kawashi.banco.compartilhado.Paginas;
 import jakarta.validation.Valid;
 
 /**
- * Criar e listar sao aninhados na empresa (a filial nasce de uma empresa); operar sobre uma filial
- * ja existente usa o caminho plano /api/filiais/{id}.
+ * Criar e listar sao aninhados na empresa (a filial nasce dentro de uma); operar sobre uma filial
+ * especifica usa o caminho plano /api/filiais/{id}.
  */
 @RestController
 @RequestMapping("/api")

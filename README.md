@@ -11,11 +11,33 @@ o banco Oracle.
 
 ## O que já existe
 
-- 6 tabelas padrão: `CLIENTE`, `ENDERECO`, `CONTATO`, `EMPRESA`, `FILIAL`, `SOCIO`.
-- API REST para todas elas (criar, listar com paginação, buscar, atualizar, excluir), com
+- **Cadastros em torno de `PESSOA`:** `EMPRESA`, `FILIAL`, `PESSOA` (cliente, colaborador, sócio ou
+  fornecedor, conforme o campo `TIPO`) e as tabelas auxiliares `CONTATO` e `ENDERECO`, que servem a
+  uma filial ou a uma pessoa.
+- **API REST** para todos eles (criar, listar com paginação, buscar, atualizar, excluir), com
   validações de CNPJ/CPF/UF, regras de negócio e erros no formato RFC 9457.
-- Migrações versionadas (Flyway). Detalhes em [`docs/api-e-regras.md`](docs/api-e-regras.md).
-- Testes de integração contra o Oracle real, pelo mesmo caminho de produção (proxy).
+- **Logs da aplicação** num schema separado (`KAWASHI_ENV_<AMBIENTE>_LOG`), em que a API só insere:
+  quem mudou qual registro, encadeado por hash, e cada chamada à API.
+- Migrações versionadas (Flyway) e testes de integração contra o Oracle real, pelo mesmo caminho de
+  produção (proxy).
+
+Documentação:
+
+- [`docs/modelo-de-dados.md`](docs/modelo-de-dados.md): as tabelas, os schemas e o porquê de cada
+  decisão, incluindo o que ainda é proposta (login e autorização).
+- [`docs/diagrama-tabelas.html`](docs/diagrama-tabelas.html): o diagrama, campo a campo (abrir no
+  navegador).
+- [`docs/api-e-regras.md`](docs/api-e-regras.md): endpoints, regras, logs, concorrência.
+
+## O que vem a seguir
+
+Desenhado e documentado, ainda não implementado:
+
+1. **Login** (schemas `LOGIN` e `SESSAO`): senha com troca a cada 90 dias, token que expira,
+   bloqueio por tentativas, 2FA opcional, dispositivo de confiança, localização suspeita.
+2. **Autorização**: perfis, permissões e o vínculo do usuário com cada empresa (multiempresa).
+
+Enquanto isso, **a API não tem autenticação**: quem alcança a porta lê e grava tudo.
 
 ## Rodando
 
@@ -52,17 +74,18 @@ Configuração, por variável de ambiente ou pelo `.env`:
 | `DB_POOL_MAX` | Tamanho máximo do pool de conexões | `10` |
 | `PORT` | Porta HTTP | `8080` |
 
-A saúde da aplicação fica em `/actuator/health`.
+O schema de log é deduzido sozinho: o schema em que a API entra, seguido de `_LOG`. A saúde da
+aplicação fica em `/actuator/health`.
 
 ## O banco guarda estrutura, a API guarda regra
 
 | O banco garante | A API garante |
 |---|---|
 | Tipo, tamanho máximo e `NOT NULL` de cada coluna | Mensagem clara em português para cada campo inválido (400) |
-| Formato (`CHECK`): CNPJ com 14 dígitos, CPF com 11, UF com 2 letras, CEP com 8, telefone com 10 ou 11 | Dígito verificador de CNPJ e CPF, UF que existe de verdade, e-mail válido |
-| Unicidade (`UNIQUE`) e chaves estrangeiras | CNPJ duplicado (409), pai inexistente (404), registro com dependentes (409) |
-| Participação entre 0 e 100 | Soma das participações dos sócios até 100% |
-| Nada além disso | Cliente inativo não recebe vínculo novo, só a matriz é empresa, filial herda a raiz do CNPJ, um único endereço/contato principal, imutabilidade de CNPJ e CPF |
+| Formato (`CHECK`): CNPJ com 14 dígitos, CPF com 11, UF com 2 letras, CEP com 8 | Dígito verificador de CNPJ e CPF, UF que existe de verdade, e-mail e telefone válidos |
+| Os valores possíveis de `TIPO` e `NATUREZA`; participação só em sócio, cargo só em colaborador | Participação obrigatória para sócio; soma das participações até 100% |
+| Unicidade (`UNIQUE`) e chaves estrangeiras; contato e endereço com exatamente um dono | Duplicidade (409), pai inexistente (404), registro com dependentes (409) |
+| Nada além disso | Pai inativo não recebe filho novo, só a matriz é empresa, filial herda a raiz do CNPJ, um único principal, imutabilidade de documento e tipo |
 
 Se uma restrição do banco for violada sem que a API a tenha antecipado, o cliente recebe um 409
 genérico e o log guarda a causa real. As regras importantes são checadas antes, na camada de
@@ -75,9 +98,15 @@ editada**; qualquer mudança de estrutura é uma migração nova. O Hibernate ro
 `ddl-auto=validate`: ele só confere se as entidades batem com as tabelas, e a aplicação não sobe se
 não baterem.
 
-O repositório de regras cria uma fixture mínima (`CLIENTE`) em `TESTE_DEV` e `DEV`, então esses
-schemas **não estão vazios** na primeira execução. Por isso a `V1` só cria `CLIENTE` quando ela não
-existe, e o Flyway usa `baseline-on-migrate` com versão `0`.
+- `V1` a `V4`: o primeiro modelo (uma tabela por papel: `CLIENTE`, `SOCIO`...).
+- `V5`: troca pelo modelo em torno de `PESSOA`. Ela **não converte dados**: recusa rodar se alguma
+  tabela antiga tiver linhas, em vez de apagar em silêncio. O modelo antigo só existiu em
+  desenvolvimento.
+
+As tabelas de **log não são criadas aqui**, e sim pelo repositório de regras
+(`infra/oracle-init/11_schema_log.sql`). É de propósito: quem cria uma tabela é dono dela e consegue
+apagar as linhas. Com o dono sendo um schema em que ninguém loga, "a API só insere no log" deixa de
+ser promessa e vira permissão do banco.
 
 ## Testes
 
@@ -86,22 +115,27 @@ proxy) e chamam os endpoints por MockMvc. Cada teste roda numa transação que �
 então não sobra dado no banco e os testes não interferem entre si. Os documentos usados são
 CNPJ/CPF válidos e aleatórios (`GeradorDeDocumentos`), nunca reais.
 
-A suíte tem **291 testes** (última execução de `mvn test`, todos passando):
+A suíte tem **88 testes** (última execução de `mvn test`, todos passando). É menor que a do modelo
+antigo (296): são menos tabelas, e os testes foram reescritos mais densos, vários casos por teste.
 
 | Grupo | Testes |
 |---|---|
-| Uma classe por recurso: `ClienteApiTest`, `ContatoApiTest`, `EmpresaApiTest`, `EnderecoApiTest`, `FilialApiTest`, `SocioApiTest` | 221 |
+| `EmpresaEFilialApiTest` | 10 |
+| `PessoaApiTest` (tipos, natureza e documento, participação, soma dos sócios) | 15 |
+| `ContatoEEnderecoApiTest` (as mesmas regras com dono filial e dono pessoa) | 12 |
+| `LogDaAplicacaoTest` (rastro de cada mudança, encadeamento, o que a API não consegue fazer no log) | 7 |
+| `ServidorRealTest` (porta real: 12 pedidos simultâneos contra as travas e contra o log, corpo fragmentado) | 8 |
 | `DocumentosTest` (CNPJ, CPF, UF, sem banco) | 31 |
-| `LimitesDeTextoTest` (tamanho máximo em letras acentuadas, em cada campo) | 12 |
-| `EndurecimentoTest` (paginação, filtro, corpo grande, documento sujo, decisões de pai inativo) | 14 |
-| `EntradasDeBordaTest` | 8 |
 | `ConexaoProxyTest` (a conta de API entra no schema certo) e `TratadorDeErrosTest` | 3 + 2 |
 
-Como a transação do teste mantém a sessão aberta, ela esconde um tipo de erro de produção
-(`LazyInitializationException` fora da transação). Por isso existe também um roteiro por **HTTP
-real**, [`scripts/smoke-http.ps1`](scripts/smoke-http.ps1): com a API no ar, cria cliente, empresa,
-filial, sócios, endereço e contato, viola as regras de propósito (50 verificações) e apaga tudo o
-que criou, conferindo que nada sobrou.
+O `ServidorRealTest` é a exceção à transação desfeita: precisa gravar de verdade para disputar as
+travas. Ele apaga os cadastros que criou; as linhas de log ficam, porque a API não tem como
+apagá-las.
+
+Como a transação do teste mantém a sessão aberta, ela esconde um tipo de erro de produção. Por isso
+existe também um roteiro por **HTTP real**, [`scripts/smoke-http.ps1`](scripts/smoke-http.ps1): com
+a API no ar, cria empresa, filial, pessoas de cada tipo, contatos e endereços, viola as regras de
+propósito (39 verificações) e apaga os cadastros que criou, conferindo que nada sobrou.
 
 ```bash
 PORT=18080 mvn spring-boot:run          # em um terminal
@@ -117,32 +151,25 @@ PORT=18080 mvn spring-boot:run          # em um terminal
   `org.springframework.data.core` e `AutoConfigureMockMvc` para
   `org.springframework.boot.webmvc.test.autoconfigure`. Em caso de dúvida, listar as entradas do jar
   em vez de adivinhar.
-- **Spring Data 4 trata todo getter como propriedade.** Um `getClienteId()` numa entidade que tem
-  `cliente` quebra o `findByClienteId` (o Hibernate procura um atributo `clienteId` que não
-  existe). O id do pai sai de `entidade.getCliente().getId()`, que não carrega o proxy.
 - **`open-in-view` está desligado**, e os controladores montam a resposta depois que a transação do
-  serviço fechou. Ler um relacionamento preguiçoso na resposta, além do id, quebraria em produção.
+  serviço fechou. Por isso as entidades guardam o pai só pela chave (`empresaId`, `filialId`,
+  `pessoaId`), sem associação JPA: nada na resposta depende de carga preguiçosa.
 - **O Oracle mede `VARCHAR2(n)` em bytes por padrão**, e o banco é `AL32UTF8`: letra acentuada
-  ocupa 2 bytes. Ver `docs/api-e-regras.md`.
+  ocupa 2 bytes. As colunas de texto livre são `VARCHAR2(n CHAR)`.
+- **Falta de privilégio tem dois códigos.** Pelo `sqlplus` aparece `ORA-01031`; pelo JDBC do Oracle
+  23, o mais específico `ORA-41900`. Os testes aceitam os dois.
 
 ## Pendências
 
-- **Autenticação e autorização.** A API ainda não tem nenhuma. Está planejada para a entrega do
-  schema `LOGIN`.
-- Demais schemas do desenho original (`SEFAZ`, `ORGANIZACOES`, `LOGIN`, `ADMINISTRACAO`). A
-  criação dos schemas é do repositório de regras; as tabelas, deste.
-- **Regra "serviço lê todas as tabelas padrão".** As tabelas criadas pelo Flyway não recebem
-  `GRANT SELECT` automático para os schemas de serviço (hoje só a `CLIENTE` recebe, pela fixture).
-  A decisão de onde essa regra mora está em aberto, registrada no repositório de regras.
+- **Login e autorização** (ver "O que vem a seguir").
 - **Conta de migração separada da conta de execução.** Hoje a mesma conta roda o Flyway e atende
   as requisições, e por proxy ela tem DDL no schema do ambiente.
+- **O log de alteração não guarda o valor antigo nem o novo**, só que o registro mudou.
 - Empacotamento (Dockerfile) e integração contínua.
 
 ## Origem
 
 O conteúdo inicial saiu do `regras-banco-usp` na separação entre regras e tabelas. A versão
 completa de antes da separação está na tag `dominio-completo-pre-separacao` (commit `cadb773`)
-daquele repositório. Os SQL originais e o desenho de domínio completo (incluindo `ORGANIZACOES`,
-`LOGIN` e `ADMINISTRACAO`) continuam em [`oracle-init/`](oracle-init/) e
-[`docs/arquitetura-dominio.md`](docs/arquitetura-dominio.md), **só como referência**: a fonte da
-verdade da estrutura agora são as migrações do Flyway.
+daquele repositório. O primeiro modelo de tabelas e sua API estão no histórico do git deste
+repositório, até o commit `49913a6`.

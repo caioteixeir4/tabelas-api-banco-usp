@@ -2,30 +2,23 @@ package br.com.kawashi.banco.empresa;
 
 import org.hibernate.annotations.DynamicUpdate;
 
-import br.com.kawashi.banco.cliente.Cliente;
 import br.com.kawashi.banco.compartilhado.AuditoriaBase;
 
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
-import jakarta.persistence.FetchType;
-import jakarta.persistence.JoinColumn;
-import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
 
 /**
- * Uma empresa (sempre a MATRIZ, CNPJ com ordem 0001) de um cliente. As filiais e os socios
- * penduram nela. Entidade e repositorio ficam na fundacao porque Filial e Socio dependem deles; o
- * servico, o controlador e os DTOs sao da fatia de Empresa.
+ * Uma empresa (sempre a MATRIZ, CNPJ com ordem 0001). Filiais e pessoas penduram nela.
+ *
+ * <p>{@code @DynamicUpdate}: o UPDATE grava so as colunas que mudaram. Sem isso, um PUT (que muda a
+ * razao social) desfazia um "inativar" concorrente, porque regravava tambem a coluna ATIVA com o
+ * valor lido antes.
  */
-// @DynamicUpdate: ver o motivo em Cliente (um PUT nao desfaz um "inativar" concorrente).
 @Entity
 @DynamicUpdate
 @Table(name = "EMPRESA")
 public class Empresa extends AuditoriaBase {
-
-    @ManyToOne(fetch = FetchType.LAZY, optional = false)
-    @JoinColumn(name = "CLIENTE_ID", nullable = false, updatable = false)
-    private Cliente cliente;
 
     /** Somente digitos. Imutavel depois de criada. */
     @Column(name = "CNPJ", nullable = false, length = 14, updatable = false)
@@ -44,8 +37,7 @@ public class Empresa extends AuditoriaBase {
         // exigido pelo JPA
     }
 
-    public Empresa(Cliente cliente, String cnpj, String razaoSocial, String nomeFantasia) {
-        this.cliente = cliente;
+    public Empresa(String cnpj, String razaoSocial, String nomeFantasia) {
         this.cnpj = cnpj;
         this.razaoSocial = razaoSocial;
         this.nomeFantasia = nomeFantasia;
@@ -62,10 +54,6 @@ public class Empresa extends AuditoriaBase {
 
     public void reativar() {
         this.ativa = true;
-    }
-
-    public Cliente getCliente() {
-        return cliente;
     }
 
     public String getCnpj() {

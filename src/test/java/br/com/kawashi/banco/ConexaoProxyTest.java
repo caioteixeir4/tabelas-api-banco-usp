@@ -13,7 +13,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 /**
  * Prova de fogo da arquitetura: a API entra no Oracle como CONTA[SCHEMA_DO_AMBIENTE] (proxy
  * authentication, mesmo modelo das pessoas) e, no fim da subida, as migracoes do Flyway deixaram
- * as 6 tabelas padrao no schema do ambiente. Roda contra o Oracle real do repositorio de regras.
+ * as tabelas de cadastro no schema do ambiente. Roda contra o Oracle real do repositorio de regras.
  */
 @SpringBootTest
 class ConexaoProxyTest {
@@ -43,10 +43,11 @@ class ConexaoProxyTest {
     void migracoesCriaramAsTabelasPadrao() {
         List<String> tabelas = jdbc.queryForList(
                 "SELECT table_name FROM user_tables WHERE table_name IN "
-                        + "('CLIENTE','ENDERECO','CONTATO','EMPRESA','FILIAL','SOCIO') ORDER BY table_name",
+                        + "('CLIENTE','SOCIO','ENDERECO','CONTATO','EMPRESA','FILIAL','PESSOA') ORDER BY table_name",
                 String.class);
 
-        assertThat(tabelas).containsExactly("CLIENTE", "CONTATO", "EMPRESA", "ENDERECO", "FILIAL", "SOCIO");
+        // As tabelas do modelo antigo (CLIENTE, SOCIO) nao podem ter sobrado.
+        assertThat(tabelas).containsExactly("CONTATO", "EMPRESA", "ENDERECO", "FILIAL", "PESSOA");
     }
 
     @Test
@@ -55,6 +56,6 @@ class ConexaoProxyTest {
                 "SELECT COUNT(*) FROM \"flyway_schema_history\" WHERE \"success\" = 1 AND \"version\" IS NOT NULL AND \"version\" <> '0'",
                 Integer.class);
 
-        assertThat(aplicadas).isGreaterThanOrEqualTo(3);
+        assertThat(aplicadas).isGreaterThanOrEqualTo(5);
     }
 }

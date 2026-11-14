@@ -3,30 +3,26 @@ package br.com.kawashi.banco.filial;
 import org.hibernate.annotations.DynamicUpdate;
 
 import br.com.kawashi.banco.compartilhado.AuditoriaBase;
-import br.com.kawashi.banco.empresa.Empresa;
 
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
-import jakarta.persistence.FetchType;
-import jakarta.persistence.JoinColumn;
-import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
 
 /**
- * Uma filial de uma empresa. O CNPJ tem a mesma raiz (8 primeiros digitos) da empresa e uma ordem
- * de 0002 em diante (0001 e a matriz). Empresa e CNPJ nao mudam depois de criada a filial.
+ * Filial de uma empresa. A empresa pai e guardada so pela chave (EMPRESA_ID), sem associacao JPA:
+ * assim a resposta nunca depende de carga preguicosa fora da transacao (o open-in-view esta
+ * desligado). A chave estrangeira continua existindo no banco.
  */
-// @DynamicUpdate: ver o motivo em Cliente (um PUT nao desfaz um "inativar" concorrente).
+// @DynamicUpdate: ver o motivo em Empresa (um PUT nao desfaz um "inativar" concorrente).
 @Entity
 @DynamicUpdate
 @Table(name = "FILIAL")
 public class Filial extends AuditoriaBase {
 
-    @ManyToOne(fetch = FetchType.LAZY, optional = false)
-    @JoinColumn(name = "EMPRESA_ID", nullable = false, updatable = false)
-    private Empresa empresa;
+    @Column(name = "EMPRESA_ID", nullable = false, updatable = false)
+    private Long empresaId;
 
-    /** Somente digitos. Imutavel depois de criada (regra no servico; aqui nem tem setter). */
+    /** Somente digitos. Imutavel depois de criada. */
     @Column(name = "CNPJ", nullable = false, length = 14, updatable = false)
     private String cnpj;
 
@@ -40,8 +36,8 @@ public class Filial extends AuditoriaBase {
         // exigido pelo JPA
     }
 
-    public Filial(Empresa empresa, String cnpj, String nome) {
-        this.empresa = empresa;
+    public Filial(Long empresaId, String cnpj, String nome) {
+        this.empresaId = empresaId;
         this.cnpj = cnpj;
         this.nome = nome;
     }
@@ -58,8 +54,8 @@ public class Filial extends AuditoriaBase {
         this.ativa = true;
     }
 
-    public Empresa getEmpresa() {
-        return empresa;
+    public Long getEmpresaId() {
+        return empresaId;
     }
 
     public String getCnpj() {

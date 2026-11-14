@@ -2,9 +2,11 @@ package br.com.kawashi.banco.endereco;
 
 import java.time.LocalDateTime;
 
+/** Exatamente um entre filialId e pessoaId vem preenchido: e o dono do endereco. */
 public record EnderecoResponse(
         Long id,
-        Long clienteId,
+        Long filialId,
+        Long pessoaId,
         String logradouro,
         String numero,
         String complemento,
@@ -19,8 +21,8 @@ public record EnderecoResponse(
     public static EnderecoResponse de(Endereco endereco) {
         return new EnderecoResponse(
                 endereco.getId(),
-                // getId() do proxy preguicoso do cliente nao o carrega (a sessao ja fechou aqui).
-                endereco.getCliente().getId(),
+                endereco.getFilialId(),
+                endereco.getPessoaId(),
                 endereco.getLogradouro(),
                 endereco.getNumero(),
                 endereco.getComplemento(),

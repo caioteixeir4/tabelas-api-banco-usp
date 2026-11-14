@@ -4,7 +4,6 @@ import java.time.LocalDateTime;
 
 public record EmpresaResponse(
         Long id,
-        Long clienteId,
         String cnpj,
         String razaoSocial,
         String nomeFantasia,
@@ -15,7 +14,6 @@ public record EmpresaResponse(
     public static EmpresaResponse de(Empresa empresa) {
         return new EmpresaResponse(
                 empresa.getId(),
-                empresa.getCliente().getId(),
                 empresa.getCnpj(),
                 empresa.getRazaoSocial(),
                 empresa.getNomeFantasia(),

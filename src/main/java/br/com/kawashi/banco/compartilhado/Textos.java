@@ -19,6 +19,11 @@ public final class Textos {
         return texto == null ? null : texto.strip();
     }
 
+    /** Em um trecho usado com LIKE, faz % e _ valerem como texto (escape com barra invertida). */
+    public static String escaparCuringas(String texto) {
+        return texto.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_");
+    }
+
     /** Aparado, e texto opcional em branco vira nulo. */
     public static String limpar(String texto) {
         String aparado = aparar(texto);

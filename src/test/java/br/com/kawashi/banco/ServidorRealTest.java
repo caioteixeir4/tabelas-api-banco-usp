@@ -45,7 +45,7 @@ import br.com.kawashi.banco.testes.GeradorDeDocumentos;
  * Diferente dos outros testes, aqui os dados sao gravados de verdade; cada teste apaga os cadastros
  * que criou. As linhas de LOG ficam: a API nao tem como apaga-las, e esse e o ponto.
  */
-@SpringBootTest(webEnvironment = WebEnvironment.RANDOM_PORT)
+@SpringBootTest(webEnvironment = WebEnvironment.RANDOM_PORT, properties = {"app.exigir-https=false", "server.ssl.enabled=false"})
 class ServidorRealTest {
 
     private static final int PEDIDOS_SIMULTANEOS = 12;

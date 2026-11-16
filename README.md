@@ -37,20 +37,27 @@ Desenhado e documentado, ainda não implementado:
    bloqueio por tentativas, 2FA opcional, dispositivo de confiança, localização suspeita.
 2. **Autorização**: perfis, permissões e o vínculo do usuário com cada empresa (multiempresa).
 
-Enquanto isso, **a API não tem autenticação**: quem alcança a porta lê e grava tudo.
+Enquanto isso, **a API não tem autenticação**: quem alcança a porta lê e grava cadastros. O que já
+limita o estrago: a conta de banco que atende os pedidos não consegue apagar nem alterar tabela, não
+consegue mexer no log, e a API pode exigir HTTPS.
 
 ## Rodando
 
 Pré-requisitos: JDK 21 ou superior (testado com o 24), Maven 3.9 e o banco do `regras-banco-usp`
 no ar (`docker compose up -d` dentro de `infra/`).
 
-1. **Crie a conta da API** no repositório de regras. Ela entra no Oracle por proxy, no schema do
-   ambiente, e já gera o `.env` local deste projeto (ignorado pelo git):
+1. **Crie as duas contas da API** no repositório de regras. As duas entram no Oracle por proxy e
+   vão para o mesmo `.env` local deste projeto (ignorado pelo git):
 
    ```powershell
    cd ..\regras-banco-usp\infra\scripts
-   ./create-api-account.ps1 -Username API_TESTE_DEV -Ambiente TESTE_DEV -OutEnvFile ..\..\..\tabelas-api-banco-usp\.env
+   ./create-api-account.ps1 -Username API_TESTE_DEV_EXEC -Ambiente TESTE_DEV -OutEnvFile ..\..\..\tabelas-api-banco-usp\.env
+   ./create-api-account.ps1 -Username API_TESTE_DEV      -Ambiente TESTE_DEV -Papel Migracao -OutEnvFile ..\..\..\tabelas-api-banco-usp\.env
    ```
+
+   A primeira é a de **execução**: atende os pedidos e só lê e grava linhas. A segunda é a de
+   **migração**: entra como dona das tabelas e só é usada na subida, pelo Flyway. Ver "Contas de
+   banco" em [`docs/api-e-regras.md`](docs/api-e-regras.md).
 
 2. **Suba a API** (as migrações rodam sozinhas na primeira vez):
 
@@ -64,18 +71,33 @@ no ar (`docker compose up -d` dentro de `infra/`).
    mvn test
    ```
 
+4. **HTTPS** (opcional no desenvolvimento, obrigatório fora dele). Gera um certificado autoassinado
+   para `localhost` e liga o HTTPS obrigatório no `.env`:
+
+   ```powershell
+   .\scripts\gerar-certificado-dev.ps1
+   ```
+
+   Depois disso a API sobe em `https://localhost:8080` e recusa HTTP puro. Os testes não são
+   afetados: eles fixam a própria configuração de HTTPS.
+
 Configuração, por variável de ambiente ou pelo `.env`:
 
 | Variável | Para quê | Padrão |
 |---|---|---|
 | `DB_URL` | URL JDBC | `jdbc:oracle:thin:@//localhost:1521/FREEPDB1` |
-| `DB_USER` | Usuário no formato `CONTA[KAWASHI_ENV_<AMBIENTE>]` (proxy) | sem padrão |
-| `DB_PASSWORD` | Senha **da própria conta** (está no Vault em `kawashi-secrets/api/<conta>`) | sem padrão |
+| `DB_SCHEMA` | Schema do ambiente, onde ficam as tabelas (`KAWASHI_ENV_<AMBIENTE>`) | sem padrão |
+| `DB_USER` | Conta de **execução**, no formato `CONTA[KAWASHI_ENV_<AMBIENTE>_APP]` | sem padrão |
+| `DB_PASSWORD` | Senha da conta de execução | sem padrão |
+| `DB_MIGRACAO_USER` | Conta de **migração**, no formato `CONTA[KAWASHI_ENV_<AMBIENTE>]` | sem padrão |
+| `DB_MIGRACAO_PASSWORD` | Senha da conta de migração | sem padrão |
 | `DB_POOL_MAX` | Tamanho máximo do pool de conexões | `10` |
-| `PORT` | Porta HTTP | `8080` |
+| `PORT` | Porta | `8080` |
+| `EXIGIR_HTTPS` | `true` recusa pedido a `/api/**` que não chegou por HTTPS | `false` |
+| `SSL_ATIVO`, `SSL_KEYSTORE`, `SSL_KEYSTORE_PASSWORD` | HTTPS direto na aplicação (keystore PKCS12) | desligado |
 
-O schema de log é deduzido sozinho: o schema em que a API entra, seguido de `_LOG`. A saúde da
-aplicação fica em `/actuator/health`.
+As senhas também ficam no Vault, em `kawashi-secrets/api/<conta>`. O schema de log é deduzido
+sozinho (`DB_SCHEMA` seguido de `_LOG`). A saúde da aplicação fica em `/actuator/health`.
 
 ## O banco guarda estrutura, a API guarda regra
 
@@ -115,7 +137,7 @@ proxy) e chamam os endpoints por MockMvc. Cada teste roda numa transação que �
 então não sobra dado no banco e os testes não interferem entre si. Os documentos usados são
 CNPJ/CPF válidos e aleatórios (`GeradorDeDocumentos`), nunca reais.
 
-A suíte tem **88 testes** (última execução de `mvn test`, todos passando). É menor que a do modelo
+A suíte tem **95 testes** (última execução de `mvn test`, todos passando). É menor que a do modelo
 antigo (296): são menos tabelas, e os testes foram reescritos mais densos, vários casos por teste.
 
 | Grupo | Testes |
@@ -126,7 +148,9 @@ antigo (296): são menos tabelas, e os testes foram reescritos mais densos, vár
 | `LogDaAplicacaoTest` (rastro de cada mudança, encadeamento, o que a API não consegue fazer no log) | 7 |
 | `ServidorRealTest` (porta real: 12 pedidos simultâneos contra as travas e contra o log, corpo fragmentado) | 8 |
 | `DocumentosTest` (CNPJ, CPF, UF, sem banco) | 31 |
-| `ConexaoProxyTest` (a conta de API entra no schema certo) e `TratadorDeErrosTest` | 3 + 2 |
+| `ConexaoProxyTest` (as duas contas de banco; a de execução não cria, altera nem apaga tabela) | 6 |
+| `HttpsObrigatorioTest` (HTTP puro recusado, cabeçalhos de segurança) | 4 |
+| `TratadorDeErrosTest` | 2 |
 
 O `ServidorRealTest` é a exceção à transação desfeita: precisa gravar de verdade para disputar as
 travas. Ele apaga os cadastros que criou; as linhas de log ficam, porque a API não tem como
@@ -162,8 +186,6 @@ PORT=18080 mvn spring-boot:run          # em um terminal
 ## Pendências
 
 - **Login e autorização** (ver "O que vem a seguir").
-- **Conta de migração separada da conta de execução.** Hoje a mesma conta roda o Flyway e atende
-  as requisições, e por proxy ela tem DDL no schema do ambiente.
 - **O log de alteração não guarda o valor antigo nem o novo**, só que o registro mudou.
 - Empacotamento (Dockerfile) e integração contínua.
 

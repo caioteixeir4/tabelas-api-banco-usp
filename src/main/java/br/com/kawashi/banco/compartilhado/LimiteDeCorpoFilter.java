@@ -35,7 +35,7 @@ import jakarta.servlet.http.HttpServletResponse;
  * </ul>
  */
 @Component
-@Order(Ordered.HIGHEST_PRECEDENCE)
+@Order(Ordered.HIGHEST_PRECEDENCE + 10)
 public class LimiteDeCorpoFilter extends OncePerRequestFilter {
 
     private final long limiteEmBytes;

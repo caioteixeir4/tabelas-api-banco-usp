@@ -16,7 +16,7 @@ import org.springframework.transaction.annotation.Transactional;
  */
 @Target(ElementType.TYPE)
 @Retention(RetentionPolicy.RUNTIME)
-@SpringBootTest
+@SpringBootTest(properties = {"app.exigir-https=false", "server.ssl.enabled=false"})
 @AutoConfigureMockMvc
 @Transactional
 public @interface IntegracaoApi {

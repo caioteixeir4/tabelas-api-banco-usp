@@ -21,3 +21,7 @@ HELP.md
 .env
 .env.*
 !.env.example
+
+# Certificados e keystores locais: nunca versionar
+*.p12
+*.jks

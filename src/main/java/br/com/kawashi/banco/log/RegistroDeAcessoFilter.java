@@ -23,7 +23,7 @@ import jakarta.servlet.http.HttpServletResponse;
  * log da aplicacao como aviso.
  */
 @Component
-@Order(Ordered.HIGHEST_PRECEDENCE + 10)
+@Order(Ordered.HIGHEST_PRECEDENCE)
 public class RegistroDeAcessoFilter extends OncePerRequestFilter {
 
     private static final Logger LOG = LoggerFactory.getLogger(RegistroDeAcessoFilter.class);

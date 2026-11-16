@@ -114,7 +114,7 @@ Todas cobertas por teste.
 ## Logs da aplicação
 
 Ficam em outro schema, `KAWASHI_ENV_<AMBIENTE>_LOG`, cujas tabelas são criadas pelo repositório de
-regras. A conta da API só tem `INSERT` e `SELECT` nele.
+regras. Só a conta de execução da API tem acesso a ele, e só `INSERT` e `SELECT`.
 
 - **`LOG_ALTERACAO`**: toda criação, alteração e exclusão de cadastro gera uma linha (tabela, id,
   ação), gravada na **mesma transação** da mudança: mudança desfeita não deixa log, e não existe
@@ -133,6 +133,43 @@ O que a API tenta e não consegue (`LogDaAplicacaoTest`): alterar ou apagar linh
 **Custo conhecido:** o gatilho trava a linha de controle até o fim da transação de quem insere,
 então as gravações de um mesmo ambiente são feitas uma de cada vez. Os serviços registram o log
 por último, para a trava durar o mínimo.
+
+## Contas de banco e transporte
+
+### Duas contas de banco
+
+Quem entra por proxy no schema do ambiente age como o **dono** das tabelas, e o dono sempre pode
+apagá-las. Por isso a API usa duas contas, criadas por `create-api-account.ps1 -Papel` no
+repositório de regras:
+
+| Conta | Entra em | Quando é usada | O que consegue |
+|---|---|---|---|
+| **Migração** | `KAWASHI_ENV_<AMBIENTE>` (o dono) | só na subida, pelo Flyway | criar e alterar tabelas |
+| **Execução** | `KAWASHI_ENV_<AMBIENTE>_APP` (schema sem objetos) | em todo pedido | ler e gravar linhas, e inserir no log |
+
+Depois de cada migração, o próprio Flyway (`afterMigrate.sql`) concede à conta de execução só
+`SELECT`, `INSERT`, `UPDATE` e `DELETE` em cada tabela. Quem invadir a API herda a conta de
+execução: não consegue `DROP`, `ALTER`, `TRUNCATE` nem `CREATE` (testado em `ConexaoProxyTest`), não
+consegue alterar nem apagar o log, e não lê o histórico das migrações.
+
+O que a separação **não** resolve: a conta de execução ainda lê e altera todas as linhas de
+cadastro. Limitar isso por usuário e por empresa é papel do login e da autorização.
+
+### HTTPS e cabeçalhos
+
+- **HTTPS obrigatório** com `EXIGIR_HTTPS=true`: pedido a `/api/**` que chegou em HTTP puro recebe
+  `403` sem ser processado (e fica registrado no `LOG_ACESSO`). A checagem de saúde continua
+  acessível. Fica desligado só no desenvolvimento e nos testes.
+- **HTTPS direto na aplicação** com `SSL_ATIVO=true` e um keystore PKCS12; o
+  `scripts/gerar-certificado-dev.ps1` gera um autoassinado para desenvolvimento. Atrás de um proxy
+  reverso que termina o TLS, vale o cabeçalho `X-Forwarded-Proto`, aceito só de proxies internos.
+- **Toda resposta leva**: `Cache-Control: no-store` (a resposta carrega dado pessoal),
+  `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, `Referrer-Policy: no-referrer` e, em
+  HTTPS, `Strict-Transport-Security`.
+
+Verificado ao vivo com o certificado de desenvolvimento: a API respondeu em HTTPS com os cabeçalhos
+e recusou HTTP puro na mesma porta. O cabeçalho do proxy reverso **não** foi testado (o MockMvc não
+reproduz o comportamento do Tomcat para ele).
 
 ## Concorrência
 

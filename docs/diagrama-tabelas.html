@@ -812,8 +812,10 @@
   ],
   "abertas": [
     "Feito (etapa 1): cadastros em torno de PESSOA e logs da aplicação, com a API e os testes.",
-    "Próxima (etapa 2): login. Schemas LOGIN e SESSAO, senha, token, bloqueios, 2FA opcional, dispositivos.",
-    "Depois (etapa 3): autorização por perfil e por empresa.",
+    "Feito (etapa 2): endurecimento. A API usa duas contas de banco (a que atende os pedidos não cria, altera nem apaga tabela), HTTPS obrigatório, e o log ganhou uma âncora no Vault que denuncia até o DBA que recalcula a corrente.",
+    "Próxima (etapa 3): login. Schemas LOGIN e SESSAO, senha, token, bloqueios, 2FA opcional, dispositivos, e proteção contra robôs (desafio depois de errar a senha, limite de pedidos por IP).",
+    "Depois (etapa 4): autorização por perfil e por empresa.",
+    "A decidir (etapa 5): criptografia de dados pessoais (disco, campo e mascaramento), pela LGPD. Detalhes em modelo-de-dados.md.",
     "Em aberto: os números do login (validade da senha, limite de tentativas, duração do token). Ficam em PARAMETRO_SEGURANCA e podem ser ajustados depois."
   ],
   "semTabela": [
@@ -824,7 +826,7 @@
     "Aviso por e-mail em login suspeito, aparelho novo, troca de senha e ativação ou remoção do 2FA.",
     "Token só por HTTPS, enviado no cabeçalho ou em cookie HttpOnly + Secure + SameSite.",
     "A chave que cifra a semente do 2FA fica no Vault, não no banco nem no código.",
-    "Permissão por schema: no LOG a conta da API só insere (não altera nem apaga), então nem a própria API consegue adulterar o histórico. No SESSAO ela pode apagar, porque ali tudo vence.",
+    "Permissão por schema: no LOG a conta de execução da API só insere (não altera nem apaga), então nem a própria API consegue adulterar o histórico. No SESSAO ela pode apagar, porque ali tudo vence.",
     "Limpeza periódica: tokens expirados e tentativas de login antigas são apagados por um job."
   ]
 }

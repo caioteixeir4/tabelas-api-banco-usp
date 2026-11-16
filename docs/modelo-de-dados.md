@@ -11,9 +11,9 @@
 São 23 tabelas de negócio em 4 schemas por ambiente (mais uma interna, de controle do log). A separação por schema não é só organização: cada schema
 recebe uma permissão diferente, e é isso que limita o estrago se a API ou uma conta for comprometida.
 
-| Schema | O que guarda | Tabelas | O que a conta da API pode fazer |
+| Schema | O que guarda | Tabelas | O que a conta de execução da API pode fazer |
 |---|---|---|---|
-| `KAWASHI_ENV_<AMB>` | cadastros | `EMPRESA`, `FILIAL`, `PESSOA`, `CONTATO`, `ENDERECO` | ler e gravar |
+| `KAWASHI_ENV_<AMB>` | cadastros | `EMPRESA`, `FILIAL`, `PESSOA`, `CONTATO`, `ENDERECO` | ler e gravar linhas; não cria, altera nem apaga tabela |
 | `KAWASHI_ENV_<AMB>_LOGIN` | o que é permanente do usuário e a autorização | `USUARIO`, `HISTORICO_SENHA`, `SEGUNDO_FATOR`, `CODIGO_RECUPERACAO`, `DISPOSITIVO`, `ACEITE_TERMO`, `PERFIL`, `PERMISSAO`, `PERFIL_PERMISSAO`, `USUARIO_EMPRESA`, `PARAMETRO_SEGURANCA` | ler e gravar |
 | `KAWASHI_ENV_<AMB>_SESSAO` | o que expira | `TOKEN`, `CODIGO_TEMPORARIO`, `BLOQUEIO_IP` | ler, gravar e apagar o vencido |
 | `KAWASHI_ENV_<AMB>_LOG` | histórico | `LOG_ALTERACAO`, `LOG_ACESSO`, `LOG_SEGURANCA`, `TENTATIVA_LOGIN` | **só inserir e ler** |
@@ -119,9 +119,11 @@ Duas proteções contra adulteração (as duas já valem para `LOG_ALTERACAO`):
    o último número e o último hash. Apagar ou alterar uma linha quebra a corrente, e a view
    `V_LOG_ALTERACAO_QUEBRAS` aponta onde (inclusive linhas apagadas no fim).
 
-Limite honesto: quem tem DBA consegue recalcular a corrente inteira. O encadeamento protege contra
-adulteração parcial e contra a própria aplicação; contra um DBA mal-intencionado a defesa é a trilha
-de auditoria do banco, no repositório de regras.
+Quem tem DBA conseguiria recalcular a corrente inteira e enganar a view. Para isso existe a **âncora**:
+o script `ancorar-log.ps1`, no repositório de regras, guarda no Vault o número e o hash da última
+linha, e a conferência compara o banco com o Vault. Alterar o passado passa a exigir mexer nos dois.
+No desenvolvimento o Vault roda em memória e usa a mesma credencial do DBA; em produção a âncora
+precisa ficar fora do alcance de quem administra o banco.
 
 Estes são os logs da **aplicação**. A trilha de segurança do **banco** (quem conectou, quem criou
 tabela, quem recebeu privilégio) já existe e fica no repositório de regras.
@@ -213,10 +215,53 @@ Cada uma com migração, API, testes e esta documentação atualizados:
    log foi criado no repositório de regras. A fixture de teste do SEFAZ (que criava `CLIENTE` e
    `CONFIGURACAO_FISCAL`) e os schemas `SEFAZ` e `SIMPLES_NACIONAL` foram removidos de lá: eram só
    material de teste.
-2. **Login. A fazer.** Cria os schemas `LOGIN` e `SESSAO` no repositório de regras (com as permissões
-   da tabela do início) e implementa na API: senha, token, bloqueios, 2FA, dispositivos.
-3. **Autorização. A fazer.** Perfis, permissões e o vínculo do usuário com cada empresa, conferidos em toda
-   chamada.
+2. **Endurecimento. Feita.** Três mudanças, sem tabela nova de negócio:
+   - **duas contas de banco**: a de migração (dona das tabelas, só na subida) e a de execução (schema
+     `_APP`, só lê e grava linhas). Quem invadir a API não consegue apagar nem alterar tabela;
+   - **HTTPS obrigatório** e cabeçalhos de segurança em toda resposta;
+   - **âncora do log no Vault**: o último número e hash de `LOG_ALTERACAO` são guardados fora do
+     banco, e uma conferência acusa o DBA que alterar o log e recalcular a corrente.
+3. **Login. A fazer.** Cria os schemas `LOGIN` e `SESSAO` no repositório de regras (com as permissões
+   da tabela do início) e implementa na API: senha, token, bloqueios, 2FA, dispositivos. Entram junto
+   as proteções contra robôs: desafio de prova de trabalho depois de errar a senha (cabe na
+   `CODIGO_TEMPORARIO`, com uma finalidade nova), limite de pedidos por IP em toda a API, campo-isca
+   e tempo mínimo no formulário. E mais: 2FA obrigatório para perfil administrador, reconfirmação da
+   senha em ações sensíveis, token preso ao aparelho e link "não fui eu" nos avisos.
+4. **Autorização. A fazer.** Perfis, permissões e o vínculo do usuário com cada empresa, conferidos em
+   toda chamada.
+5. **Criptografia de dados pessoais. A decidir.** Ver a seção abaixo.
 
 No diagrama, o quadro "Cadastros e logs" mostra tabelas existentes, conferidas campo a campo contra o
 Oracle; os quadros de login e de autorização continuam marcados como proposta.
+
+## Criptografia e LGPD (proposta, ainda não aplicada)
+
+O banco suporta as duas ferramentas nativas necessárias (conferido na instância: `Transparent Data
+Encryption` e `Data Redaction` estão disponíveis nesta edição). A proposta é cifrar por camada e
+por campo, não tudo:
+
+| Camada | O que protege | O que não protege | Custo |
+|---|---|---|---|
+| **Disco (TDE)**: o banco cifra os arquivos e os backups | roubo do disco ou de um backup | quem está logado no banco | baixo; transparente para a API |
+| **Campo, pela API**: o valor chega ao banco já cifrado, com a chave no Vault | leitura direta da tabela (desenvolvedor com acesso ao ambiente, DBA, vazamento por SQL) | quem invade a API com a chave em memória | alto: não dá para buscar por pedaço do valor, e a unicidade passa a depender de um "índice cego" (hash com chave ao lado do valor cifrado) |
+| **Mascaramento na leitura**: a API devolve `***.456.789-**` a quem não pode ver o documento inteiro | exposição desnecessária em tela e em relatório | acesso direto ao banco | depende dos perfis da autorização |
+
+Campos candidatos à cifra pela API: CPF de pessoa física (`PESSOA.DOCUMENTO` com `NATUREZA = 'F'`),
+e-mail e telefone (`CONTATO.VALOR`). Nome e endereço ficam de fora no primeiro momento, porque
+precisam de busca e ordenação.
+
+Sobre a LGPD (Lei 13.709/2018), com a ressalva de que esta é uma leitura técnica, não um parecer
+jurídico:
+
+- A lei **não obriga criptografia nominalmente**; exige "medidas de segurança, técnicas e
+  administrativas aptas a proteger os dados pessoais" (art. 46). Criptografia é uma das medidas mais
+  aceitas, e dado cifrado reduz a gravidade de um incidente.
+- CPF, nome, e-mail, telefone e endereço são **dados pessoais** comuns. A categoria "dado pessoal
+  sensível" da lei (saúde, biometria, religião, entre outros) não aparece neste modelo.
+- Além de proteger, a lei pede coisas que afetam o desenho e ainda **não estão implementadas**:
+  guardar só o necessário, definir prazo de retenção, e atender o direito de eliminação. No sistema
+  isso tende a virar **anonimizar** a pessoa (trocar nome e documento por valores neutros) em vez de
+  apagar a linha, para não quebrar o histórico e os logs.
+- O que o projeto já faz nessa direção: os logs não guardam valor de campo nem query string, só
+  "qual registro mudou"; nenhuma senha, token ou código fica em texto puro; `ACEITE_TERMO` (proposto)
+  registra o consentimento por versão.

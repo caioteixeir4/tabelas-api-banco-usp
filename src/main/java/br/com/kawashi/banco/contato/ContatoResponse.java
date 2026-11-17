@@ -2,7 +2,11 @@ package br.com.kawashi.banco.contato;
 
 import java.time.LocalDateTime;
 
-/** Exatamente um entre filialId e pessoaId vem preenchido: e o dono do contato. */
+/**
+ * Exatamente um entre filialId e pessoaId vem preenchido: e o dono do contato. O valor sai
+ * MASCARADO (ex.: {@code f***@exemplo.com.br}, {@code (11) *****-4321}); o completo so em
+ * {@code GET /api/contatos/{id}/valor}, que fica registrado no log de acesso.
+ */
 public record ContatoResponse(
         Long id,
         Long filialId,
@@ -19,7 +23,7 @@ public record ContatoResponse(
                 contato.getFilialId(),
                 contato.getPessoaId(),
                 contato.getTipo().name(),
-                contato.getValor(),
+                ContatoService.mascarar(contato.getTipo(), contato.getValor()),
                 contato.isPrincipal(),
                 contato.getCriadoEm(),
                 contato.getAtualizadoEm());

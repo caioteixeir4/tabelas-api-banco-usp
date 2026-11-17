@@ -55,6 +55,21 @@ public class PessoaController {
         return PessoaResponse.de(servico.buscar(id));
     }
 
+    /**
+     * Revela o documento completo. E um caminho separado de proposito: toda consulta fica no log de
+     * acesso (LOG_ACESSO) com o caminho /api/pessoas/{id}/documento, entao da para saber quem viu o
+     * documento de quem e quando.
+     */
+    @GetMapping("/pessoas/{id}/documento")
+    public DocumentoRevelado revelarDocumento(@PathVariable Long id) {
+        Pessoa pessoa = servico.buscar(id);
+        return new DocumentoRevelado(pessoa.getId(), pessoa.getNatureza(), pessoa.getDocumento());
+    }
+
+    /** Resposta do "revelar": so o necessario para identificar de quem e o documento. */
+    public record DocumentoRevelado(Long id, String natureza, String documento) {
+    }
+
     @PutMapping("/pessoas/{id}")
     public PessoaResponse atualizar(@PathVariable Long id, @Valid @RequestBody PessoaRequest dados) {
         return PessoaResponse.de(servico.atualizar(id, dados));

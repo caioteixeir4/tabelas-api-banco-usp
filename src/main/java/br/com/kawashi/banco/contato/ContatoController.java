@@ -63,6 +63,20 @@ public class ContatoController {
         return ContatoResponse.de(servico.buscar(id));
     }
 
+    /**
+     * Revela o valor completo do contato. Caminho separado de proposito: toda consulta fica no log
+     * de acesso (LOG_ACESSO) com o caminho /api/contatos/{id}/valor.
+     */
+    @GetMapping("/contatos/{id}/valor")
+    public ValorRevelado revelarValor(@PathVariable Long id) {
+        Contato contato = servico.buscar(id);
+        return new ValorRevelado(contato.getId(), contato.getTipo().name(), contato.getValor());
+    }
+
+    /** Resposta do "revelar": so o necessario para identificar de qual contato e o valor. */
+    public record ValorRevelado(Long id, String tipo, String valor) {
+    }
+
     @PutMapping("/contatos/{id}")
     public ContatoResponse atualizar(@PathVariable Long id, @Valid @RequestBody ContatoRequest dados) {
         return ContatoResponse.de(servico.atualizar(id, dados));

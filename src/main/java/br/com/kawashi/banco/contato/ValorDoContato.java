@@ -44,6 +44,12 @@ public @interface ValorDoContato {
             if (valor == null || valor.isEmpty() || pedido.tipo() == null) {
                 return true;
             }
+            // Valor mascarado (como a API devolve) nao e e-mail nem telefone para conferir. Quem
+            // decide se ele vale e o servico: recusa no cadastro e aceita na atualizacao se for a
+            // mascara do proprio contato.
+            if (br.com.kawashi.banco.compartilhado.cifra.Mascaras.eMascara(valor)) {
+                return true;
+            }
             String mensagem;
             if (pedido.tipo().equals("EMAIL")) {
                 if (EMAIL.matcher(valor).matches()) {

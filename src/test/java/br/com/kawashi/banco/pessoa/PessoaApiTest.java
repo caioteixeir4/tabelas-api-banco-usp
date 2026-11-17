@@ -41,7 +41,7 @@ class PessoaApiTest {
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.tipo").value(tipo))
                 .andExpect(jsonPath("$.natureza").value("F"))
-                .andExpect(jsonPath("$.documento").value(cpf))
+                .andExpect(jsonPath("$.documento").value(br.com.kawashi.banco.compartilhado.cifra.Mascaras.documento(cpf)))
                 .andExpect(jsonPath("$.empresaId").value(empresaId))
                 .andExpect(jsonPath("$.participacao").doesNotExist())
                 .andExpect(jsonPath("$.ativa").value(true));
@@ -60,7 +60,7 @@ class PessoaApiTest {
         api.post(pessoas, "{\"tipo\":\"FORNECEDOR\",\"natureza\":\"J\",\"documento\":\"" + cnpj + "\",\"nome\":\"Fornecedor LTDA\"}")
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.natureza").value("J"))
-                .andExpect(jsonPath("$.documento").value(cnpj));
+                .andExpect(jsonPath("$.documento").value(br.com.kawashi.banco.compartilhado.cifra.Mascaras.documento(cnpj)));
     }
 
     @Test

@@ -9,7 +9,10 @@ import org.springframework.transaction.annotation.Transactional;
 import br.com.kawashi.banco.auxiliar.Dono;
 import br.com.kawashi.banco.auxiliar.Donos;
 import br.com.kawashi.banco.compartilhado.Documentos;
+import br.com.kawashi.banco.compartilhado.cifra.CifraDeDados;
+import br.com.kawashi.banco.compartilhado.cifra.Mascaras;
 import br.com.kawashi.banco.compartilhado.erros.ConflitoException;
+import br.com.kawashi.banco.compartilhado.erros.ParametroInvalidoException;
 import br.com.kawashi.banco.compartilhado.erros.RecursoNaoEncontradoException;
 import br.com.kawashi.banco.compartilhado.erros.RegraDeNegocioException;
 import br.com.kawashi.banco.log.RegistroDeAlteracoes;
@@ -29,18 +32,25 @@ public class ContatoService {
     private final ContatoRepository repositorio;
     private final Donos donos;
     private final RegistroDeAlteracoes log;
+    private final CifraDeDados cifra;
 
-    public ContatoService(ContatoRepository repositorio, Donos donos, RegistroDeAlteracoes log) {
+    public ContatoService(ContatoRepository repositorio, Donos donos, RegistroDeAlteracoes log, CifraDeDados cifra) {
         this.repositorio = repositorio;
         this.donos = donos;
         this.log = log;
+        this.cifra = cifra;
     }
 
     public Contato criar(Dono dono, ContatoRequest dados) {
         donos.travarAtivo(dono, "contato");
         TipoDeContato tipo = TipoDeContato.valueOf(dados.tipo());
+        if (Mascaras.eMascara(dados.valor())) {
+            throw new ParametroInvalidoException("O valor veio mascarado. No cadastro, informe o contato completo.");
+        }
         String valor = normalizar(tipo, dados.valor());
-        if (repositorio.count(doDono(dono, tipo).and(comValor(valor))) > 0) {
+        // O banco guarda o valor cifrado; a procura por "ja existe" e pela impressao digital dele.
+        String indice = cifra.indice(ValorCifrado.CONTEXTO, valor);
+        if (repositorio.count(doDono(dono, tipo).and(comIndice(indice))) > 0) {
             throw new ConflitoException("Este contato já está cadastrado para " + dono.descricao() + ".");
         }
         // O primeiro contato de cada tipo e sempre o principal, mesmo que o pedido diga o contrario.
@@ -48,7 +58,7 @@ public class ContatoService {
         if (principal) {
             rebaixarPrincipais(dono, tipo, null);
         }
-        Contato criado = repositorio.save(new Contato(dono, tipo, valor, principal));
+        Contato criado = repositorio.save(new Contato(dono, tipo, valor, indice, principal));
         log.criou(TABELA, criado.getId());
         return criado;
     }
@@ -72,8 +82,20 @@ public class ContatoService {
         if (!tipo.name().equals(dados.tipo())) {
             throw new RegraDeNegocioException("O tipo de um contato não pode ser alterado. Cadastre outro contato com o novo tipo.");
         }
-        String valor = normalizar(tipo, dados.valor());
-        if (repositorio.count(doDono(dono, tipo).and(comValor(valor)).and(excetoId(id))) > 0) {
+        // Quem so viu a resposta da API tem o valor MASCARADO. Devolver a mascara como veio vale por
+        // "nao mexa no valor" (da para trocar so o "principal" sem conhecer o contato inteiro).
+        String valor;
+        if (Mascaras.eMascara(dados.valor())) {
+            if (!dados.valor().equals(mascarar(tipo, contato.getValor()))) {
+                throw new ParametroInvalidoException("O valor veio mascarado e não é a máscara deste contato. "
+                        + "Para manter o valor, devolva-o como a API mostrou; para trocar, informe o novo valor completo.");
+            }
+            valor = contato.getValor();
+        } else {
+            valor = normalizar(tipo, dados.valor());
+        }
+        String indice = cifra.indice(ValorCifrado.CONTEXTO, valor);
+        if (repositorio.count(doDono(dono, tipo).and(comIndice(indice)).and(excetoId(id))) > 0) {
             throw new ConflitoException("Este contato já está cadastrado para " + dono.descricao() + ".");
         }
         boolean principal = Boolean.TRUE.equals(dados.principal());
@@ -85,7 +107,7 @@ public class ContatoService {
         if (principal && !contato.isPrincipal()) {
             rebaixarPrincipais(dono, tipo, id);
         }
-        contato.atualizar(valor, principal);
+        contato.atualizar(valor, indice, principal);
         log.alterou(TABELA, id, "dados do contato");
         return contato;
     }
@@ -121,8 +143,13 @@ public class ContatoService {
         return dono.<Contato>filtro().and((raiz, consulta, cb) -> cb.equal(raiz.get("tipo"), tipo));
     }
 
-    private static Specification<Contato> comValor(String valor) {
-        return (raiz, consulta, cb) -> cb.equal(raiz.get("valor"), valor);
+    /** Como o valor de um contato aparece nas respostas: e-mail e telefone tem mascaras diferentes. */
+    public static String mascarar(TipoDeContato tipo, String valor) {
+        return tipo == TipoDeContato.TELEFONE ? Mascaras.telefone(valor) : Mascaras.email(valor);
+    }
+
+    private static Specification<Contato> comIndice(String indice) {
+        return (raiz, consulta, cb) -> cb.equal(raiz.get("valorIndice"), indice);
     }
 
     private static Specification<Contato> excetoId(Long id) {

@@ -39,6 +39,12 @@ public @interface DocumentoDaPessoa {
             if (documento == null || documento.trim().isEmpty() || natureza == null) {
                 return true;
             }
+            // Documento mascarado (como a API devolve) nao tem digitos para conferir. Quem decide se
+            // ele vale e o servico: recusa no cadastro e aceita na atualizacao se for a mascara do
+            // documento da propria pessoa.
+            if (br.com.kawashi.banco.compartilhado.cifra.Mascaras.eMascara(documento)) {
+                return true;
+            }
             boolean valido;
             String mensagem;
             if (natureza.equals("F")) {

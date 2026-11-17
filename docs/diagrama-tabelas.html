@@ -226,12 +226,13 @@
      ===================================================================================== -->
 <script id="modelo" type="application/json">
 {
-  "estado": "Cadastros e logs existem no Oracle (Flyway V5 e schema de LOG, conferidos em 14/11/2026). Login e autorização ainda são proposta.",
+  "estado": "Cadastros, logs e o cadastro de contas existem no Oracle (Flyway V6, schema de LOG e SYS.KAWASHI_CONTA, conferidos em 16/11/2026). CPF, e-mail e telefone são gravados cifrados. Login e autorização ainda são proposta.",
   "esquemas": {
     "padrao": { "rotulo": "KAWASHI_ENV_<AMB>", "nome": "cadastros" },
     "login": { "rotulo": "KAWASHI_ENV_<AMB>_LOGIN", "nome": "login: usuário, senha, 2FA, aparelhos" },
     "sessao": { "rotulo": "KAWASHI_ENV_<AMB>_SESSAO", "nome": "o que expira: tokens, pedidos de senha, bloqueios" },
-    "log": { "rotulo": "KAWASHI_ENV_<AMB>_LOG", "nome": "logs: só recebem linhas novas" }
+    "log": { "rotulo": "KAWASHI_ENV_<AMB>_LOG", "nome": "logs: só recebem linhas novas" },
+    "adm": { "rotulo": "SYS (repositório de regras)", "nome": "contas do banco: quem é, o que pode, validade da senha" }
   },
   "diagramas": [
     {
@@ -239,7 +240,7 @@
       "titulo": "Cadastros e logs",
       "selo": "real",
       "seloTexto": "no Oracle hoje",
-      "subtitulo": "EMPRESA, FILIAL e PESSOA são os cadastros. CONTATO e ENDERECO são tabelas auxiliares, de uma filial ou de uma pessoa. Os logs ficam num schema só deles, em que a API só insere, e não têm ligação: guardam o nome da tabela e o id do registro.",
+      "subtitulo": "EMPRESA, FILIAL e PESSOA são os cadastros. CONTATO e ENDERECO são tabelas auxiliares, de uma filial ou de uma pessoa. O documento da pessoa e o valor do contato são gravados cifrados pela API (colunas _CIFRADO e _INDICE): o banco não vê CPF, e-mail nem telefone. Os logs ficam num schema só deles, em que a API só insere, e não têm ligação: guardam o nome da tabela e o id do registro.",
       "colunas": [
         { "v": "centro", "tabelas": ["CONTATO", "LOG_ALTERACAO", "LOG_CADEIA"] },
         { "v": "centro", "tabelas": ["EMPRESA", "FILIAL", "PESSOA"] },
@@ -289,24 +290,26 @@
           "desc": "cliente, colaborador, sócio ou fornecedor de uma empresa",
           "campos": [
             { "n": "ID", "t": "NUMBER", "pk": true, "ident": true },
-            { "n": "EMPRESA_ID", "t": "NUMBER", "fk": { "t": "EMPRESA", "c": "ID" }, "uq": "UK_PESSOA", "uqCom": ["EMPRESA_ID", "DOCUMENTO", "TIPO"] },
-            { "n": "TIPO", "t": "VARCHAR2(20)", "uq": "UK_PESSOA", "uqCom": ["EMPRESA_ID", "DOCUMENTO", "TIPO"], "nota": "A separação fica aqui (enum): 'CLIENTE', 'COLABORADOR', 'SOCIO' ou 'FORNECEDOR'. Tipo novo é um valor novo na lista, sem tabela nova." },
+            { "n": "EMPRESA_ID", "t": "NUMBER", "fk": { "t": "EMPRESA", "c": "ID" }, "uq": "UK_PESSOA", "uqCom": ["EMPRESA_ID", "DOCUMENTO_INDICE", "TIPO"] },
+            { "n": "TIPO", "t": "VARCHAR2(20)", "uq": "UK_PESSOA", "uqCom": ["EMPRESA_ID", "DOCUMENTO_INDICE", "TIPO"], "nota": "A separação fica aqui (enum): 'CLIENTE', 'COLABORADOR', 'SOCIO' ou 'FORNECEDOR'. Tipo novo é um valor novo na lista, sem tabela nova." },
             { "n": "NATUREZA", "t": "VARCHAR2(1)", "nota": "'F' pessoa física (CPF) ou 'J' jurídica (CNPJ). Cliente e fornecedor costumam ser empresas, por isso a pessoa aceita os dois." },
-            { "n": "DOCUMENTO", "t": "VARCHAR2(14)", "uq": "UK_PESSOA", "uqCom": ["EMPRESA_ID", "DOCUMENTO", "TIPO"], "nota": "CPF (11 dígitos) ou CNPJ (14), conforme a NATUREZA. Único por empresa e tipo: a mesma pessoa pode ser sócia e colaboradora, ou aparecer em duas empresas, em linhas separadas." },
             { "n": "NOME", "t": "VARCHAR2(200 CHAR)" },
             { "n": "PARTICIPACAO", "t": "NUMBER(5,2)", "nulo": true, "nota": "Só para SOCIO: percentual de 0,01 a 100." },
             { "n": "CARGO", "t": "VARCHAR2(100 CHAR)", "nulo": true, "nota": "Só para COLABORADOR." },
             { "n": "ATIVA", "t": "BOOLEAN", "pad": "TRUE" },
             { "n": "CRIADO_EM", "t": "TIMESTAMP(6)", "pad": "SYSTIMESTAMP" },
-            { "n": "ATUALIZADO_EM", "t": "TIMESTAMP(6)", "pad": "SYSTIMESTAMP" }
+            { "n": "ATUALIZADO_EM", "t": "TIMESTAMP(6)", "pad": "SYSTIMESTAMP" },
+            { "n": "DOCUMENTO_CIFRADO", "t": "VARCHAR2(100)", "nota": "CPF (11 dígitos) ou CNPJ (14), conforme a NATUREZA, CIFRADO pela API com AES-256-GCM. A chave fica com a aplicação: nem o dono da tabela nem um DBA leem o documento. O mesmo CPF gravado duas vezes gera duas cifras diferentes." },
+            { "n": "DOCUMENTO_INDICE", "t": "VARCHAR2(64)", "uq": "UK_PESSOA", "uqCom": ["EMPRESA_ID", "DOCUMENTO_INDICE", "TIPO"], "nota": "Impressão digital do documento (HMAC-SHA256 com chave): sempre igual para o mesmo documento, sem revelar qual é. É por ela que o documento continua único por empresa e tipo: a mesma pessoa pode ser sócia e colaboradora, ou aparecer em duas empresas, em linhas separadas." }
           ],
           "restricoes": [
             { "tipo": "PK", "nome": "PK_PESSOA", "regra": "ID" },
-            { "tipo": "UNIQUE", "nome": "UK_PESSOA", "regra": "(EMPRESA_ID, DOCUMENTO, TIPO)" },
+            { "tipo": "UNIQUE", "nome": "UK_PESSOA", "regra": "(EMPRESA_ID, DOCUMENTO_INDICE, TIPO)" },
             { "tipo": "FK", "nome": "FK_PESSOA_EMPRESA", "regra": "EMPRESA_ID → EMPRESA (ID), sem cascade" },
             { "tipo": "CHECK", "nome": "CK_PESSOA_TIPO", "regra": "TIPO IN ('CLIENTE', 'COLABORADOR', 'SOCIO', 'FORNECEDOR')" },
             { "tipo": "CHECK", "nome": "CK_PESSOA_NATUREZA", "regra": "NATUREZA IN ('F', 'J')" },
-            { "tipo": "CHECK", "nome": "CK_PESSOA_DOCUMENTO", "regra": "(NATUREZA = 'F' AND REGEXP_LIKE(DOCUMENTO, '^[0-9]{11}$')) OR (NATUREZA = 'J' AND REGEXP_LIKE(DOCUMENTO, '^[0-9]{14}$'))" },
+            { "tipo": "CHECK", "nome": "CK_PESSOA_DOC_CIFRADO", "regra": "DOCUMENTO_CIFRADO LIKE 'v1:%' AND LENGTH(DOCUMENTO_CIFRADO) >= 43" },
+            { "tipo": "CHECK", "nome": "CK_PESSOA_DOC_INDICE", "regra": "REGEXP_LIKE(DOCUMENTO_INDICE, '^[0-9a-f]{64}$')" },
             { "tipo": "CHECK", "nome": "CK_PESSOA_PARTICIPACAO", "regra": "PARTICIPACAO IS NULL OR (TIPO = 'SOCIO' AND PARTICIPACAO > 0 AND PARTICIPACAO <= 100)" },
             { "tipo": "CHECK", "nome": "CK_PESSOA_CARGO", "regra": "CARGO IS NULL OR TIPO = 'COLABORADOR'" }
           ]
@@ -319,10 +322,11 @@
             { "n": "FILIAL_ID", "t": "NUMBER", "nulo": true, "fk": { "t": "FILIAL", "c": "ID" }, "nota": "Dono do contato: exatamente UM entre FILIAL_ID e PESSOA_ID é preenchido (CHECK)." },
             { "n": "PESSOA_ID", "t": "NUMBER", "nulo": true, "fk": { "t": "PESSOA", "c": "ID" } },
             { "n": "TIPO", "t": "VARCHAR2(20)", "nota": "'EMAIL' ou 'TELEFONE'." },
-            { "n": "VALOR", "t": "VARCHAR2(150 CHAR)" },
             { "n": "PRINCIPAL", "t": "BOOLEAN", "pad": "FALSE" },
             { "n": "CRIADO_EM", "t": "TIMESTAMP(6)", "pad": "SYSTIMESTAMP" },
-            { "n": "ATUALIZADO_EM", "t": "TIMESTAMP(6)", "pad": "SYSTIMESTAMP" }
+            { "n": "ATUALIZADO_EM", "t": "TIMESTAMP(6)", "pad": "SYSTIMESTAMP" },
+            { "n": "VALOR_CIFRADO", "t": "VARCHAR2(1000)", "nota": "O e-mail (em minúscula) ou o telefone (só dígitos), CIFRADO pela API com AES-256-GCM. O banco não tem a chave." },
+            { "n": "VALOR_INDICE", "t": "VARCHAR2(64)", "nota": "Impressão digital do valor (HMAC-SHA256 com chave). É por ela que o mesmo contato não se repete no mesmo dono (índice único UK_CONTATO_DONO_VALOR)." }
           ],
           "restricoes": [
             { "tipo": "PK", "nome": "PK_CONTATO", "regra": "ID" },
@@ -330,6 +334,9 @@
             { "tipo": "FK", "nome": "FK_CONTATO_PESSOA", "regra": "PESSOA_ID → PESSOA (ID), sem cascade" },
             { "tipo": "CHECK", "nome": "CK_CONTATO_DONO", "regra": "(FILIAL_ID IS NOT NULL AND PESSOA_ID IS NULL) OR (FILIAL_ID IS NULL AND PESSOA_ID IS NOT NULL)" },
             { "tipo": "CHECK", "nome": "CK_CONTATO_TIPO", "regra": "TIPO IN ('EMAIL', 'TELEFONE')" },
+            { "tipo": "CHECK", "nome": "CK_CONTATO_VALOR_CIFRADO", "regra": "VALOR_CIFRADO LIKE 'v1:%' AND LENGTH(VALOR_CIFRADO) >= 43" },
+            { "tipo": "CHECK", "nome": "CK_CONTATO_VALOR_INDICE", "regra": "REGEXP_LIKE(VALOR_INDICE, '^[0-9a-f]{64}$')" },
+            { "tipo": "INDEX", "nome": "UK_CONTATO_DONO_VALOR", "regra": "único: (FILIAL_ID, PESSOA_ID, TIPO, VALOR_INDICE)" },
             { "tipo": "INDEX", "nome": "IX_CONTATO_FILIAL", "regra": "FILIAL_ID" },
             { "tipo": "INDEX", "nome": "IX_CONTATO_PESSOA", "regra": "PESSOA_ID" }
           ]
@@ -426,6 +433,86 @@
       "extras": []
     },
     {
+      "id": "contas",
+      "titulo": "Contas do banco: quem é, o que pode e validade da senha",
+      "selo": "real",
+      "seloTexto": "no Oracle hoje (repositório de regras)",
+      "subtitulo": "Toda conta criada pelos scripts (desenvolvedor, estagiário, infra, conta de API, administrador) ganha uma linha em KAWASHI_CONTA com perfil, nome e cargo. As duas visões leem o resto AO VIVO do dicionário do Oracle: o que a conta pode acessar e como está a senha contra o limite de 90 dias. Nada disso é copiado, então um acesso dado por fora dos scripts aparece na hora.",
+      "colunas": [
+        { "v": "centro", "tabelas": ["KAWASHI_CONTA"] },
+        { "v": "centro", "tabelas": ["V_KAWASHI_CONTAS"] },
+        { "v": "centro", "tabelas": ["V_KAWASHI_CONTA_LIBERACOES"] }
+      ],
+      "tabelas": [
+        {
+          "id": "KAWASHI_CONTA", "nome": "KAWASHI_CONTA", "schema": "adm",
+          "desc": "o que só gente sabe dizer: quem é a conta e que cargo tem",
+          "ponte": "tabela: só a procedure KAWASHI_REGISTRAR_CONTA grava",
+          "campos": [
+            { "n": "USERNAME", "t": "VARCHAR2(128)", "pk": true, "nota": "O nome da conta no Oracle, em maiúscula. Só se cadastra conta que existe no banco." },
+            { "n": "TIPO", "t": "VARCHAR2(10)", "nota": "'PESSOA' (desenvolvedor, estagiário, infra), 'API' (conta de sistema) ou 'ADMIN' (engenheiro responsável)." },
+            { "n": "PERFIL", "t": "VARCHAR2(30)", "nota": "Com que perfil a conta nasceu. Pessoa: EstagiarioDev, EstagiarioInfra, Desenvolvedor, Infra, HomologViewer. API: Execucao ou Migracao." },
+            { "n": "NOME", "t": "VARCHAR2(200 CHAR)", "nulo": true, "nota": "Nome da pessoa. Em conta de API, quem responde por ela." },
+            { "n": "CARGO", "t": "VARCHAR2(100 CHAR)", "nulo": true, "nota": "Cargo da pessoa. Pessoa sem cargo aparece como pendência no painel." },
+            { "n": "AMBIENTE", "t": "VARCHAR2(30)", "nulo": true, "nota": "Só para conta de API: em qual ambiente ela trabalha (TESTE_DEV, DEV...)." },
+            { "n": "CRIADA_EM", "t": "TIMESTAMP(6)", "pad": "SYSTIMESTAMP" },
+            { "n": "CRIADA_POR", "t": "VARCHAR2(128)", "nota": "Quem rodou o script de criação (a conta do banco que chamou a procedure)." },
+            { "n": "ALTERADA_EM", "t": "TIMESTAMP(6)", "nulo": true },
+            { "n": "ALTERADA_POR", "t": "VARCHAR2(128)", "nulo": true }
+          ],
+          "restricoes": [
+            { "tipo": "PK", "nome": "PK_KAWASHI_CONTA", "regra": "USERNAME" },
+            { "tipo": "CHECK", "nome": "CK_KAWASHI_CONTA_TIPO", "regra": "TIPO IN ('PESSOA', 'API', 'ADMIN')" },
+            { "tipo": "CHECK", "nome": "CK_KAWASHI_CONTA_MAIUSCULA", "regra": "USERNAME = UPPER(USERNAME)" }
+          ]
+        },
+        {
+          "id": "V_KAWASHI_CONTAS", "nome": "V_KAWASHI_CONTAS", "schema": "adm",
+          "desc": "o painel: uma linha por conta, com cargo, liberações e senha",
+          "ponte": "visão: junta o cadastro com o dicionário do Oracle, ao vivo",
+          "campos": [
+            { "n": "USERNAME", "t": "VARCHAR2(128)", "fk": { "t": "KAWASHI_CONTA", "c": "USERNAME" }, "nota": "Toda conta com um perfil de senha do projeto aparece, tenha cadastro ou não." },
+            { "n": "TIPO", "t": "VARCHAR2(10)" },
+            { "n": "PERFIL", "t": "VARCHAR2(30)", "nulo": true },
+            { "n": "NOME", "t": "VARCHAR2(200 CHAR)", "nulo": true },
+            { "n": "CARGO", "t": "VARCHAR2(100 CHAR)", "nulo": true },
+            { "n": "CADASTRO", "t": "VARCHAR2(12)", "nota": "'OK', 'SEM CADASTRO' (conta criada por fora dos scripts: não some, aparece aqui) ou 'REMOVIDA' (a conta foi apagada do banco; o cadastro fica como histórico)." },
+            { "n": "STATUS_DA_CONTA", "t": "VARCHAR2(32)", "nulo": true, "nota": "Direto do Oracle: OPEN, EXPIRED, LOCKED..." },
+            { "n": "AMBIENTES_LIBERADOS", "t": "VARCHAR2(4000)", "nulo": true, "nota": "Em quais schemas de ambiente a conta entra por proxy." },
+            { "n": "ROLES", "t": "VARCHAR2(4000)", "nulo": true },
+            { "n": "PRIVILEGIOS_DIRETOS", "t": "VARCHAR2(4000)", "nulo": true },
+            { "n": "SENHA_TROCADA_EM", "t": "DATE", "nulo": true, "nota": "Direto do Oracle (DBA_USERS.PASSWORD_CHANGE_DATE)." },
+            { "n": "IDADE_DA_SENHA_DIAS", "t": "NUMBER", "nulo": true },
+            { "n": "LIMITE_DIAS", "t": "NUMBER", "nota": "O PASSWORD_LIFE_TIME do perfil KAWASHI_SECURE_PROFILE (hoje 90). Mudou lá, muda aqui." },
+            { "n": "SENHA_VENCE_EM", "t": "DATE", "nulo": true },
+            { "n": "DIAS_PARA_VENCER", "t": "NUMBER", "nulo": true },
+            { "n": "SITUACAO_DA_SENHA", "t": "VARCHAR2(15)", "nulo": true, "nota": "EM DIA, VENCE EM BREVE (faltam 15 dias ou menos), VENCIDA, TROCA PENDENTE (conta nova que ainda não fez o primeiro login), CONTA BLOQUEADA. A regra mora na função KAWASHI_SITUACAO_DA_SENHA." },
+            { "n": "EXPIRA_SOZINHA", "t": "VARCHAR2(22)", "nulo": true, "nota": "Pessoa e administrador: SIM, o Oracle bloqueia ao vencer. Conta de API: NÃO, de propósito (uma API parada por senha vencida é pior); o painel cobra a rotação manual." },
+            { "n": "ULTIMO_LOGIN", "t": "TIMESTAMP(9) WITH TIME ZONE", "nulo": true },
+            { "n": "PENDENCIA", "t": "VARCHAR2(4000)", "nulo": true, "nota": "O que precisa de ação de alguém: conta sem cadastro, pessoa sem nome ou cargo, senha vencendo ou vencida, conta bloqueada. Vazio = nada pendente." }
+          ],
+          "restricoes": []
+        },
+        {
+          "id": "V_KAWASHI_CONTA_LIBERACOES", "nome": "V_KAWASHI_CONTA_LIBERACOES", "schema": "adm",
+          "desc": "uma linha por liberação de cada conta",
+          "ponte": "visão: lida ao vivo do dicionário do Oracle",
+          "campos": [
+            { "n": "USERNAME", "t": "VARCHAR2(128)", "fk": { "t": "V_KAWASHI_CONTAS", "c": "USERNAME" } },
+            { "n": "TIPO_LIBERACAO", "t": "VARCHAR2(10)", "nota": "'AMBIENTE' (entra num schema por proxy), 'ROLE', 'PRIVILEGIO' (de sistema, dado direto) ou 'OBJETO' (permissão direta numa tabela)." },
+            { "n": "LIBERACAO", "t": "VARCHAR2(300)", "nota": "O nome do ambiente, da role, do privilégio ou do objeto." },
+            { "n": "DETALHE", "t": "VARCHAR2(300)", "nulo": true }
+          ],
+          "restricoes": []
+        }
+      ],
+      "relacoes": [
+        { "pai": "KAWASHI_CONTA", "filho": "V_KAWASHI_CONTAS", "fk": "USERNAME", "pk": "USERNAME", "card": "1:1", "nome": "(junção da visão)", "apagar": "Não é chave estrangeira: a visão junta o cadastro com as contas do Oracle pelo nome. Apagar a conta do banco não apaga o cadastro: ele passa a aparecer como REMOVIDA.", "obs": "Cada conta aparece uma vez no painel." },
+        { "pai": "V_KAWASHI_CONTAS", "filho": "V_KAWASHI_CONTA_LIBERACOES", "fk": "USERNAME", "pk": "USERNAME", "card": "1:N", "nome": "(junção da visão)", "apagar": "Não se aplica: as duas são visões.", "obs": "Uma conta tem várias liberações: ambientes, roles, privilégios." }
+      ],
+      "extras": []
+    },
+    {
       "id": "seguranca",
       "titulo": "Proposta: login e segurança",
       "selo": "prop",
@@ -450,7 +537,7 @@
           "campos": [
             { "n": "ID", "t": "NUMBER", "pk": true, "ident": true },
             { "n": "PESSOA_ID", "t": "NUMBER", "fk": { "t": "PESSOA_REF", "c": "ID", "esquema": "padrão" }, "uq": "UK_USUARIO_PESSOA", "nota": "Único: cada pessoa tem no máximo um usuário, relação 1 para 1. É a única ligação do login com os cadastros, e vai do LOGIN para o padrão, nunca o contrário." },
-            { "n": "EMAIL", "t": "VARCHAR2(150 CHAR)", "uq": "UK_USUARIO_EMAIL", "nota": "O e-mail é o nome de login." },
+            { "n": "EMAIL", "t": "VARCHAR2(150 CHAR)", "uq": "UK_USUARIO_EMAIL", "nota": "O e-mail é o nome de login. Quando o login for construído, segue a regra dos dados pessoais: gravado cifrado, com uma coluna de impressão digital para a busca e a unicidade." },
             { "n": "EMAIL_VERIFICADO_EM", "t": "TIMESTAMP(6)", "nulo": true, "nota": "Vazio até a pessoa confirmar o e-mail pelo link enviado. Sem confirmar, não loga." },
             { "n": "SENHA_HASH", "t": "VARCHAR2(200)", "nota": "Só o hash da senha (argon2 ou bcrypt). A senha em si nunca é gravada." },
             { "n": "SENHA_ALTERADA_EM", "t": "TIMESTAMP(6)", "pad": "SYSTIMESTAMP", "nota": "Troca a cada 3 meses: passados 90 dias desta data, o login só deixa trocar a senha." },
@@ -684,7 +771,7 @@
       "seloTexto": "proposta, ainda não existe no banco",
       "subtitulo": "O login diz quem é o usuário; aqui fica o que ele pode fazer e em quais empresas. Tudo no schema LOGIN. USUARIO e EMPRESA aparecem repetidas, em cinza, só para mostrar as ligações.",
       "colunas": [
-        { "v": "centro", "tabelas": ["PERMISSAO", "USUARIO_REF", "PARAMETRO_SEGURANCA"] },
+        { "v": "centro", "tabelas": ["PERMISSAO", "USUARIO_REF", "V_USUARIO_ACESSOS", "PARAMETRO_SEGURANCA"] },
         { "v": "centro", "tabelas": ["PERFIL_PERMISSAO", "USUARIO_EMPRESA"] },
         { "v": "centro", "tabelas": ["PERFIL", "EMPRESA_REF"] }
       ],
@@ -769,6 +856,23 @@
           ]
         },
         {
+          "id": "V_USUARIO_ACESSOS", "nome": "V_USUARIO_ACESSOS", "schema": "login",
+          "desc": "o mesmo painel das contas do banco, para os usuários da aplicação",
+          "ponte": "visão: uma linha por usuário e empresa",
+          "campos": [
+            { "n": "USUARIO_ID", "t": "NUMBER", "fk": { "t": "USUARIO_REF", "c": "ID" }, "nota": "Todo usuário criado aparece aqui sem ninguém precisar lembrar de cadastrar: a visão lê USUARIO, PESSOA e USUARIO_EMPRESA." },
+            { "n": "NOME", "t": "VARCHAR2(200 CHAR)", "nota": "Da PESSOA ligada ao usuário." },
+            { "n": "CARGO", "t": "VARCHAR2(100 CHAR)", "nulo": true, "nota": "PESSOA.CARGO (colaborador)." },
+            { "n": "EMPRESA_ID", "t": "NUMBER", "nota": "Qual empresa o usuário enxerga (uma linha por empresa liberada)." },
+            { "n": "PERFIL", "t": "VARCHAR2(50)", "nota": "A liberação: o perfil que o usuário tem naquela empresa." },
+            { "n": "SENHA_ALTERADA_EM", "t": "TIMESTAMP(6)" },
+            { "n": "SENHA_VENCE_EM", "t": "DATE", "nota": "SENHA_ALTERADA_EM + SENHA_VALIDADE_DIAS (parâmetro, 90). Passada a data, o login só deixa trocar a senha." },
+            { "n": "DIAS_PARA_VENCER", "t": "NUMBER" },
+            { "n": "SITUACAO_DA_SENHA", "t": "VARCHAR2(15)", "nota": "EM DIA, VENCE EM BREVE ou VENCIDA: a mesma regra do painel das contas do banco." }
+          ],
+          "restricoes": []
+        },
+        {
           "id": "PARAMETRO_SEGURANCA", "nome": "PARAMETRO_SEGURANCA", "schema": "login",
           "desc": "os números das regras de segurança",
           "campos": [
@@ -790,6 +894,7 @@
         { "pai": "PERFIL", "filho": "PERFIL_PERMISSAO", "fk": "PERFIL_ID", "pk": "ID", "card": "1:N", "nome": "FK_PERFIL_PERMISSAO_PERFIL" },
         { "pai": "PERFIL", "filho": "USUARIO_EMPRESA", "fk": "PERFIL_ID", "pk": "ID", "card": "1:N", "nome": "FK_USUARIO_EMPRESA_PERFIL" },
         { "pai": "USUARIO_REF", "filho": "USUARIO_EMPRESA", "fk": "USUARIO_ID", "pk": "ID", "card": "1:N", "nome": "FK_USUARIO_EMPRESA_USUARIO", "obs": "Um usuário tem acesso a várias empresas." },
+        { "pai": "USUARIO_REF", "filho": "V_USUARIO_ACESSOS", "fk": "USUARIO_ID", "pk": "ID", "card": "1:N", "nome": "(junção da visão)", "apagar": "Não se aplica: é uma visão, sem dado próprio.", "obs": "O painel tem uma linha por usuário e empresa liberada." },
         { "pai": "EMPRESA_REF", "filho": "USUARIO_EMPRESA", "fk": "EMPRESA_ID", "pk": "ID", "card": "1:N", "nome": "FK_USUARIO_EMPRESA_EMPRESA", "obs": "Uma empresa tem vários usuários. FK entre schemas: LOGIN aponta para o padrão." }
       ],
       "extras": [
@@ -808,14 +913,17 @@
     { "de": "ENDERECO (só de cliente)", "para": "ENDERECO de uma filial ou de uma pessoa" },
     { "de": "sem log na API", "para": "LOG_ALTERACAO e LOG_ACESSO (existem); LOG_SEGURANCA e TENTATIVA_LOGIN (entram com o login)" },
     { "de": "sem controle de quem pode o quê", "para": "PERFIL, PERMISSAO e USUARIO_EMPRESA (perfil do usuário em cada empresa)" },
-    { "de": "CONFIGURACAO_FISCAL e os schemas SEFAZ e SIMPLES_NACIONAL", "para": "Removidos: eram só material de teste" }
+    { "de": "CONFIGURACAO_FISCAL e os schemas SEFAZ e SIMPLES_NACIONAL", "para": "Removidos: eram só material de teste" },
+    { "de": "PESSOA.DOCUMENTO e CONTATO.VALOR em texto puro", "para": "DOCUMENTO_CIFRADO + DOCUMENTO_INDICE e VALOR_CIFRADO + VALOR_INDICE: cifrados pela API (V6)" },
+    { "de": "contas do banco sem registro de quem é e de que cargo tem", "para": "SYS.KAWASHI_CONTA e as visões V_KAWASHI_CONTAS e V_KAWASHI_CONTA_LIBERACOES (repositório de regras)" }
   ],
   "abertas": [
     "Feito (etapa 1): cadastros em torno de PESSOA e logs da aplicação, com a API e os testes.",
     "Feito (etapa 2): endurecimento. A API usa duas contas de banco (a que atende os pedidos não cria, altera nem apaga tabela), HTTPS obrigatório, e o log ganhou uma âncora no Vault que denuncia até o DBA que recalcula a corrente.",
     "Próxima (etapa 3): login. Schemas LOGIN e SESSAO, senha, token, bloqueios, 2FA opcional, dispositivos, e proteção contra robôs (desafio depois de errar a senha, limite de pedidos por IP).",
     "Depois (etapa 4): autorização por perfil e por empresa.",
-    "A decidir (etapa 5): criptografia de dados pessoais (disco, campo e mascaramento), pela LGPD. Detalhes em modelo-de-dados.md.",
+    "Feito (criptografia, pela LGPD): três camadas. O disco do banco é cifrado (TDE), a API cifra CPF, e-mail e telefone antes de gravar, e as respostas saem mascaradas (o valor inteiro só pelo caminho de revelar, que fica no log de acesso).",
+    "Feito (cadastro de contas): toda conta criada pelos scripts (pessoa, API, administrador) entra em SYS.KAWASHI_CONTA com perfil e cargo; o painel mostra as liberações e a situação da senha contra o limite de 90 dias.",
     "Em aberto: os números do login (validade da senha, limite de tentativas, duração do token). Ficam em PARAMETRO_SEGURANCA e podem ser ajustados depois."
   ],
   "semTabela": [

@@ -63,6 +63,13 @@ app:
   # Com "true", pedido a /api/** que nao chegou por HTTPS e recusado (ver CabecalhosDeSegurancaFilter).
   # Fica desligado so em desenvolvimento e nos testes; fora deles, ligue.
   exigir-https: ${EXIGIR_HTTPS:false}
+  # Chaves que cifram os dados pessoais antes de irem para o banco (ver CifraDeDados). Cada uma e
+  # 32 bytes em base64. Em desenvolvimento, scripts/gerar-chaves-de-cifra.ps1 as cria no .env; fora
+  # dele, vem de variavel de ambiente ou do Vault. Sem elas a aplicacao NAO sobe. Perder a chave de
+  # dados e perder os dados cifrados: guarde uma copia fora da maquina.
+  cifra:
+    chave-dados: ${CIFRA_CHAVE_DADOS:}
+    chave-indice: ${CIFRA_CHAVE_INDICE:}
 
 server:
   port: ${PORT:8080}

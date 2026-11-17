@@ -14,7 +14,10 @@ import org.springframework.transaction.annotation.Transactional;
 
 import br.com.kawashi.banco.compartilhado.Documentos;
 import br.com.kawashi.banco.compartilhado.Textos;
+import br.com.kawashi.banco.compartilhado.cifra.CifraDeDados;
+import br.com.kawashi.banco.compartilhado.cifra.Mascaras;
 import br.com.kawashi.banco.compartilhado.erros.ConflitoException;
+import br.com.kawashi.banco.compartilhado.erros.ParametroInvalidoException;
 import br.com.kawashi.banco.compartilhado.erros.RecursoNaoEncontradoException;
 import br.com.kawashi.banco.compartilhado.erros.RegraDeNegocioException;
 import br.com.kawashi.banco.empresa.Empresa;
@@ -39,13 +42,15 @@ public class PessoaService {
     private final EmpresaRepository empresas;
     private final JdbcTemplate jdbc;
     private final RegistroDeAlteracoes log;
+    private final CifraDeDados cifra;
 
     public PessoaService(PessoaRepository repositorio, EmpresaRepository empresas, JdbcTemplate jdbc,
-            RegistroDeAlteracoes log) {
+            RegistroDeAlteracoes log, CifraDeDados cifra) {
         this.repositorio = repositorio;
         this.empresas = empresas;
         this.jdbc = jdbc;
         this.log = log;
+        this.cifra = cifra;
     }
 
     public Pessoa criar(Long empresaId, PessoaRequest dados) {
@@ -59,15 +64,22 @@ public class PessoaService {
         TipoDePessoa tipo = TipoDePessoa.valueOf(dados.tipo());
         BigDecimal participacao = participacaoPara(tipo, dados.participacao());
         String cargo = cargoPara(tipo, dados.cargo());
+        if (Mascaras.eMascara(dados.documento())) {
+            throw new ParametroInvalidoException("O documento veio mascarado. No cadastro, informe o documento completo.");
+        }
         String documento = Documentos.somenteDigitos(dados.documento());
-        if (repositorio.existsByEmpresaIdAndDocumentoAndTipo(empresaId, documento, tipo)) {
-            throw new ConflitoException("Já existe " + descrever(tipo) + " com o documento " + documento + " nesta empresa.");
+        // O banco guarda o documento cifrado; a procura (e a unicidade) e pela impressao digital dele.
+        String indice = cifra.indice(DocumentoCifrado.CONTEXTO, documento);
+        if (repositorio.existsByEmpresaIdAndDocumentoIndiceAndTipo(empresaId, indice, tipo)) {
+            // A mensagem de erro tambem nao repete o documento inteiro.
+            throw new ConflitoException("Já existe " + descrever(tipo) + " com o documento "
+                    + Mascaras.documento(documento) + " nesta empresa.");
         }
         if (tipo == TipoDePessoa.SOCIO) {
             garantirLimite(somaOuZero(repositorio.somarParticipacoes(empresaId)), participacao);
         }
         Pessoa criada = repositorio.save(
-                new Pessoa(empresaId, tipo, dados.natureza(), documento, dados.nome(), participacao, cargo));
+                new Pessoa(empresaId, tipo, dados.natureza(), documento, indice, dados.nome(), participacao, cargo));
         log.criou(TABELA, criada.getId());
         return criada;
     }
@@ -98,7 +110,7 @@ public class PessoaService {
         Pessoa pessoa = buscar(id);
         if (!pessoa.getTipo().name().equals(dados.tipo())
                 || !pessoa.getNatureza().equals(dados.natureza())
-                || !pessoa.getDocumento().equals(Documentos.somenteDigitos(dados.documento()))) {
+                || !mesmoDocumento(pessoa, dados.documento())) {
             throw new RegraDeNegocioException("O tipo, a natureza e o documento de uma pessoa não podem ser alterados "
                     + "depois do cadastro. Para outro papel, cadastre a pessoa de novo com o novo tipo.");
         }
@@ -144,6 +156,18 @@ public class PessoaService {
         repositorio.delete(pessoa);
         repositorio.flush();
         log.apagou(TABELA, id);
+    }
+
+    /**
+     * Na atualizacao o documento nao muda, mas o campo e obrigatorio. Quem so viu a resposta da API
+     * tem o documento MASCARADO: devolver a mascara como veio vale por "o mesmo documento". Quem
+     * tem o documento completo pode mandar o completo.
+     */
+    private static boolean mesmoDocumento(Pessoa pessoa, String informado) {
+        if (Mascaras.eMascara(informado)) {
+            return informado.equals(Mascaras.documento(pessoa.getDocumento()));
+        }
+        return pessoa.getDocumento().equals(Documentos.somenteDigitos(informado));
     }
 
     private Empresa travarEmpresa(Long empresaId) {

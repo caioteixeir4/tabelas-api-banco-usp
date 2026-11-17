@@ -110,6 +110,13 @@ try {
     $cpfCliente = NovoCpf
     $r = Chamar POST $pes (Corpo @{ tipo = 'cliente'; natureza = 'f'; documento = $cpfCliente; nome = 'Cliente Um' })
     Confere 'POST pessoa CLIENTE 201 (tipo e natureza normalizados)' ($r.Status -eq 201 -and $r.Json.tipo -eq 'CLIENTE' -and $r.Json.natureza -eq 'F') "status=$($r.Status) $($r.Texto)"
+    $mascaraCpf = '***.' + $cpfCliente.Substring(3, 3) + '.' + $cpfCliente.Substring(6, 3) + '-**'
+    Confere 'documento sai MASCARADO na resposta (o CPF inteiro nao aparece)' ($r.Json.documento -eq $mascaraCpf -and $r.Texto -notmatch $cpfCliente) "documento=$($r.Json.documento)"
+    $idCliente = $r.Json.id
+    $rv = Chamar GET "/api/pessoas/$idCliente/documento"
+    Confere 'revelar devolve o documento inteiro (GET /api/pessoas/{id}/documento)' ($rv.Status -eq 200 -and $rv.Json.documento -eq $cpfCliente) "status=$($rv.Status)"
+    $rv = Chamar PUT "/api/pessoas/$idCliente" (Corpo @{ tipo = 'CLIENTE'; natureza = 'F'; documento = $mascaraCpf; nome = 'Cliente Um' })
+    Confere 'atualizar devolvendo a mascara vale por "mesmo documento" (200)' ($rv.Status -eq 200) "status=$($rv.Status) $($rv.Texto)"
     $clienteId = $r.Json.id
     $r = Chamar POST $pes (Corpo @{ tipo = 'FORNECEDOR'; natureza = 'J'; documento = (NovoCnpj (NovaRaiz) '0001'); nome = 'Fornecedor Ltda' })
     Confere 'fornecedor pessoa juridica 201' ($r.Status -eq 201)
@@ -133,9 +140,11 @@ try {
     Write-Host '== contato e endereco (de filial e de pessoa)'
     foreach ($dono in @("/api/filiais/$filialId", "/api/pessoas/$clienteId")) {
         $r = Chamar POST "$dono/contatos" (Corpo @{ tipo = 'EMAIL'; valor = 'FULANO@Exemplo.com.br' })
-        Confere "$dono contato e-mail 201, minusculo e principal" ($r.Status -eq 201 -and $r.Json.valor -eq 'fulano@exemplo.com.br' -and $r.Json.principal -eq $true) "status=$($r.Status) $($r.Texto)"
+        Confere "$dono contato e-mail 201, mascarado e principal" ($r.Status -eq 201 -and $r.Json.valor -eq 'f***@exemplo.com.br' -and $r.Json.principal -eq $true) "status=$($r.Status) $($r.Texto)"
         $r = Chamar POST "$dono/contatos" (Corpo @{ tipo = 'TELEFONE'; valor = '(11) 98765-4321' })
-        Confere "$dono contato telefone 201, so digitos" ($r.Status -eq 201 -and $r.Json.valor -eq '11987654321')
+        Confere "$dono contato telefone 201, mascarado" ($r.Status -eq 201 -and $r.Json.valor -eq '(11) *****-4321')
+        $rv = Chamar GET "/api/contatos/$($r.Json.id)/valor"
+        Confere "$dono revelar telefone devolve so digitos" ($rv.Status -eq 200 -and $rv.Json.valor -eq '11987654321') "status=$($rv.Status)"
         $r = Chamar POST "$dono/contatos" (Corpo @{ tipo = 'EMAIL'; valor = 'sem-arroba' })
         Confere "$dono e-mail invalido 400" ($r.Status -eq 400)
         $r = Chamar POST "$dono/enderecos" (Corpo $endereco)

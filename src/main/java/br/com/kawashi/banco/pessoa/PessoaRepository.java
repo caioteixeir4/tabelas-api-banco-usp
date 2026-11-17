@@ -13,7 +13,8 @@ import jakarta.persistence.LockModeType;
 
 public interface PessoaRepository extends JpaRepository<Pessoa, Long>, JpaSpecificationExecutor<Pessoa> {
 
-    boolean existsByEmpresaIdAndDocumentoAndTipo(Long empresaId, String documento, TipoDePessoa tipo);
+    /** A busca e pela impressao digital do documento: o banco nao tem o documento em claro. */
+    boolean existsByEmpresaIdAndDocumentoIndiceAndTipo(Long empresaId, String documentoIndice, TipoDePessoa tipo);
 
     /** Soma das participacoes dos socios da empresa. Nulo quando ainda nao ha socio. */
     @Query("select sum(p.participacao) from Pessoa p where p.empresaId = :empresaId and p.tipo = br.com.kawashi.banco.pessoa.TipoDePessoa.SOCIO")

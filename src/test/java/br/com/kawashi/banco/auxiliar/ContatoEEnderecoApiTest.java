@@ -53,13 +53,13 @@ class ContatoEEnderecoApiTest {
         api.post(dono + "/contatos", "{\"tipo\":\"email\",\"valor\":\"  FULANO@Exemplo.com.br \"}")
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.tipo").value("EMAIL"))
-                .andExpect(jsonPath("$.valor").value("fulano@exemplo.com.br"))
+                .andExpect(jsonPath("$.valor").value("f***@exemplo.com.br"))
                 .andExpect(jsonPath("$.principal").value(true))
                 .andExpect(jsonPath(campoDoDono).isNumber())
                 .andExpect(jsonPath(campoVazio).doesNotExist());
         api.post(dono + "/contatos", "{\"tipo\":\"TELEFONE\",\"valor\":\"(11) 98765-4321\"}")
                 .andExpect(status().isCreated())
-                .andExpect(jsonPath("$.valor").value("11987654321"));
+                .andExpect(jsonPath("$.valor").value("(11) *****-4321"));
         api.get(dono + "/contatos").andExpect(jsonPath("$.total").value(2));
     }
 
@@ -114,7 +114,7 @@ class ContatoEEnderecoApiTest {
         api.put("/api/contatos/" + id, "{\"tipo\":\"TELEFONE\",\"valor\":\"1133334444\",\"principal\":true}")
                 .andExpect(status().isUnprocessableEntity()).andExpect(jsonPath("$.detail").value(containsString("tipo")));
         api.put("/api/contatos/" + id, "{\"tipo\":\"EMAIL\",\"valor\":\"novo@exemplo.com.br\",\"principal\":true}")
-                .andExpect(status().isOk()).andExpect(jsonPath("$.valor").value("novo@exemplo.com.br"));
+                .andExpect(status().isOk()).andExpect(jsonPath("$.valor").value("n***@exemplo.com.br"));
     }
 
     // ---- endereco ------------------------------------------------------------------------

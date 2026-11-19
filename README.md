@@ -18,6 +18,13 @@ o banco Oracle.
   validações de CNPJ/CPF/UF, regras de negócio e erros no formato RFC 9457.
 - **Logs da aplicação** num schema separado (`KAWASHI_ENV_<AMBIENTE>_LOG`), em que a API só insere:
   quem mudou qual registro, encadeado por hash, e cada chamada à API.
+- **Login** (desde 18/11/2026): toda a `/api` exige token. Senha com argon2id, token opaco (15 min
+  renovados com o uso, teto de 8 h, até 3 sessões), bloqueio da conta e do IP, troca obrigatória aos
+  90 dias. As tabelas ficam nos schemas `_LOGIN` e `_SESSAO`, criados pelo repositório de regras.
+- **Dados pessoais protegidos (LGPD):** CPF/CNPJ de pessoa, e-mail e telefone são gravados
+  **cifrados** pela API (AES-256-GCM, chave fora do banco) e saem **mascarados** nas respostas; o valor
+  inteiro só por um caminho de "revelar", que fica no log de acesso. O disco do banco também é cifrado
+  (TDE, no repositório de regras).
 - Migrações versionadas (Flyway) e testes de integração contra o Oracle real, pelo mesmo caminho de
   produção (proxy).
 
@@ -33,13 +40,13 @@ Documentação:
 
 Desenhado e documentado, ainda não implementado:
 
-1. **Login** (schemas `LOGIN` e `SESSAO`): senha com troca a cada 90 dias, token que expira,
-   bloqueio por tentativas, 2FA opcional, dispositivo de confiança, localização suspeita.
+1. **Segunda entrega do login:** 2FA opcional, códigos de recuperação, aparelhos de confiança com o
+   token preso ao aparelho (DPoP), esqueci minha senha, confirmação de e-mail, aceite de termos.
 2. **Autorização**: perfis, permissões e o vínculo do usuário com cada empresa (multiempresa).
 
-Enquanto isso, **a API não tem autenticação**: quem alcança a porta lê e grava cadastros. O que já
-limita o estrago: a conta de banco que atende os pedidos não consegue apagar nem alterar tabela, não
-consegue mexer no log, e a API pode exigir HTTPS.
+Enquanto isso, **todo usuário logado pode tudo**. O que já limita o estrago: a conta de banco que atende os pedidos não consegue apagar nem alterar tabela, não
+consegue mexer no log, a API pode exigir HTTPS, e CPF, e-mail e telefone saem mascarados (mas o
+caminho de revelar ainda é aberto, até a autorização existir).
 
 ## Rodando
 
@@ -59,19 +66,36 @@ no ar (`docker compose up -d` dentro de `infra/`).
    **migração**: entra como dona das tabelas e só é usada na subida, pelo Flyway. Ver "Contas de
    banco" em [`docs/api-e-regras.md`](docs/api-e-regras.md).
 
-2. **Suba a API** (as migrações rodam sozinhas na primeira vez):
+2. **Gere as chaves de cifra** dos dados pessoais (uma vez só; vão para o `.env` e uma cópia para o
+   Vault, nunca para a tela):
+
+   ```powershell
+   .\scripts\gerar-chaves-de-cifra.ps1
+   ```
+
+   **Perder a `CIFRA_CHAVE_DADOS` é perder os dados cifrados.** O Vault de desenvolvimento é em
+   memória: depois de reiniciá-lo, reponha a cópia com `-SoCopiarParaOVault`.
+
+3. **Crie o primeiro usuário** (precisa de uma PESSOA cadastrada; a senha temporária vai para o
+   Vault, não aparece na tela, e o primeiro login só serve para trocá-la):
+
+   ```powershell
+   .\scripts\criar-usuario.ps1 -PessoaId 42 -Email voce@empresa.com.br
+   ```
+
+4. **Suba a API** (as migrações rodam sozinhas na primeira vez):
 
    ```bash
    mvn spring-boot:run
    ```
 
-3. **Rode os testes** (todos, contra o Oracle real):
+5. **Rode os testes** (todos, contra o Oracle real):
 
    ```bash
    mvn test
    ```
 
-4. **HTTPS** (opcional no desenvolvimento, obrigatório fora dele). Gera um certificado autoassinado
+6. **HTTPS** (opcional no desenvolvimento, obrigatório fora dele). Gera um certificado autoassinado
    para `localhost` e liga o HTTPS obrigatório no `.env`:
 
    ```powershell
@@ -95,6 +119,8 @@ Configuração, por variável de ambiente ou pelo `.env`:
 | `PORT` | Porta | `8080` |
 | `EXIGIR_HTTPS` | `true` recusa pedido a `/api/**` que não chegou por HTTPS | `false` |
 | `SSL_ATIVO`, `SSL_KEYSTORE`, `SSL_KEYSTORE_PASSWORD` | HTTPS direto na aplicação (keystore PKCS12) | desligado |
+| `app.senha.argon2-memoria-kib`, `-iteracoes`, `-paralelismo` | Custo do argon2id. Abaixo do mínimo da OWASP a API não sobe (só os testes podem, com `app.senha.custo-de-teste`) | `65536`, `3`, `4` |
+| `CIFRA_CHAVE_DADOS`, `CIFRA_CHAVE_INDICE` | Chaves (32 bytes em base64) que cifram os dados pessoais e geram a impressão digital deles. Sem elas a API não sobe | sem padrão |
 
 As senhas também ficam no Vault, em `kawashi-secrets/api/<conta>`. O schema de log é deduzido
 sozinho (`DB_SCHEMA` seguido de `_LOG`). A saúde da aplicação fica em `/actuator/health`.
@@ -124,6 +150,9 @@ não baterem.
 - `V5`: troca pelo modelo em torno de `PESSOA`. Ela **não converte dados**: recusa rodar se alguma
   tabela antiga tiver linhas, em vez de apagar em silêncio. O modelo antigo só existiu em
   desenvolvimento.
+- `V6`: CPF/CNPJ da pessoa e valor do contato passam a ser guardados cifrados (`DOCUMENTO_CIFRADO` +
+  `DOCUMENTO_INDICE`, `VALOR_CIFRADO` + `VALOR_INDICE`). Também **não converte dados** (cifrar exige a
+  chave, que o banco não tem): recusa rodar se `PESSOA` ou `CONTATO` tiverem linhas.
 
 As tabelas de **log não são criadas aqui**, e sim pelo repositório de regras
 (`infra/oracle-init/11_schema_log.sql`). É de propósito: quem cria uma tabela é dono dela e consegue
@@ -137,7 +166,9 @@ proxy) e chamam os endpoints por MockMvc. Cada teste roda numa transação que �
 então não sobra dado no banco e os testes não interferem entre si. Os documentos usados são
 CNPJ/CPF válidos e aleatórios (`GeradorDeDocumentos`), nunca reais.
 
-A suíte tem **95 testes** (última execução de `mvn test`, todos passando). É menor que a do modelo
+A suíte tem **149 testes** (última execução de `mvn test`, 18/11/2026, todos passando). Toda chamada
+à API nos testes vai com token: `testes/UsuarioDeTeste` cria o usuário (dentro da transação do teste,
+que é desfeita) e emite o token. Nos testes o argon2id roda com custo baixo (`src/test/resources`). É menor que a do modelo
 antigo (296): são menos tabelas, e os testes foram reescritos mais densos, vários casos por teste.
 
 | Grupo | Testes |
@@ -149,8 +180,13 @@ antigo (296): são menos tabelas, e os testes foram reescritos mais densos, vár
 | `ServidorRealTest` (porta real: 12 pedidos simultâneos contra as travas e contra o log, corpo fragmentado) | 8 |
 | `DocumentosTest` (CNPJ, CPF, UF, sem banco) | 31 |
 | `ConexaoProxyTest` (as duas contas de banco; a de execução não cria, altera nem apaga tabela) | 6 |
+| `LoginApiTest` (token opaco, 401 igual para todo erro, bloqueio da conta e do IP, logout, sair de todos, limite de 3 sessões, validade deslizante com teto, senha vencida, troca de senha, o que a API não consegue fazer no banco; com a sessão do banco forçada fora de UTC) | 20 |
+| `HashEPoliticaDeSenhaTest` (argon2id, custo mínimo, política de senha; sem banco) | 7 |
+| `ConexaoCifradaTest` (o banco exige cifra: a conexão normal funciona, um cliente que recusa cifrar é barrado com `ORA-12660`) | 3 |
 | `HttpsObrigatorioTest` (HTTP puro recusado, cabeçalhos de segurança) | 4 |
 | `TratadorDeErrosTest` | 2 |
+| `CifraDeDadosTest` (cifra, impressão digital, adulteração, chave errada, máscaras; sem banco) | 11 |
+| `DadosPessoaisCifradosTest` (o que fica na tabela, unicidade pela impressão digital, máscara, revelar com rastro, cifra adulterada por fora) | 13 |
 
 O `ServidorRealTest` é a exceção à transação desfeita: precisa gravar de verdade para disputar as
 travas. Ele apaga os cadastros que criou; as linhas de log ficam, porque a API não tem como
@@ -159,15 +195,20 @@ apagá-las.
 Como a transação do teste mantém a sessão aberta, ela esconde um tipo de erro de produção. Por isso
 existe também um roteiro por **HTTP real**, [`scripts/smoke-http.ps1`](scripts/smoke-http.ps1): com
 a API no ar, cria empresa, filial, pessoas de cada tipo, contatos e endereços, viola as regras de
-propósito (39 verificações) e apaga os cadastros que criou, conferindo que nada sobrou.
+propósito (51 verificações, incluindo login, troca de senha obrigatória, máscara, revelar e logout) e apaga os cadastros que criou, conferindo que nada sobrou.
 
 ```bash
 PORT=18080 mvn spring-boot:run          # em um terminal
 ```
 
 ```powershell
-.\scripts\smoke-http.ps1 -Base http://localhost:18080
+$env:SMOKE_SENHA = '...'   # a senha do usuário, sem ecoar (por exemplo, lida do Vault)
+.\scripts\smoke-http.ps1 -Base http://localhost:18080 -Email voce@empresa.com.br
 ```
+
+O roteiro entra com login, confere o 401 sem token e, se a senha estiver vencida (primeiro login),
+troca pela de `SMOKE_SENHA_NOVA` e entra de novo. No fim faz logout e confere que o token parou de
+valer.
 
 ## Armadilhas encontradas pelo caminho
 

@@ -45,7 +45,10 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-$EnvFile = [System.IO.Path]::GetFullPath($EnvFile)
+# Caminho relativo vale a partir da pasta atual do PowerShell. ([IO.Path]::GetFullPath usaria a pasta
+# do processo, que pode ser outra, e o script procuraria o .env no lugar errado.)
+$EnvFile = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($EnvFile)
+$InfraEnvFile = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($InfraEnvFile)
 
 function Get-ValorDoEnv {
     param([string]$Arquivo, [string]$Chave)
@@ -88,7 +91,7 @@ if ($SoCopiarParaOVault) {
 # ---------------------------------------------------------------------------
 # Copia no Vault, quando o token esta disponivel
 # ---------------------------------------------------------------------------
-$token = Get-ValorDoEnv ([System.IO.Path]::GetFullPath($InfraEnvFile)) 'VAULT_DEV_ROOT_TOKEN_ID'
+$token = Get-ValorDoEnv $InfraEnvFile 'VAULT_DEV_ROOT_TOKEN_ID'
 $schema = Get-ValorDoEnv $EnvFile 'DB_SCHEMA'
 $ambiente = if ($schema -match '^KAWASHI_ENV_(.+)$') { $Matches[1] } else { $null }
 

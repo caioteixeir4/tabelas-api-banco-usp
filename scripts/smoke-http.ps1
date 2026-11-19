@@ -11,14 +11,26 @@
 
   A API precisa estar no ar (mvn spring-boot:run). Sai com codigo 1 se alguma verificacao falhar.
 
+  Toda a /api exige login: o roteiro entra com um usuario existente (scripts/criar-usuario.ps1). A
+  senha vem da variavel de ambiente SMOKE_SENHA, nunca por parametro (ficaria no historico). Se a
+  senha estiver vencida (primeiro login de um usuario novo), o roteiro troca pela de
+  SMOKE_SENHA_NOVA e entra de novo. No fim, faz logout e confere que o token parou de valer.
+
 .PARAMETER Base
   URL base da API. Padrao: http://localhost:8080
 
+.PARAMETER Email
+  E-mail do usuario de login.
+
 .EXAMPLE
   $env:PORT = 18080; mvn spring-boot:run      # em outro terminal
-  .\scripts\smoke-http.ps1 -Base http://localhost:18080
+  $env:SMOKE_SENHA = '...'                    # sem ecoar; por exemplo, lida do Vault
+  .\scripts\smoke-http.ps1 -Base http://localhost:18080 -Email voce@empresa.com.br
 #>
-param([string]$Base = 'http://localhost:8080')
+param(
+    [string]$Base = 'http://localhost:8080',
+    [Parameter(Mandatory = $true)][string]$Email
+)
 
 $ErrorActionPreference = 'Stop'
 $base = $Base.TrimEnd('/')
@@ -35,6 +47,7 @@ function Chamar([string]$metodo, [string]$caminho, [string]$corpo = $null, [byte
     } elseif (-not [string]::IsNullOrEmpty($corpo)) {
         $req.Content = [System.Net.Http.ByteArrayContent]::new([System.Text.Encoding]::UTF8.GetBytes($corpo))
     }
+    if ($script:token) { $req.Headers.Authorization = [System.Net.Http.Headers.AuthenticationHeaderValue]::new('Bearer', $script:token) }
     if ($null -ne $req.Content) {
         $req.Content.Headers.ContentType = [System.Net.Http.Headers.MediaTypeHeaderValue]::Parse('application/json; charset=utf-8')
     }
@@ -83,6 +96,28 @@ try {
     Write-Host '== saude'
     $r = Chamar GET '/actuator/health'
     Confere 'health UP' ($r.Status -eq 200 -and $r.Json.status -eq 'UP')
+
+    Write-Host '== login'
+    if (-not $env:SMOKE_SENHA) { throw 'Defina a variavel de ambiente SMOKE_SENHA com a senha do usuario.' }
+    $script:token = $null
+    $r = Chamar GET '/api/empresas'
+    Confere 'sem token a API recusa (401)' ($r.Status -eq 401)
+    $r = Chamar POST '/api/auth/login' (Corpo @{ email = $Email; senha = $env:SMOKE_SENHA })
+    Confere 'login 200 com token kw_' ($r.Status -eq 200 -and $r.Json.token -match '^kw_') "status=$($r.Status)"
+    $script:token = $r.Json.token
+    if ($r.Json.escopo -eq 'TROCAR_SENHA') {
+        if (-not $env:SMOKE_SENHA_NOVA) { throw 'A senha esta vencida: defina SMOKE_SENHA_NOVA com a senha nova.' }
+        $r = Chamar GET '/api/empresas'
+        Confere 'senha vencida: o resto da API da 403' ($r.Status -eq 403)
+        $r = Chamar POST '/api/auth/trocar-senha' (Corpo @{ senhaAtual = $env:SMOKE_SENHA; senhaNova = $env:SMOKE_SENHA_NOVA })
+        Confere 'troca de senha 204' ($r.Status -eq 204) "status=$($r.Status) $($r.Texto)"
+        $r = Chamar GET '/api/auth/eu'
+        Confere 'depois da troca o token antigo para de valer (401)' ($r.Status -eq 401)
+        $script:token = $null
+        $r = Chamar POST '/api/auth/login' (Corpo @{ email = $Email; senha = $env:SMOKE_SENHA_NOVA })
+        Confere 'login com a senha nova 200, escopo COMPLETO' ($r.Status -eq 200 -and $r.Json.escopo -eq 'COMPLETO') "status=$($r.Status)"
+        $script:token = $r.Json.token
+    }
 
     Write-Host '== empresa e filial'
     $raiz = NovaRaiz
@@ -195,6 +230,11 @@ finally {
     }
     $resto = Chamar GET "/api/empresas?razaoSocial=$marca&size=100"
     Confere "limpeza: $apagadas empresa(s) apagada(s), nada sobrou com a marca" ($resto.Json.total -eq 0) "sobraram=$($resto.Json.total)"
+    if ($script:token) {
+        $x = Chamar POST '/api/auth/logout'
+        $y = Chamar GET '/api/auth/eu'
+        Confere 'logout 204 e o token para de valer na hora (401)' ($x.Status -eq 204 -and $y.Status -eq 401) "logout=$($x.Status) depois=$($y.Status)"
+    }
 }
 
 Write-Host ''

@@ -20,29 +20,42 @@ import com.jayway.jsonpath.JsonPath;
 public class Api {
 
     private final MockMvc mvc;
+    private final String token;
 
+    /** Sem token: so serve para o login e para conferir que o resto da API recusa (401). */
     public Api(MockMvc mvc) {
+        this(mvc, null);
+    }
+
+    /** Com token: toda chamada leva o cabecalho Authorization: Bearer. */
+    public Api(MockMvc mvc, String token) {
         this.mvc = mvc;
+        this.token = token;
     }
 
     public ResultActions post(String caminho, String json) throws Exception {
-        return mvc.perform(comCorpo(MockMvcRequestBuilders.post(caminho), json));
+        return mvc.perform(autenticado(comCorpo(MockMvcRequestBuilders.post(caminho), json)));
     }
 
     public ResultActions put(String caminho, String json) throws Exception {
-        return mvc.perform(comCorpo(MockMvcRequestBuilders.put(caminho), json));
+        return mvc.perform(autenticado(comCorpo(MockMvcRequestBuilders.put(caminho), json)));
     }
 
     public ResultActions post(String caminho) throws Exception {
-        return mvc.perform(MockMvcRequestBuilders.post(caminho));
+        return mvc.perform(autenticado(MockMvcRequestBuilders.post(caminho)));
     }
 
     public ResultActions get(String caminho) throws Exception {
-        return mvc.perform(MockMvcRequestBuilders.get(caminho));
+        return mvc.perform(autenticado(MockMvcRequestBuilders.get(caminho)));
     }
 
     public ResultActions delete(String caminho) throws Exception {
-        return mvc.perform(MockMvcRequestBuilders.delete(caminho));
+        return mvc.perform(autenticado(MockMvcRequestBuilders.delete(caminho)));
+    }
+
+    /** O pedido montado por quem chama, com o token deste cliente (para casos com IP, HTTPS etc.). */
+    public MockHttpServletRequestBuilder autenticado(MockHttpServletRequestBuilder pedido) {
+        return token == null ? pedido : pedido.header("Authorization", "Bearer " + token);
     }
 
     /** Cria e devolve o id; falha o teste se a resposta nao for 201. */

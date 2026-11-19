@@ -1,14 +1,19 @@
 # Modelo de dados
 
-> **Situação em 14/11/2026.** Os **cadastros** (`EMPRESA`, `FILIAL`, `PESSOA`, `CONTATO`, `ENDERECO`)
-> e os **logs** (`LOG_ALTERACAO`, `LOG_ACESSO`) existem no banco e têm API e testes. **Login** e
+> **Situação em 18/11/2026.** Os **cadastros** (`EMPRESA`, `FILIAL`, `PESSOA`, `CONTATO`, `ENDERECO`)
+> e os **logs** (`LOG_ALTERACAO`, `LOG_ACESSO`) existem no banco e têm API e testes. CPF/CNPJ de
+> pessoa, e-mail e telefone são gravados **cifrados** pela API (migração `V6`) e saem **mascarados**
+> nas respostas; o disco do banco também é cifrado. O **cadastro de contas do banco** (quem é cada
+> conta, o que pode e quando a senha vence) existe no repositório de regras. O **login** da API
+> (usuário, senha, token, bloqueios) existe desde 18/11/2026: toda a `/api` exige token. O **2FA**, os
+> **aparelhos** e a
 > **autorização** (schemas `LOGIN` e `SESSAO`, mais `LOG_SEGURANCA` e `TENTATIVA_LOGIN`) ainda são
 > proposta. O desenho, campo a campo, está em [`diagrama-tabelas.html`](diagrama-tabelas.html) (abra
 > no navegador); a API está em [`api-e-regras.md`](api-e-regras.md); este texto explica o porquê.
 
 ## Visão geral
 
-São 23 tabelas de negócio em 4 schemas por ambiente (mais uma interna, de controle do log). A separação por schema não é só organização: cada schema
+São 23 tabelas de negócio em 4 schemas por ambiente (mais uma interna, de controle do log), e uma visão de painel de usuários (`V_USUARIO_ACESSOS`, proposta). A separação por schema não é só organização: cada schema
 recebe uma permissão diferente, e é isso que limita o estrago se a API ou uma conta for comprometida.
 
 | Schema | O que guarda | Tabelas | O que a conta de execução da API pode fazer |
@@ -39,11 +44,13 @@ chave. Os campos ficam no quadro de origem.
 - **`PESSOA`**: pertence a uma empresa. A separação fica na coluna `TIPO`, um enum: `CLIENTE`,
   `COLABORADOR`, `SOCIO`, `FORNECEDOR`. Não existe mais uma tabela para cada papel, nem a tabela
   `CLIENTE`; um tipo novo é um valor novo na lista. A pessoa pode ser física ou jurídica
-  (`NATUREZA` `F` ou `J`, com CPF ou CNPJ em `DOCUMENTO`), porque cliente e fornecedor costumam
-  ser empresas. `PARTICIPACAO` só vale para sócio e `CARGO` para colaborador. O documento é único
-  por empresa e tipo: a mesma pessoa em duas empresas, ou com dois tipos, são linhas separadas.
-- **`CONTATO`**: tabela auxiliar, uma linha por e-mail ou telefone. Há um principal por tipo (um
-  e-mail principal, um telefone principal).
+  (`NATUREZA` `F` ou `J`, com CPF ou CNPJ), porque cliente e fornecedor costumam ser empresas.
+  `PARTICIPACAO` só vale para sócio e `CARGO` para colaborador. O documento fica **cifrado** em
+  `DOCUMENTO_CIFRADO`, com a impressão digital em `DOCUMENTO_INDICE` (ver "Criptografia e LGPD"). Ele
+  é único por empresa e tipo: a mesma pessoa em duas empresas, ou com dois tipos, são linhas separadas.
+- **`CONTATO`**: tabela auxiliar, uma linha por e-mail ou telefone, gravado cifrado em
+  `VALOR_CIFRADO` (com `VALOR_INDICE`). Há um principal por tipo (um e-mail principal, um telefone
+  principal), e o mesmo contato não se repete no mesmo dono (índice único).
 - **`ENDERECO`**: tabela auxiliar, um endereço.
 
 `CONTATO` e `ENDERECO` servem a **filial** e a **pessoa** (não à empresa diretamente). Cada linha
@@ -54,7 +61,8 @@ genérica "tipo do dono + id" não garantiria.
 ## Login (schema `LOGIN`)
 
 - **`USUARIO`**: o login de uma pessoa. `PESSOA_ID` é único, então é uma relação 1 para 1: cada
-  pessoa tem no máximo um usuário. O e-mail é o nome de login.
+  pessoa tem no máximo um usuário. O e-mail é o nome de login (gravado cifrado, com impressão digital
+  para a busca, como os outros dados pessoais).
 - **`HISTORICO_SENHA`**: hashes das senhas anteriores, para a troca não repetir uma senha recente.
 - **`SEGUNDO_FATOR`**: o 2FA por aplicativo autenticador (TOTP). **É opcional**: só existe linha
   para quem ativou; quem não ativou entra só com a senha. Relação 1 para 1 com o usuário.
@@ -76,6 +84,9 @@ O login diz **quem é** o usuário. Estas tabelas dizem **o que ele pode fazer e
 - **`USUARIO_EMPRESA`**: em quais empresas o usuário entra e com qual perfil em cada uma. É o
   **multiempresa**: o mesmo usuário pode ser administrador numa empresa e só consulta em outra, e
   sem uma linha aqui ele não enxerga nada daquela empresa.
+- **`V_USUARIO_ACESSOS`** (visão): o painel dos usuários da aplicação, igual ao das contas do banco.
+  Uma linha por usuário e empresa, com nome e cargo (da `PESSOA`), o perfil naquela empresa e a
+  situação da senha contra os 90 dias. Todo usuário criado aparece aqui sem cadastro à parte.
 - **`PARAMETRO_SEGURANCA`**: os números das regras (validade da senha, limite de tentativas, duração
   do token...). Mudam sem publicar a API de novo, e cada mudança gera uma linha em `LOG_SEGURANCA`,
   para que afrouxar uma regra não passe despercebido.
@@ -128,6 +139,57 @@ precisa ficar fora do alcance de quem administra o banco.
 Estes são os logs da **aplicação**. A trilha de segurança do **banco** (quem conectou, quem criou
 tabela, quem recebeu privilégio) já existe e fica no repositório de regras.
 
+## Token de acesso (aplicado em 18/11/2026, com os números "mais rígidos")
+
+Como a API vai saber, a cada pedido, quem está chamando. Cada escolha abaixo tem o porquê.
+
+| Decisão | Escolha | Por quê |
+|---|---|---|
+| Tipo | **Opaco** (texto aleatório), não JWT | O projeto precisa cortar acesso **na hora**: logout, troca de senha, desligamento. Um JWT vale até vencer, e revogar exige uma lista negra consultada a cada pedido, que é justamente o custo que ele prometia evitar. E a chave que assina o JWT, se vazar, permite forjar qualquer usuário. Custo do opaco: uma consulta indexada por pedido. |
+| Formato | `kw_` + 32 bytes aleatórios (base64url, 46 caracteres) | 256 bits não se adivinham. O prefixo deixa ferramentas de detecção de segredos acharem um token vazado em log, chat ou git. |
+| No banco | só o SHA-256 (`TOKEN.TOKEN_HASH`) | Quem lê a tabela (DBA, backup vazado) não consegue usar o token. Com 256 bits de entropia, um hash sem chave basta: não há como testar todas as possibilidades. |
+| Como chega | só no cabeçalho `Authorization: Bearer` | Nunca na URL (iria parar no log de acesso, no histórico do navegador e em proxies). Sem cookie, a API não fica exposta a CSRF. Token na URL é recusado. |
+| Validade | **deslizante de 15 min com teto de 8 h** | Cada uso empurra o vencimento para 15 minutos à frente; parado 15 minutos, vence. O teto (`EXPIRA_ABSOLUTO_EM`) impede que um token roubado e mantido em uso viva para sempre. Sem "refresh token" separado: menos peças, mesma proteção. |
+| Renovação no banco | no máximo **uma vez por minuto** | Gravar a cada pedido seria uma escrita por chamada. Atualizando só quando passou um minuto do último uso, o vencimento fica no máximo 1 minuto "atrasado", o que é irrelevante. |
+| Senha vencida (90 dias) | login devolve token de escopo `TROCAR_SENHA` | O usuário entra, mas a única coisa que esse token faz é trocar a senha (o resto dá `403`). Mais simples e mais seguro que um código à parte. |
+| Revogação | `REVOGADO_EM` + `MOTIVO_REVOGACAO` | Motivos: logout, sair de todos, troca de senha (derruba **todas** as sessões), aparelho removido, limite de sessões, usuário desligado, suspeita. Toda revogação também vai para o `LOG_SEGURANCA`. |
+| Sessões simultâneas | no máximo **3** por usuário | A quarta derruba a mais antiga (`LIMITE_SESSOES`). Limita o estrago de uma senha vazada usada em paralelo. |
+| Falha | sempre o mesmo `401` | Token inexistente, vencido ou revogado recebem a mesma resposta: quem testa tokens não aprende nada. |
+| Log | o token **nunca** é gravado | O `LOG_ACESSO` passa a guardar o id do usuário, não o token. |
+| IP | registrado, **não** preso ao token | Celular troca de IP a toda hora. IP de outro país no meio da sessão vira suspeita (etapa de localização). |
+| Empresa | um token por empresa (`TOKEN.EMPRESA_ID`) | Entra com a autorização (etapa 4): trocar de empresa emite outro token. |
+
+| Fuso | tudo em **UTC** (`SYS_EXTRACT_UTC(SYSTIMESTAMP)`) | Gravado, comparado e devolvido em UTC (as respostas trazem o "Z"). Comparar a coluna com `SYSTIMESTAMP` faria o Oracle ler a coluna no fuso da sessão: com a API em −05:00, um token vencido valia mais 5 horas (achado pelo teste, corrigido). |
+| Hash da senha | **argon2id** (64 MiB, 3 passadas, 4 linhas: RFC 9106) | Recomendado pela OWASP; caro em memória, o que tira a vantagem de quem ataca com placa de vídeo. O hash grava os parâmetros (formato PHC): dá para endurecer depois e regravar no próximo login certo. Custo abaixo do mínimo da OWASP só com uma chave explícita de teste. |
+| Senha | mínimo de **12** caracteres, sem senhas conhecidas nem o e-mail, nada de "uma maiúscula e um símbolo" | Linha do NIST SP 800-63B: tamanho e lista de senhas vazadas protegem; regras de composição levam a senhas previsíveis. A nova não repete a atual nem as **5** anteriores. |
+
+**Primeira entrega do login, aplicada** (o suficiente para fechar "a API não tem login"):
+- no repositório de regras: schemas `KAWASHI_ENV_<AMB>_LOGIN` e `KAWASHI_ENV_<AMB>_SESSAO` com as
+  permissões da tabela do início, e `TENTATIVA_LOGIN` e `LOG_SEGURANCA` no schema de log;
+- tabelas `USUARIO`, `HISTORICO_SENHA`, `PARAMETRO_SEGURANCA`, `TOKEN` e `BLOQUEIO_IP`;
+- na API: `POST /api/auth/login`, `POST /api/auth/logout`, `POST /api/auth/sair-de-todos` e
+  `POST /api/auth/trocar-senha`, e todo o resto de `/api/**` passando a exigir token;
+- senha com argon2id, bloqueio por tentativas e por IP, e um script para criar o primeiro usuário.
+
+O primeiro usuário é criado por `scripts/criar-usuario.ps1`: a senha temporária vai para o Vault (não
+aparece na tela) e já nasce vencida, então o primeiro login só serve para trocá-la.
+
+**Diferenças em relação ao desenho original**, decididas na construção:
+- `PARAMETRO_SEGURANCA` tem a `CHAVE` como chave primária e o `VALOR` numérico, e a API só a **lê**
+  (o desenho original deixava a API alterar). Mudança direta no banco vai sozinha para o
+  `LOG_SEGURANCA`, com quem mudou, o valor antigo e o novo.
+- As tabelas do login são criadas pelo **repositório de regras**, como as de log, e não pela migração
+  da API: a conta de migração não enxerga nem os hashes de senha.
+- O e-mail do usuário é gravado cifrado (`EMAIL_CIFRADO`) com a impressão digital (`EMAIL_INDICE`).
+- `EMAIL_VERIFICADO_EM` e `TOKEN.DISPOSITIVO_ID`/`EMPRESA_ID` entram com a confirmação de e-mail, os
+  aparelhos e a autorização.
+- `TENTATIVA_LOGIN` guarda a impressão digital do e-mail tentado, nunca o e-mail.
+
+Ficam para a rodada seguinte: 2FA, códigos de recuperação, dispositivos de confiança (com o token
+preso ao aparelho, DPoP: um token roubado não serve em outro aparelho), confirmação de e-mail,
+esqueci minha senha, aceite de termos, localização suspeita e a âncora do `LOG_SEGURANCA` no Vault. A autorização por perfil e por
+empresa (etapa 4) vem depois; até lá, todo usuário logado pode tudo, inclusive revelar CPF.
+
 ## Como cada mecanismo de segurança funciona
 
 | Mecanismo | Tabelas e colunas | Regra (na API) |
@@ -139,8 +201,9 @@ tabela, quem recebeu privilégio) já existe e fica no repositório de regras.
 | 2FA (opcional) | `SEGUNDO_FATOR`, `CODIGO_RECUPERACAO`, `CODIGO_TEMPORARIO` | Quem ativou informa o código do autenticador depois da senha. |
 | Dispositivo de confiança | `DISPOSITIVO.CONFIAVEL_ATE` | O aparelho marcado dispensa o 2FA por 30 dias. |
 | Localização suspeita | `TENTATIVA_LOGIN.PAIS`, `CIDADE`, `SUSPEITA` | País ou cidade que nunca apareceu nos logins certos do usuário, ou dois logins longe demais para o tempo entre eles. Login suspeito pede o 2FA mesmo em dispositivo de confiança e avisa o usuário por e-mail. |
-| Token que expira | `TOKEN.EXPIRA_EM`, `EXPIRA_ABSOLUTO_EM`, `REVOGADO_EM` | Vale 30 minutos, renovado enquanto há uso, com teto de 12 horas. Logout, troca de senha e remoção do aparelho revogam. |
-| Token nunca guardado | `TOKEN.TOKEN_HASH` | Só o SHA-256. O token existe apenas na resposta do login. |
+| Token que expira | `TOKEN.EXPIRA_EM`, `EXPIRA_ABSOLUTO_EM`, `REVOGADO_EM`, `MOTIVO_REVOGACAO` | Opaco, 30 minutos deslizantes com teto de 12 horas, no máximo 5 sessões. Logout, troca de senha, desligamento e remoção do aparelho revogam na hora (ver "Token de acesso"). |
+| Token nunca guardado | `TOKEN.TOKEN_HASH` | Só o SHA-256. O token existe apenas na resposta do login e no cabeçalho `Authorization`. |
+| Senha vencida | `TOKEN.ESCOPO = 'TROCAR_SENHA'` | Passados 90 dias, o login devolve um token que só serve para trocar a senha. |
 | Quem pode o quê | `PERFIL`, `PERMISSAO`, `PERFIL_PERMISSAO` | A API confere a permissão antes de cada operação. |
 | Multiempresa | `USUARIO_EMPRESA`, `TOKEN.EMPRESA_ID` | O usuário só enxerga as empresas em que tem vínculo, com o perfil daquele vínculo. |
 | Esqueci minha senha | `CODIGO_TEMPORARIO` | Código de uso único, validade curta e limite de tentativas, enviado por e-mail. |
@@ -206,6 +269,7 @@ Em nenhuma coluna fica senha, token ou código em texto puro. A única exceção
 | sem login na API | schemas `LOGIN` e `SESSAO` |
 | sem controle de quem pode o quê | `PERFIL`, `PERMISSAO`, `USUARIO_EMPRESA` |
 | sem log na API | schema `LOG` |
+| `PESSOA.DOCUMENTO` e `CONTATO.VALOR` em texto puro (V5) | `DOCUMENTO_CIFRADO` + `DOCUMENTO_INDICE` e `VALOR_CIFRADO` + `VALOR_INDICE` (V6) |
 
 ## Etapas
 
@@ -221,34 +285,102 @@ Cada uma com migração, API, testes e esta documentação atualizados:
    - **HTTPS obrigatório** e cabeçalhos de segurança em toda resposta;
    - **âncora do log no Vault**: o último número e hash de `LOG_ALTERACAO` são guardados fora do
      banco, e uma conferência acusa o DBA que alterar o log e recalcular a corrente.
-3. **Login. A fazer.** Cria os schemas `LOGIN` e `SESSAO` no repositório de regras (com as permissões
-   da tabela do início) e implementa na API: senha, token, bloqueios, 2FA, dispositivos. Entram junto
+3. **Login. Primeira entrega feita** (18/11/2026): schemas `LOGIN` e `SESSAO` no repositório de regras,
+   senha com argon2id, token opaco, bloqueios por conta e por IP, troca obrigatória aos 90 dias e toda
+   a `/api` exigindo token (ver "Token de acesso"). **A fazer na segunda entrega:** 2FA, dispositivos. Entram junto
    as proteções contra robôs: desafio de prova de trabalho depois de errar a senha (cabe na
    `CODIGO_TEMPORARIO`, com uma finalidade nova), limite de pedidos por IP em toda a API, campo-isca
    e tempo mínimo no formulário. E mais: 2FA obrigatório para perfil administrador, reconfirmação da
    senha em ações sensíveis, token preso ao aparelho e link "não fui eu" nos avisos.
 4. **Autorização. A fazer.** Perfis, permissões e o vínculo do usuário com cada empresa, conferidos em
    toda chamada.
-5. **Criptografia de dados pessoais. A decidir.** Ver a seção abaixo.
+5. **Criptografia de dados pessoais. Feita** (antes do login, para o login já nascer com ela). Três
+   camadas, descritas na seção abaixo.
+6. **Cadastro de contas do banco. Feito**, no repositório de regras. Ver "Contas do banco" abaixo.
 
-No diagrama, o quadro "Cadastros e logs" mostra tabelas existentes, conferidas campo a campo contra o
-Oracle; os quadros de login e de autorização continuam marcados como proposta.
+No diagrama, os quadros "Cadastros e logs" e "Contas do banco" mostram tabelas existentes, conferidas
+campo a campo contra o Oracle; os quadros de login e de autorização continuam marcados como proposta.
 
-## Criptografia e LGPD (proposta, ainda não aplicada)
+## Contas do banco: quem é, o que pode e validade da senha
 
-O banco suporta as duas ferramentas nativas necessárias (conferido na instância: `Transparent Data
-Encryption` e `Data Redaction` estão disponíveis nesta edição). A proposta é cifrar por camada e
-por campo, não tudo:
+Pedido: "cada usuário que for criado ir para uma tabela e lá a gente sabe qual usuário tem qual
+liberação, qual cargo e como podemos monitorar o limite de 90 dias de senha, lembrando que isso
+também se encaixa aos desenvolvedores". Há dois tipos de usuário, e cada um tem o seu painel:
 
-| Camada | O que protege | O que não protege | Custo |
+| Quem | Onde mora | Painel | Estado |
 |---|---|---|---|
-| **Disco (TDE)**: o banco cifra os arquivos e os backups | roubo do disco ou de um backup | quem está logado no banco | baixo; transparente para a API |
-| **Campo, pela API**: o valor chega ao banco já cifrado, com a chave no Vault | leitura direta da tabela (desenvolvedor com acesso ao ambiente, DBA, vazamento por SQL) | quem invade a API com a chave em memória | alto: não dá para buscar por pedaço do valor, e a unicidade passa a depender de um "índice cego" (hash com chave ao lado do valor cifrado) |
-| **Mascaramento na leitura**: a API devolve `***.456.789-**` a quem não pode ver o documento inteiro | exposição desnecessária em tela e em relatório | acesso direto ao banco | depende dos perfis da autorização |
+| contas do **banco**: desenvolvedores, estagiários, infra, contas de API, o administrador | `SYS.KAWASHI_CONTA` (repositório de regras) | `SYS.V_KAWASHI_CONTAS` e `SYS.V_KAWASHI_CONTA_LIBERACOES`; no terminal, `infra/scripts/cadastro-de-contas.ps1` | **feito** |
+| usuários da **aplicação** (quem entra na API) | `USUARIO`, `PESSOA`, `USUARIO_EMPRESA` | `V_USUARIO_ACESSOS` | proposta, entra com o login |
 
-Campos candidatos à cifra pela API: CPF de pessoa física (`PESSOA.DOCUMENTO` com `NATUREZA = 'F'`),
-e-mail e telefone (`CONTATO.VALOR`). Nome e endereço ficam de fora no primeiro momento, porque
-precisam de busca e ordenação.
+Regras de negócio do cadastro de contas do banco:
+
+1. **Toda conta criada entra no cadastro.** `create-team-member.ps1` (com `-Nome` e `-Cargo`) e
+   `create-api-account.ps1` (com `-Responsavel`) gravam a linha na mesma execução que cria a conta.
+   O administrador e as contas que já existiam entram pela instalação (`12_cadastro_de_contas.sql`).
+2. **A tabela guarda só o que gente sabe dizer**: tipo (`PESSOA`, `API`, `ADMIN`), perfil, nome,
+   cargo, ambiente (API) e quem criou. **Liberações e datas da senha não são copiadas**: as visões
+   leem o dicionário do Oracle na hora. Um `GRANT` dado por fora dos scripts aparece no painel no
+   mesmo instante; uma cópia ficaria mentindo.
+3. **Conta criada por fora não some**: aparece como `SEM CADASTRO`, com pendência. Conta apagada do
+   banco continua no cadastro como `REMOVIDA` (histórico de quem já teve acesso).
+4. **Só um caminho de escrita**: a procedure `KAWASHI_REGISTRAR_CONTA`, executável só pelo
+   engenheiro. Nem o DBA faz `UPDATE`/`DELETE` direto na tabela, e uma conta comum não lê o painel.
+5. **Senha de 90 dias.** O limite vem do `PASSWORD_LIFE_TIME` do perfil `KAWASHI_SECURE_PROFILE`
+   (mudou lá, muda aqui). Situação: `EM DIA`, `VENCE EM BREVE` (faltam 15 dias ou menos), `VENCIDA`,
+   `TROCA PENDENTE` (conta nova que ainda não fez o primeiro login) e `CONTA BLOQUEADA`.
+   - **Pessoa e administrador**: o próprio Oracle bloqueia ao vencer, com 7 dias de tolerância. O
+     painel avisa antes.
+   - **Conta de API**: a senha **não** expira sozinha, de propósito (uma API parada de madrugada por
+     senha vencida é pior). O painel conta os mesmos 90 dias e marca `VENCIDA` para a rotação ser
+     feita à mão.
+6. **Monitoramento**: `cadastro-de-contas.ps1 -Acao Alertas` lista só as contas com pendência (senha
+   vencida ou vencendo, sem cadastro, pessoa sem nome ou cargo, conta bloqueada) e termina com código 1
+   quando há alguma. A `rotina-diaria.ps1` roda isso **todo dia às 9h** (Agendador de Tarefas), junto
+   com a conferência do log, grava o relatório e avisa no Windows quando há pendência.
+7. **Desligamento**: `remove-team-member.ps1 -Username ... -Motivo ...` tira todo acesso de quem saiu
+   (tranca a conta, revoga proxies, roles, privilégios e permissões, derruba as sessões abertas,
+   inclusive por proxy, e apaga login e segredos no Vault). O cadastro vira `DESLIGADA`, com data,
+   quem desligou e o motivo, e sai da lista do dia a dia. Desligada não tem senha cobrada, mas vira
+   **alarme** se for destrancada ou receber acesso de volta. A conta fica trancada, não apagada, a
+   menos que se peça `-Apagar`; o mesmo nome criado de novo depois é outra conta e volta a `OK`.
+   Conta de API, administrador e quem tem `DBA` não são desligados por aqui.
+
+## Criptografia e LGPD (aplicada em 16/11/2026)
+
+Três camadas, cada uma contra um risco diferente:
+
+| Camada | Onde | O que protege | O que não protege |
+|---|---|---|---|
+| **1. Disco (TDE)** | Oracle; `infra/scripts/enable-tde.ps1` no repositório de regras | quem copia o disco, um arquivo do banco ou um backup: todas as tablespaces do Kawashi e a `USERS` são AES-256, e a tablespace criada no futuro já nasce cifrada | quem está logado no banco |
+| **2. Campo, pela API** | `CifraDeDados`, migração `V6` | quem lê a tabela direto (DBA, desenvolvedor com acesso ao ambiente, vazamento por SQL): o banco só vê `v1:...` | quem invade a API com a chave em memória |
+| **3. Máscara na leitura** | `Mascaras`, respostas da API | exposição desnecessária em tela, relatório, print ou log de quem consome a API | quem pode chamar o caminho de revelar |
+
+**Camada 2, como funciona.** Campos cifrados: o documento da pessoa (CPF e também CNPJ, por
+simplicidade: a coluna é uma só) e o valor do contato (e-mail e telefone). Nome e endereço ficam de
+fora, porque precisam de busca e ordenação.
+
+- **AES-256-GCM** com um número aleatório por gravação: o mesmo CPF gravado duas vezes dá duas cifras
+  diferentes, e quem olha a tabela não descobre nem que duas linhas são da mesma pessoa. O GCM também
+  autentica: cifra alterada, ou copiada de outra coluna, **não decifra** (a API responde 500 sem vazar
+  nada, em vez de devolver lixo).
+- **Impressão digital (HMAC-SHA256 com outra chave)** ao lado: sempre igual para o mesmo valor. É ela
+  que mantém o documento único por empresa e tipo, e o contato único por dono, **no banco**. Um hash
+  sem chave não serviria: CPF tem poucas combinações e seria quebrado por tentativa.
+- As chaves (`CIFRA_CHAVE_DADOS`, `CIFRA_CHAVE_INDICE`) ficam com a aplicação, nunca no banco.
+  `scripts/gerar-chaves-de-cifra.ps1` gera as duas no `.env` e guarda cópia no Vault
+  (`kawashi-secrets/cifra/<AMB>`). **Perder a chave de dados é perder os dados.** Sem as chaves, a API
+  não sobe.
+- O banco ainda confere que as colunas têm cara de cifra (`CHECK`): texto em claro gravado por engano
+  é recusado. O que ele deixou de conferir: que o CPF tem 11 dígitos (não vê mais os dígitos); essa
+  regra passou a ser só da API.
+- Custo aceito: não dá para buscar por pedaço do documento ou do e-mail, só por valor exato.
+
+**Camada 3, como funciona.** As respostas mostram `***.982.247-**`, `f***@exemplo.com.br`,
+`(11) *****-4321`. O valor inteiro só sai por `GET /api/pessoas/{id}/documento` e
+`GET /api/contatos/{id}/valor`, que ficam no `LOG_ACESSO`: dá para responder "quem viu o documento de
+quem, e quando". Quando a autorização existir, esses caminhos ganham uma permissão própria. Para não
+obrigar quem só tem a máscara a conhecer o valor inteiro, a atualização aceita a máscara devolvida
+como "não mexa no valor"; a máscara de outro valor é recusada, e no cadastro valor mascarado não vale.
 
 Sobre a LGPD (Lei 13.709/2018), com a ressalva de que esta é uma leitura técnica, não um parecer
 jurídico:

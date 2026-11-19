@@ -10,13 +10,16 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
 
+import br.com.kawashi.banco.login.SessaoAtual;
+
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 
 /**
- * Grava em LOG_ACESSO cada chamada a API: de qual IP, metodo, caminho e status devolvido. So o
+ * Grava em LOG_ACESSO cada chamada a API: quem (o usuario do token, "USUARIO:<id>"), de qual IP,
+ * metodo, caminho e status devolvido. O token em si nunca e gravado. So o
  * caminho entra, nunca a query string nem o corpo, para nao levar dado pessoal para o log.
  *
  * <p>Uma falha ao gravar o log nao derruba a resposta: a chamada ja foi atendida. Ela vai para o
@@ -61,7 +64,8 @@ public class RegistroDeAcessoFilter extends OncePerRequestFilter {
             }
             jdbc.update("INSERT INTO " + schema.tabela("LOG_ACESSO")
                     + " (USUARIO, IP_ORIGEM, METODO, CAMINHO, STATUS) VALUES (?, ?, ?, ?, ?)",
-                    null, requisicao.getRemoteAddr(), requisicao.getMethod(), caminho, resposta.getStatus());
+                    SessaoAtual.de(requisicao).map(s -> "USUARIO:" + s.usuarioId()).orElse(null),
+                    requisicao.getRemoteAddr(), requisicao.getMethod(), caminho, resposta.getStatus());
         } catch (RuntimeException ex) {
             LOG.warn("Não foi possível gravar o LOG_ACESSO: {}", ex.getMessage());
         }

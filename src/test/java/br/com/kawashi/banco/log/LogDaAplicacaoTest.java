@@ -15,6 +15,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.web.servlet.MockMvc;
 
 import br.com.kawashi.banco.testes.Api;
+import br.com.kawashi.banco.testes.UsuarioDeTeste;
 import br.com.kawashi.banco.testes.GeradorDeDocumentos;
 import br.com.kawashi.banco.testes.IntegracaoApi;
 
@@ -29,6 +30,8 @@ class LogDaAplicacaoTest {
     @Autowired
     private MockMvc mvc;
     @Autowired
+    private UsuarioDeTeste usuarios;
+    @Autowired
     private JdbcTemplate jdbc;
     @Autowired
     private SchemaDeLog schema;
@@ -36,7 +39,7 @@ class LogDaAplicacaoTest {
 
     @BeforeEach
     void preparar() {
-        api = new Api(mvc);
+        api = new Api(mvc, usuarios.token());
     }
 
     private List<Map<String, Object>> alteracoes(String tabela, long id) {

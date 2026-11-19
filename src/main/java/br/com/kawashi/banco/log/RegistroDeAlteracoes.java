@@ -3,6 +3,8 @@ package br.com.kawashi.banco.log;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Component;
 
+import br.com.kawashi.banco.login.SessaoAtual;
+
 /**
  * Grava em LOG_ALTERACAO quem criou, alterou ou apagou qual registro. Roda na MESMA transacao da
  * mudanca: se a mudanca for desfeita, o registro dela some junto, e nao existe mudanca gravada sem
@@ -15,9 +17,6 @@ import org.springframework.stereotype.Component;
  */
 @Component
 public class RegistroDeAlteracoes {
-
-    /** Enquanto a API nao tem login, toda mudanca e atribuida a ela mesma. */
-    static final String USUARIO_SEM_LOGIN = "API";
 
     private final JdbcTemplate jdbc;
     private final SchemaDeLog schema;
@@ -42,6 +41,7 @@ public class RegistroDeAlteracoes {
     private void registrar(String tabela, Long id, String acao, String detalhe) {
         jdbc.update("INSERT INTO " + schema.tabela("LOG_ALTERACAO")
                 + " (TABELA, REGISTRO_ID, ACAO, USUARIO, DETALHE) VALUES (?, ?, ?, ?, ?)",
-                tabela, id, acao, USUARIO_SEM_LOGIN, detalhe);
+                // Quem esta logado ("USUARIO:<id>"); "API" so fora de um pedido (o script de criar usuario).
+                tabela, id, acao, SessaoAtual.quemNoLog(), detalhe);
     }
 }

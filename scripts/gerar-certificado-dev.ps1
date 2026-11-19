@@ -32,8 +32,8 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-$Destino = [System.IO.Path]::GetFullPath($Destino)
-$EnvFile = [System.IO.Path]::GetFullPath($EnvFile)
+$Destino = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($Destino)
+$EnvFile = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($EnvFile)
 
 if (Test-Path -LiteralPath $Destino) {
     throw "O arquivo '$Destino' ja existe. Apague-o antes se quiser gerar outro certificado."

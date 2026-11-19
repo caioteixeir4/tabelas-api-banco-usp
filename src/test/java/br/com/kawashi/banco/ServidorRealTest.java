@@ -58,12 +58,18 @@ class ServidorRealTest {
     @Autowired
     private SchemaDeLog schemaDeLog;
 
+    @Autowired
+    private br.com.kawashi.banco.testes.UsuarioDeTeste usuarios;
+
     private final HttpClient http = HttpClient.newHttpClient();
+    /** Token gravado de verdade: os pedidos chegam por outras threads, fora de qualquer transacao do teste. */
+    private String token;
     private long empresaId;
     private long pessoaId;
 
     @BeforeEach
     void criarEmpresaEPessoa() throws Exception {
+        token = usuarios.tokenPersistente();
         empresaId = id(enviar("POST", "/api/empresas",
                 "{\"cnpj\":\"" + GeradorDeDocumentos.cnpj() + "\",\"razaoSocial\":\"Concorrencia LTDA\"}", 201));
         pessoaId = id(enviar("POST", "/api/empresas/" + empresaId + "/pessoas",
@@ -213,6 +219,7 @@ class ServidorRealTest {
     private HttpRequest fragmentado(String caminho, String corpo) {
         return HttpRequest.newBuilder(URI.create("http://localhost:" + porta + caminho))
                 .header("Content-Type", "application/json")
+                .header("Authorization", "Bearer " + token)
                 .POST(HttpRequest.BodyPublishers.ofInputStream(
                         () -> new ByteArrayInputStream(corpo.getBytes(StandardCharsets.UTF_8))))
                 .build();
@@ -224,6 +231,7 @@ class ServidorRealTest {
                 : HttpRequest.BodyPublishers.ofString(corpoJson, StandardCharsets.UTF_8);
         HttpRequest pedido = HttpRequest.newBuilder(URI.create("http://localhost:" + porta + caminho))
                 .header("Content-Type", "application/json")
+                .header("Authorization", "Bearer " + token)
                 .method(metodo, corpo)
                 .build();
         return http.send(pedido, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));

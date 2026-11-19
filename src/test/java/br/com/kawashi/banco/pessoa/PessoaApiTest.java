@@ -12,6 +12,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.test.web.servlet.MockMvc;
 
 import br.com.kawashi.banco.testes.Api;
+import br.com.kawashi.banco.testes.UsuarioDeTeste;
 import br.com.kawashi.banco.testes.GeradorDeDocumentos;
 import br.com.kawashi.banco.testes.IntegracaoApi;
 
@@ -20,13 +21,15 @@ class PessoaApiTest {
 
     @Autowired
     private MockMvc mvc;
+    @Autowired
+    private UsuarioDeTeste usuarios;
     private Api api;
     private long empresaId;
     private String pessoas;
 
     @BeforeEach
     void preparar() throws Exception {
-        api = new Api(mvc);
+        api = new Api(mvc, usuarios.token());
         empresaId = api.empresa();
         pessoas = "/api/empresas/" + empresaId + "/pessoas";
     }

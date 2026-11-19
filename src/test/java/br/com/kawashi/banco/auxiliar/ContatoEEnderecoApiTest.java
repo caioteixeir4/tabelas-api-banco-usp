@@ -12,6 +12,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.test.web.servlet.MockMvc;
 
 import br.com.kawashi.banco.testes.Api;
+import br.com.kawashi.banco.testes.UsuarioDeTeste;
 import br.com.kawashi.banco.testes.IntegracaoApi;
 
 /**
@@ -25,11 +26,13 @@ class ContatoEEnderecoApiTest {
 
     @Autowired
     private MockMvc mvc;
+    @Autowired
+    private UsuarioDeTeste usuarios;
     private Api api;
 
     @BeforeEach
     void preparar() {
-        api = new Api(mvc);
+        api = new Api(mvc, usuarios.token());
     }
 
     /** Caminho base do dono ("/api/filiais/7" ou "/api/pessoas/7"), criando o dono. */

@@ -20,6 +20,7 @@ import org.springframework.test.web.servlet.MockMvc;
 
 import br.com.kawashi.banco.log.SchemaDeLog;
 import br.com.kawashi.banco.testes.Api;
+import br.com.kawashi.banco.testes.UsuarioDeTeste;
 import br.com.kawashi.banco.testes.GeradorDeDocumentos;
 import br.com.kawashi.banco.testes.IntegracaoApi;
 
@@ -36,6 +37,8 @@ class DadosPessoaisCifradosTest {
     @Autowired
     private MockMvc mvc;
     @Autowired
+    private UsuarioDeTeste usuarios;
+    @Autowired
     private JdbcTemplate jdbc;
     @Autowired
     private EntityManager em;
@@ -45,7 +48,7 @@ class DadosPessoaisCifradosTest {
 
     @BeforeEach
     void preparar() {
-        api = new Api(mvc);
+        api = new Api(mvc, usuarios.token());
     }
 
     private Map<String, Object> linhaDaPessoa(long id) {

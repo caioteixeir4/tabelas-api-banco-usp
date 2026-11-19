@@ -1,12 +1,15 @@
 # API e regras de negócio
 
 Referência da API de cadastros: endpoints, regras e as decisões de interpretação tomadas. A
-estrutura das tabelas está na migração `V5` (`src/main/resources/db/migration`) e desenhada em
+estrutura das tabelas está nas migrações `V5` e `V6` (`src/main/resources/db/migration`) e desenhada em
 [`diagrama-tabelas.html`](diagrama-tabelas.html); o porquê do modelo está em
 [`modelo-de-dados.md`](modelo-de-dados.md). Aqui está o que a API faz por cima das tabelas.
 
 ## Convenções
 
+- **Login obrigatório:** toda a `/api` exige `Authorization: Bearer <token>`, menos o próprio
+  `POST /api/auth/login`. Sem token, ou com token vencido, revogado ou inválido: `401`, sempre com a
+  mesma mensagem. Token na URL é recusado. Ver "Login" abaixo.
 - **Caminho base:** `/api`. JSON em UTF-8. Datas em ISO-8601, em UTC e sem fuso (`criadoEm`,
   `atualizadoEm`).
 - **Status:** `201` com header `Location` ao criar, `204` ao excluir, `400` para campo inválido,
@@ -38,10 +41,11 @@ estrutura das tabelas está na migração `V5` (`src/main/resources/db/migration
 
 | Recurso | Endpoints |
 |---|---|
+| Login | `POST /api/auth/login` (sem token), `POST /api/auth/logout`, `POST /api/auth/sair-de-todos`, `POST /api/auth/trocar-senha`, `GET /api/auth/eu` |
 | Empresa | `POST /api/empresas`, `GET /api/empresas` (filtros `cnpj`, `razaoSocial`, `ativa`), `GET/PUT/DELETE /api/empresas/{id}`, `POST /api/empresas/{id}/inativar`, `POST /api/empresas/{id}/reativar` |
 | Filial | `POST/GET /api/empresas/{empresaId}/filiais`, `GET/PUT/DELETE /api/filiais/{id}`, `POST /api/filiais/{id}/inativar`, `POST /api/filiais/{id}/reativar` |
-| Pessoa | `POST/GET /api/empresas/{empresaId}/pessoas` (filtros `tipo`, `ativa`), `GET/PUT/DELETE /api/pessoas/{id}`, `POST /api/pessoas/{id}/inativar`, `POST /api/pessoas/{id}/reativar` |
-| Contato | `POST/GET /api/filiais/{filialId}/contatos`, `POST/GET /api/pessoas/{pessoaId}/contatos`, `GET/PUT/DELETE /api/contatos/{id}` |
+| Pessoa | `POST/GET /api/empresas/{empresaId}/pessoas` (filtros `tipo`, `ativa`), `GET/PUT/DELETE /api/pessoas/{id}`, `GET /api/pessoas/{id}/documento` (revela o documento inteiro), `POST /api/pessoas/{id}/inativar`, `POST /api/pessoas/{id}/reativar` |
+| Contato | `POST/GET /api/filiais/{filialId}/contatos`, `POST/GET /api/pessoas/{pessoaId}/contatos`, `GET/PUT/DELETE /api/contatos/{id}`, `GET /api/contatos/{id}/valor` (revela o valor inteiro) |
 | Endereço | `POST/GET /api/filiais/{filialId}/enderecos`, `POST/GET /api/pessoas/{pessoaId}/enderecos`, `GET/PUT/DELETE /api/enderecos/{id}` |
 
 Criar e listar são aninhados no pai (a empresa, ou o dono do contato e do endereço). Operar sobre
@@ -73,7 +77,11 @@ papel.
 - A empresa precisa existir (`404`) e estar **ativa** (`422`).
 - O documento é único **por empresa e por tipo** (`409`). A mesma pessoa pode ter dois tipos na
   mesma empresa, ou aparecer em duas empresas: são cadastros separados.
-- `tipo`, `natureza` e `documento` são **imutáveis** (`422`).
+- `tipo`, `natureza` e `documento` são **imutáveis** (`422`). No `PUT`, o documento pode vir
+  completo ou como a **máscara** que a API devolveu (vale por "o mesmo"); a máscara de outro documento
+  dá `422`. No cadastro, documento mascarado dá `400`.
+- O documento sai **mascarado** nas respostas (`***.982.247-**`, `**.222.333/0001-**`), inclusive na
+  mensagem de conflito. Inteiro, só em `GET /api/pessoas/{id}/documento`.
 - `participacao` (0,01 a 100, até 2 casas) é **obrigatória para sócio** e proibida nos demais
   (`422`). A **soma** das participações dos sócios de uma empresa não passa de 100% (`422`, a
   mensagem diz quanto ainda está disponível). No `PUT` a soma desconta o próprio sócio.
@@ -87,7 +95,12 @@ Servem a uma **filial** ou a uma **pessoa**. O dono vem do caminho e nunca muda;
 - O dono precisa existir (`404`) e estar **ativo** para receber um novo (`422`).
 - **Contato:** `tipo` é `EMAIL` ou `TELEFONE`, e o `valor` precisa combinar: um e-mail, ou um
   telefone com DDD de 10 ou 11 dígitos (aceita `(11) 98765-4321`). Erro no campo `valor` (`400`).
-  O tipo não muda (`422`). O mesmo valor não se repete no mesmo dono (`409`).
+  O tipo não muda (`422`). O mesmo valor não se repete no mesmo dono (`409`), e o banco também
+  garante isso (índice único sobre a impressão digital).
+- O valor do contato sai **mascarado** (`f***@exemplo.com.br`, `(11) *****-4321`); inteiro, só em
+  `GET /api/contatos/{id}/valor`. No `PUT`, devolver a máscara mantém o valor (dá para trocar só o
+  `principal` sem conhecer o contato); máscara de outro valor dá `400`; no cadastro, valor mascarado
+  dá `400`.
 - **Endereço:** UF existente (as 27) e CEP com 8 dígitos (aceita `12345-678`).
 - **Principal:** o **primeiro** endereço do dono é sempre o principal, mesmo que o pedido diga
   `false`. Para contato a regra vale **por tipo**: um e-mail principal e um telefone principal.
@@ -134,6 +147,47 @@ O que a API tenta e não consegue (`LogDaAplicacaoTest`): alterar ou apagar linh
 então as gravações de um mesmo ambiente são feitas uma de cada vez. Os serviços registram o log
 por último, para a trava durar o mínimo.
 
+## Login
+
+Detalhes e o porquê de cada escolha em "Token de acesso", em [`modelo-de-dados.md`](modelo-de-dados.md).
+Os números ficam em `PARAMETRO_SEGURANCA` (a API só lê).
+
+| Pedido | Resposta |
+|---|---|
+| `POST /api/auth/login` `{ "email", "senha" }` certo | `200` `{ "token": "kw_...", "tipo": "Bearer", "escopo": "COMPLETO", "expiraEm": "...Z", "expiraAbsolutoEm": "...Z" }` |
+| e-mail inexistente, senha errada, usuário inativo ou conta bloqueada | `401`, **a mesma** mensagem e o mesmo tempo de resposta para os quatro casos |
+| 5 senhas erradas seguidas | a conta fica bloqueada por 30 minutos, mesmo para a senha certa |
+| 10 logins errados do mesmo IP em 10 minutos | `429` com `Retry-After`: o IP fica bloqueado por 1 hora |
+| senha com mais de 90 dias | `200` com `"escopo": "TROCAR_SENHA"`: o token só serve para `trocar-senha`, `logout` e `eu` (o resto dá `403`) |
+| `POST /api/auth/logout` | `204`: este token para de valer na hora |
+| `POST /api/auth/sair-de-todos` | `204`: todas as sessões do usuário caem |
+| `POST /api/auth/trocar-senha` `{ "senhaAtual", "senhaNova" }` | `204` e **todas** as sessões caem (entre de novo). Senha atual errada: `422` (e conta como tentativa errada). Senha nova fraca, conhecida, com o e-mail ou repetindo uma das 5 anteriores: `422` com a lista em `problemas` |
+| quarta sessão do mesmo usuário | a mais antiga cai |
+
+O token vale 15 minutos e é renovado com o uso, até 8 horas depois do login. As horas da resposta
+vêm em UTC (com `Z`). Os logs passam a dizer quem fez: `LOG_ACESSO.USUARIO` e `LOG_ALTERACAO.USUARIO`
+gravam `USUARIO:<id>`.
+
+**Ainda sem autorização:** todo usuário logado pode tudo, inclusive revelar CPF e e-mail. Perfis,
+permissões e o vínculo com cada empresa são a etapa 4.
+
+## Dados pessoais: cifra e máscara
+
+O documento da pessoa e o valor do contato **nunca chegam ao banco em claro**. A API cifra antes de
+gravar (`CifraDeDados`, AES-256-GCM) e guarda ao lado uma impressão digital (HMAC-SHA256 com outra
+chave), que é o que o banco usa para a unicidade. As chaves (`CIFRA_CHAVE_DADOS`,
+`CIFRA_CHAVE_INDICE`) ficam com a aplicação; sem elas a API não sobe. O detalhe e o porquê estão em
+"Criptografia e LGPD", em [`modelo-de-dados.md`](modelo-de-dados.md).
+
+| Situação | Resposta |
+|---|---|
+| Ler pessoa ou contato | valor **mascarado** |
+| `GET /api/pessoas/{id}/documento`, `GET /api/contatos/{id}/valor` | valor inteiro; o pedido fica no `LOG_ACESSO` (quem viu o quê e quando) |
+| Cifra alterada ou copiada de outra coluna direto no banco | `500`, sem conteúdo na resposta: a cifra autenticada não deixa devolver um valor adulterado |
+| Texto em claro gravado direto na coluna cifrada | recusado pelo banco (`CHECK`) |
+
+Quando a autorização existir, os dois caminhos de revelar ganham uma permissão própria.
+
 ## Contas de banco e transporte
 
 ### Duas contas de banco
@@ -154,6 +208,21 @@ consegue alterar nem apagar o log, e não lê o histórico das migrações.
 
 O que a separação **não** resolve: a conta de execução ainda lê e altera todas as linhas de
 cadastro. Limitar isso por usuário e por empresa é papel do login e da autorização.
+
+### Conexão com o banco cifrada
+
+O servidor Oracle exige cifra AES-256 e conferência SHA-256 em toda conexão pela rede (repositório
+de regras, `infra/scripts/apply-network-hardening.ps1`). O driver JDBC negocia sozinho: **nada muda
+na configuração da API**. Um cliente que se recuse a cifrar é barrado com `ORA-12660`
+(`ConexaoCifradaTest`). Assim, os dados também vão cifrados entre a API e o banco, e não só entre
+quem chama e a API (HTTPS).
+
+### Troca da senha do banco sem parar a API
+
+A senha das duas contas é trocada por `infra/scripts/rotate-api-password.ps1` no repositório de
+regras, que atualiza o Oracle, o Vault e a linha certa deste `.env`. O Oracle aceita a senha antiga
+e a nova juntas por até 1 dia (troca gradual), então a API que está rodando continua conectando
+até ser reiniciada com a senha nova.
 
 ### HTTPS e cabeçalhos
 

@@ -14,6 +14,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.test.web.servlet.MockMvc;
 
 import br.com.kawashi.banco.testes.Api;
+import br.com.kawashi.banco.testes.UsuarioDeTeste;
 import br.com.kawashi.banco.testes.GeradorDeDocumentos;
 import br.com.kawashi.banco.testes.IntegracaoApi;
 
@@ -22,11 +23,13 @@ class EmpresaEFilialApiTest {
 
     @Autowired
     private MockMvc mvc;
+    @Autowired
+    private UsuarioDeTeste usuarios;
     private Api api;
 
     @BeforeEach
     void preparar() {
-        api = new Api(mvc);
+        api = new Api(mvc, usuarios.token());
     }
 
     // ---- empresa -------------------------------------------------------------------------
@@ -102,8 +105,8 @@ class EmpresaEFilialApiTest {
         api.criar("/api/empresas", "{\"cnpj\":\"" + GeradorDeDocumentos.cnpj() + "\",\"razaoSocial\":\"" + marca + " 1000 Natural\"}");
 
         api.get("/api/empresas?razaoSocial=" + marca).andExpect(jsonPath("$.total").value(2));
-        mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get("/api/empresas")
-                        .param("razaoSocial", marca + " 100%"))
+        mvc.perform(api.autenticado(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get("/api/empresas")
+                        .param("razaoSocial", marca + " 100%")))
                 .andExpect(jsonPath("$.total").value(1))
                 .andExpect(jsonPath("$.itens[0].razaoSocial").value(marca + " 100% Natural"));
         api.get("/api/empresas?page=2147483647").andExpect(status().isBadRequest());

@@ -20,5 +20,12 @@ BEGIN
     FOR t IN (SELECT table_name FROM user_tables WHERE table_name NOT LIKE 'flyway%') LOOP
         EXECUTE IMMEDIATE 'GRANT SELECT, INSERT, UPDATE, DELETE ON "' || t.table_name || '" TO ' || v_app;
     END LOOP;
+
+    -- O login (USUARIO, no schema _LOGIN, criado pelo repositorio de regras) aponta para a PESSOA
+    -- deste schema. A chave entre schemas so pode ser criada depois que a PESSOA existe, e a
+    -- PESSOA e criada aqui, pelo Flyway: por isso a ligacao e pedida a cada migracao. A procedure
+    -- (13_schema_login.sql) so liga o proprio ambiente de quem chama, e nao faz nada se ja estiver
+    -- ligada.
+    SYS.KAWASHI_LIGAR_LOGIN_PESSOA;
 END;
 /

@@ -24,6 +24,8 @@ class HttpsObrigatorioTest {
 
     @Autowired
     private MockMvc mvc;
+    @Autowired
+    private br.com.kawashi.banco.testes.UsuarioDeTeste usuarios;
 
     @Test
     void pedidoEmHttpPuroEhRecusadoSemSerProcessado() throws Exception {
@@ -35,7 +37,7 @@ class HttpsObrigatorioTest {
 
     @Test
     void pedidoEmHttpsPassaEGanhaHsts() throws Exception {
-        mvc.perform(get("/api/empresas").secure(true))
+        mvc.perform(get("/api/empresas").secure(true).header("Authorization", "Bearer " + usuarios.token()))
                 .andExpect(status().isOk())
                 .andExpect(header().string("Strict-Transport-Security", "max-age=31536000; includeSubDomains"));
     }
@@ -48,7 +50,7 @@ class HttpsObrigatorioTest {
 
     @Test
     void todaRespostaLevaOsCabecalhosDeSeguranca() throws Exception {
-        mvc.perform(get("/api/empresas").secure(true))
+        mvc.perform(get("/api/empresas").secure(true).header("Authorization", "Bearer " + usuarios.token()))
                 .andExpect(header().string("X-Content-Type-Options", "nosniff"))
                 .andExpect(header().string("X-Frame-Options", "DENY"))
                 .andExpect(header().string("Referrer-Policy", "no-referrer"))

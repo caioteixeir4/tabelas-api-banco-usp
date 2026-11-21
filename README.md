@@ -6,9 +6,27 @@ Projeto da pós-graduação na USP.
 O banco guarda **estrutura** (tipo, tamanho, formato, unicidade, chaves). Toda **regra de
 negócio** mora na API. Este repositório roda sobre as regras de segurança do
 `regras-banco-usp` (hardening, ambientes, perfis, auditoria, Vault): aquele define quem entra no
-banco e como, este define o que existe dentro dos schemas e como se usa. Os dois juntos orquestram
-o banco Oracle.
+banco e como, este define o que existe dentro dos schemas e como se usa. Quem chama esta API é o
+`bff-banco-usp`, o servidor do site (ver a seção abaixo).
 
+## Os três repositórios do projeto
+
+O sistema é dividido em três repositórios, um para cada camada. Cada um só precisa conhecer o
+vizinho pelo que está descrito aqui; os detalhes ficam no README de cada um.
+
+| Repositório | É responsável por | Não faz |
+|---|---|---|
+| [`regras-banco-usp`](https://github.com/caioteixeir4/regras-banco-usp) | O **banco Oracle e o Vault**: hardening, ambientes, contas e perfis (RBAC por proxy), auditoria, criptografia em disco (TDE) e na rede, e os schemas que a API não pode controlar (log, login e sessão). Define **quem entra no banco e o que cada conta pode fazer**. | Tabelas de negócio, API, site |
+| [`tabelas-api-banco-usp`](https://github.com/caioteixeir4/tabelas-api-banco-usp) | As **tabelas de negócio** (empresa, filial, pessoa, contato, endereço) e a **API REST**: regras de negócio, cifra dos dados pessoais, login por passkey e emissão do token. Define **o que existe dentro dos schemas e como se usa**. | Contas do banco, tela; não atende o navegador |
+| [`bff-banco-usp`](https://github.com/caioteixeir4/bff-banco-usp) | O **site** e o servidor dele (BFF): as páginas, o cookie de sessão e a guarda do token, que nunca chega ao navegador. Repassa à API só o que o site usa. | Regra de negócio, acesso ao banco |
+
+Como se encaixam: `navegador → bff-banco-usp → tabelas-api-banco-usp → Oracle`, com o banco, os
+schemas protegidos e o Vault montados pelo `regras-banco-usp`. O que liga cada par:
+
+- **regras ↔ API**: o `create-api-account.ps1` (regras) cria as contas de banco da API (e, com
+  `-OutEnvFile`, grava o `.env` dela); as tabelas de log, login e sessão são criadas pelas regras e só usadas pela API.
+- **API ↔ BFF**: um segredo compartilhado (`BFF_SEGREDO`, gerado pelo
+  `gerar-segredo-do-bff.ps1` da API nos dois `.env`). Sem ele a API não atende ninguém.
 ## O que já existe
 
 - **Cadastros em torno de `PESSOA`:** `EMPRESA`, `FILIAL`, `PESSOA` (cliente, colaborador, sócio ou
@@ -23,7 +41,7 @@ o banco Oracle.
   recuperação. Token opaco (15 min renovados com o uso, teto de 8 h, até 3 sessões), bloqueio por IP,
   detecção de aparelho clonado (contador). As tabelas ficam nos schemas `_LOGIN` e `_SESSAO`, criados
   pelo repositório de regras.
-- **A API só atende o BFF** ([`bff-banco-usp`](../bff-banco-usp), o servidor do site): todo pedido
+- **A API só atende o BFF** ([`bff-banco-usp`](https://github.com/caioteixeir4/bff-banco-usp), o servidor do site): todo pedido
   precisa de um segredo compartilhado. O token nunca chega ao navegador; ele fica guardado no BFF, e o
   navegador recebe só um cookie de sessão `HttpOnly`.
 - **Dados pessoais protegidos (LGPD):** CPF/CNPJ de pessoa, e-mail e telefone são gravados

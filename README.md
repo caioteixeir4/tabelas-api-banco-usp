@@ -20,6 +20,28 @@ vizinho pelo que está descrito aqui; os detalhes ficam no README de cada um.
 | [`tabelas-api-banco-usp`](https://github.com/caioteixeir4/tabelas-api-banco-usp) | As **tabelas de negócio** (empresa, filial, pessoa, contato, endereço) e a **API REST**: regras de negócio, cifra dos dados pessoais, login por passkey e emissão do token. Define **o que existe dentro dos schemas e como se usa**. | Contas do banco, tela; não atende o navegador |
 | [`bff-banco-usp`](https://github.com/caioteixeir4/bff-banco-usp) | O **site** e o servidor dele (BFF): as páginas, o cookie de sessão e a guarda do token, que nunca chega ao navegador. Repassa à API só o que o site usa. | Regra de negócio, acesso ao banco |
 
+```mermaid
+flowchart LR
+    NAV["Navegador<br/>site + passkey do aparelho"]
+    subgraph BFF["bff-banco-usp"]
+        B["BFF<br/>páginas, sessão,<br/>guarda o token"]
+    end
+    subgraph API["tabelas-api-banco-usp"]
+        A["API REST<br/>regras de negócio,<br/>login por passkey, cifra"]
+    end
+    subgraph REGRAS["regras-banco-usp"]
+        S["scripts<br/>contas, schemas,<br/>hardening"]
+        O[("Oracle<br/>ambientes, auditoria, TDE")]
+        V[("Vault<br/>segredos")]
+    end
+    NAV -- "HTTPS + cookie de sessão<br/>(nunca o token)" --> B
+    B -- "segredo do BFF + token" --> A
+    A -- "conta de execução<br/>(proxy, só ler e gravar linhas)" --> O
+    A -. "conta de migração<br/>(só na subida)" .-> O
+    S -- "criam e endurecem" --> O
+    S -. "senhas e cópias de chaves" .-> V
+    S -. "grava o .env da API" .-> A
+```
 Como se encaixam: `navegador → bff-banco-usp → tabelas-api-banco-usp → Oracle`, com o banco, os
 schemas protegidos e o Vault montados pelo `regras-banco-usp`. O que liga cada par:
 

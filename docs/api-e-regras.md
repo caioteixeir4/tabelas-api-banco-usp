@@ -39,6 +39,32 @@ estrutura das tabelas está nas migrações `V5` e `V6` (`src/main/resources/db/
   aceitam pontuação e são gravados só com dígitos; e-mail em minúscula; UF, tipo e natureza em
   maiúscula; texto opcional em branco vira nulo.
 
+## Caminho de um pedido
+
+Todo pedido a `/api/**` passa pelos filtros nesta ordem (o número é o `@Order`), e cada um pode
+recusar antes do seguinte. Só chega ao controlador o que passou por todos.
+
+```mermaid
+flowchart TB
+    BFF(["Pedido do BFF"]) --> F0["RegistroDeAcessoFilter (0)<br/>no fim, grava LOG_ACESSO: quem, IP do navegador,<br/>método, caminho e status, até das recusas"]
+    F0 --> F5{"CabecalhosDeSegurancaFilter (5)<br/>HTTPS exigido e o pedido veio em HTTP?"}
+    F5 -- sim --> R403a["403"]
+    F5 -- não --> F10{"LimiteDeCorpoFilter (10)<br/>corpo maior que 64 KB?"}
+    F10 -- sim --> R413["413"]
+    F10 -- não --> F15{"FiltroDoBff (15)<br/>segredo X-Kawashi-Bff confere?"}
+    F15 -- não --> R403b["403 a tudo, inclusive ao login"]
+    F15 -- sim --> F15b{"IP do navegador em<br/>X-Kawashi-Ip-Cliente?"}
+    F15b -- não --> R400["400"]
+    F15b -- sim --> F20{"AutenticacaoFilter (20)<br/>cerimônia de passkey sem token?"}
+    F20 -- sim --> C["Controlador<br/>validação dos campos (400)"]
+    F20 -- não --> T{"token válido?"}
+    T -- não --> R401["401, sempre a mesma resposta"]
+    T -- sim --> E{"escopo CADASTRAR_PASSKEY<br/>fora das rotas permitidas?"}
+    E -- sim --> R403c["403"]
+    E -- não --> C
+    C --> SV["Serviço<br/>regras de negócio (404, 409, 422)<br/>e LOG_ALTERACAO na mesma transação"]
+    SV --> DB[("Oracle<br/>conta de execução, schema _APP:<br/>só lê e grava linhas")]
+```
 ## Endpoints
 
 | Recurso | Endpoints |
@@ -186,6 +212,37 @@ As respostas de passkey (`credencial`) são o `PublicKeyCredential.toJSON()` do 
 
 O segredo do convite vai no **corpo**, nunca no caminho: o `LOG_ACESSO` grava o caminho.
 
+Como o login acontece, do botão "Entrar" ao token. O BFF só repassa: quem decide é a API.
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant N as Navegador e aparelho
+    participant B as BFF
+    participant A as API
+    participant D as Oracle
+    N->>B: POST /bff/auth/login/opcoes
+    B->>A: POST /api/auth/passkey/login/opcoes (segredo + IP)
+    A->>D: grava um DESAFIO aleatório (uso único, 5 min)
+    A-->>N: publicKey com challenge, rpId e userVerification required
+    Note over N: O aparelho pede digital, rosto ou PIN e assina o desafio<br/>com a chave privada, que nunca sai dele
+    N->>B: POST /bff/auth/login com a credencial assinada
+    B->>A: POST /api/auth/passkey/login
+    A->>D: consome o DESAFIO (só uma vez, se não venceu)
+    A->>D: busca a PASSKEY pela credencial e lê a chave pública
+    A->>A: WebAuthn4J confere assinatura, origem, rpId,<br/>verificação da pessoa e contador
+    alt tudo confere
+        A->>D: grava TOKEN (só o SHA-256), TENTATIVA_LOGIN e LOG_SEGURANCA
+        A-->>B: 200 com o token kw_ e as validades
+        B->>B: descarta a sessão antiga, cria uma nova e guarda o token
+        B-->>N: 200 SEM o token + cookie __Host-kw_sessao (HttpOnly)
+    else algo não confere
+        A->>D: grava TENTATIVA_LOGIN com o motivo
+        A-->>N: 401, a mesma resposta para qualquer motivo
+        Note over A,D: 10 falhas do mesmo IP em 10 minutos bloqueiam o IP por 1 hora (429)
+    end
+```
+
 ### Com token
 
 | Pedido | Resposta |
@@ -211,6 +268,27 @@ Ainda não há endpoint (criar usuário será de administrador, com a autorizaç
 (`<site>/convite.html#kwc_...`) no Vault, sem mostrar. O segredo vai depois do `#`, que o navegador
 nunca manda ao servidor; a página do convite o tira da barra de endereço assim que o lê.
 
+Como uma conta nasce e como volta quem perdeu os aparelhos:
+
+```mermaid
+flowchart TB
+    subgraph Nasce["Conta nova"]
+        ADM["Administrador roda<br/>criar-usuario.ps1"] --> CRI["API cria USUARIO e CONVITE<br/>(só o hash do segredo, vale 24 h)"]
+        CRI --> VAULT[("Link do convite no Vault<br/>segredo no fragmento da URL")]
+        VAULT --> ENT["Administrador entrega o link<br/>por um canal seguro"]
+        ENT --> CER["Pessoa abre o link e<br/>cria a passkey no aparelho"]
+        CER --> OK["PASSKEY gravada, convite usado,<br/>10 códigos de recuperação mostrados uma vez,<br/>já entra com token"]
+    end
+    subgraph Volta["Perdeu os aparelhos"]
+        P{"Tem um código<br/>de recuperação?"}
+        P -- sim --> COD["POST /api/auth/recuperacao<br/>token CADASTRAR_PASSKEY,<br/>todas as outras sessões caem"]
+        COD --> NOVA["Cadastra uma passkey nova<br/>e entra com ela"]
+        P -- não --> ADM2["Administrador roda<br/>criar-usuario.ps1 -UsuarioId"]
+        ADM2 --> CONV2["Convite NOVA_PASSKEY:<br/>ao ser usado, todas as sessões caem"]
+        CONV2 --> CER
+    end
+```
+
 **Ainda sem autorização:** todo usuário logado pode tudo, inclusive revelar CPF e e-mail. Perfis,
 permissões e o vínculo com cada empresa são a etapa 4.
 ## Dados pessoais: cifra e máscara
@@ -220,6 +298,22 @@ gravar (`CifraDeDados`, AES-256-GCM) e guarda ao lado uma impressão digital (HM
 chave), que é o que o banco usa para a unicidade. As chaves (`CIFRA_CHAVE_DADOS`,
 `CIFRA_CHAVE_INDICE`) ficam com a aplicação; sem elas a API não sobe. O detalhe e o porquê estão em
 "Criptografia e LGPD", em [`modelo-de-dados.md`](modelo-de-dados.md).
+
+```mermaid
+flowchart LR
+    IN["CPF, CNPJ, e-mail<br/>ou telefone"] --> NORM["normaliza<br/>(só dígitos, minúsculas)"]
+    NORM --> CIF["AES-256-GCM<br/>chave CIFRA_CHAVE_DADOS"]
+    NORM --> HM["HMAC-SHA256<br/>chave CIFRA_CHAVE_INDICE"]
+    CIF --> COL1[("coluna _CIFRADO")]
+    HM --> COL2[("coluna _INDICE<br/>unicidade e busca")]
+    COL1 --> DEC["decifra na leitura"]
+    DEC --> MASK["resposta mascarada<br/>(o normal)"]
+    DEC --> REV["/documento ou /valor:<br/>valor inteiro"]
+    REV --> LOGA[("LOG_ACESSO:<br/>quem viu, quando")]
+```
+
+O banco nunca vê o valor em claro; o disco dele ainda é cifrado por baixo (TDE, no repositório de
+regras).
 
 | Situação | Resposta |
 |---|---|

@@ -70,6 +70,18 @@ app:
   cifra:
     chave-dados: ${CIFRA_CHAVE_DADOS:}
     chave-indice: ${CIFRA_CHAVE_INDICE:}
+  # A API so atende o BFF (o servidor do site, repositorio bff-banco-usp): todo pedido a /api/**
+  # precisa do cabecalho X-Kawashi-Bff com este segredo (ver FiltroDoBff). Pelo menos 32 caracteres;
+  # sem ele a aplicacao NAO sobe. Em desenvolvimento vem do .env (o mesmo valor no .env do BFF).
+  bff:
+    segredo: ${BFF_SEGREDO:}
+  # Passkeys (WebAuthn). rp-id e o dominio do SITE (do BFF), nao o da API; as origens sao os
+  # enderecos exatos de onde o navegador pode fazer a cerimonia (separados por virgula). Uma
+  # passkey criada para um rp-id so funciona nele: trocar o dominio e cadastrar tudo de novo.
+  webauthn:
+    rp-id: ${WEBAUTHN_RP_ID:localhost}
+    rp-nome: ${WEBAUTHN_RP_NOME:Kawashi}
+    origens: ${WEBAUTHN_ORIGENS:http://localhost:9090}
 
 server:
   port: ${PORT:8080}

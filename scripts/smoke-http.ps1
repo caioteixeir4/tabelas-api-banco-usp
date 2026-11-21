@@ -11,28 +11,91 @@
 
   A API precisa estar no ar (mvn spring-boot:run). Sai com codigo 1 se alguma verificacao falhar.
 
-  Toda a /api exige login: o roteiro entra com um usuario existente (scripts/criar-usuario.ps1). A
-  senha vem da variavel de ambiente SMOKE_SENHA, nunca por parametro (ficaria no historico). Se a
-  senha estiver vencida (primeiro login de um usuario novo), o roteiro troca pela de
-  SMOKE_SENHA_NOVA e entra de novo. No fim, faz logout e confere que o token parou de valer.
+  O roteiro fala com a API como se fosse o BFF: todo pedido leva o segredo compartilhado
+  (BFF_SEGREDO, lido do .env da API e nunca mostrado) e um IP de navegador. Confere tambem que, sem
+  o segredo, a API recusa tudo (403).
+
+  Toda a /api exige login, e o login e so por passkey. O roteiro usa uma CONTA DE TESTE com uma
+  passkey de SOFTWARE (scripts/passkey-de-software.ps1), guardada no Vault em
+  kawashi-secrets/smoke-passkey/<AMBIENTE>/<usuario>:
+    - na primeira vez, crie a conta com criar-usuario.ps1 (de uma pessoa so para testes) e rode o
+      roteiro com -UsuarioId: ele le o convite do Vault, cadastra a passkey de software, guarda a
+      chave no Vault e apaga o convite;
+    - nas vezes seguintes, entra com essa passkey.
+  Passkey de software so serve para conta de teste do desenvolvimento: a chave privada fica no
+  Vault, e nao presa num aparelho. No fim, faz logout e confere que o token parou de valer.
 
 .PARAMETER Base
   URL base da API. Padrao: http://localhost:8080
 
-.PARAMETER Email
-  E-mail do usuario de login.
+.PARAMETER UsuarioId
+  Id do usuario da conta de teste (o que o criar-usuario.ps1 mostrou).
+
+.PARAMETER InfraEnvFile
+  O .env do repositorio de regras, com o token do Vault. Padrao: ..\regras-banco-usp\infra\.env.
 
 .EXAMPLE
   $env:PORT = 18080; mvn spring-boot:run      # em outro terminal
-  $env:SMOKE_SENHA = '...'                    # sem ecoar; por exemplo, lida do Vault
-  .\scripts\smoke-http.ps1 -Base http://localhost:18080 -Email voce@empresa.com.br
+  .\scripts\criar-usuario.ps1 -PessoaId 42 -Email smoke@teste.kawashi.invalid   # so na primeira vez
+  .\scripts\smoke-http.ps1 -Base http://localhost:18080 -UsuarioId 7
 #>
 param(
     [string]$Base = 'http://localhost:8080',
-    [Parameter(Mandatory = $true)][string]$Email
+    [Parameter(Mandatory = $true)][ValidateRange(1, [long]::MaxValue)][long]$UsuarioId,
+    [string]$InfraEnvFile
 )
 
 $ErrorActionPreference = 'Stop'
+$aqui = Split-Path -Parent $MyInvocation.MyCommand.Path
+. (Join-Path $aqui 'passkey-de-software.ps1')
+if (-not $InfraEnvFile) { $InfraEnvFile = Join-Path $aqui '..\..\regras-banco-usp\infra\.env' }
+
+function Get-ValorDoEnv {
+    param([string]$Arquivo, [string]$Chave)
+    if (-not (Test-Path -LiteralPath $Arquivo)) { return $null }
+    foreach ($linha in [System.IO.File]::ReadAllLines($Arquivo)) {
+        $p = $linha.Trim().Split('=', 2)
+        if ($p.Count -eq 2 -and $p[0].Trim() -eq $Chave) { return $p[1].Trim() }
+    }
+    return $null
+}
+$envDaApi = Join-Path $aqui '..\.env'
+$script:segredoDoBff = Get-ValorDoEnv $envDaApi 'BFF_SEGREDO'
+$tokenDoVault = Get-ValorDoEnv $InfraEnvFile 'VAULT_DEV_ROOT_TOKEN_ID'
+$schema = Get-ValorDoEnv $envDaApi 'DB_SCHEMA'
+if (-not $script:segredoDoBff) { throw "Falta BFF_SEGREDO no .env da API (scripts/gerar-segredo-do-bff.ps1)." }
+if (-not $tokenDoVault) { throw "Nao achei o token do Vault em '$InfraEnvFile' (a passkey da conta de teste fica la)." }
+$ambiente = if ($schema -match '^KAWASHI_ENV_(.+)$') { $Matches[1] } else { throw 'Nao achei DB_SCHEMA no .env da API.' }
+$caminhoDaPasskey = "kawashi-secrets/smoke-passkey/$ambiente/$UsuarioId"
+$caminhoDoConvite = "kawashi-secrets/convites/$ambiente/$UsuarioId"
+
+# Le um segredo do Vault (objeto com os campos) ou $null se nao existe.
+function Read-Vault([string]$caminho) {
+    $anterior = $ErrorActionPreference; $ErrorActionPreference = 'Continue'
+    try {
+        $env:VAULT_TOKEN = $tokenDoVault
+        $json = (docker exec -e VAULT_TOKEN kawashi-vault vault kv get -format=json $caminho 2>$null) -join "`n"
+        if ($LASTEXITCODE -ne 0 -or -not $json) { return $null }
+        return ($json | ConvertFrom-Json).data.data
+    } finally { Remove-Item Env:\VAULT_TOKEN -ErrorAction SilentlyContinue; $ErrorActionPreference = $anterior }
+}
+
+# Guarda a passkey de software no Vault. Valores por variavel de ambiente (nunca na linha de comando);
+# todos sao base64url ou numero, sem espaco nem curinga do sh.
+function Save-Passkey($pk) {
+    $anterior = $ErrorActionPreference; $ErrorActionPreference = 'Continue'
+    try {
+        $env:VAULT_TOKEN = $tokenDoVault
+        $env:KW_D = $pk.d; $env:KW_X = $pk.x; $env:KW_Y = $pk.y; $env:KW_ID = $pk.credencialId; $env:KW_H = $pk.handle; $env:KW_C = "$($pk.contador)"
+        docker exec -e VAULT_TOKEN -e KW_D -e KW_X -e KW_Y -e KW_ID -e KW_H -e KW_C kawashi-vault sh -c ('vault kv put ' + $caminhoDaPasskey +
+            ' d=$KW_D x=$KW_X y=$KW_Y credencialId=$KW_ID handle=$KW_H contador=$KW_C') 2>&1 | Out-Null
+        if ($LASTEXITCODE -ne 0) { throw "Nao consegui guardar a passkey de teste no Vault ($caminhoDaPasskey)." }
+    } finally {
+        Remove-Item Env:\VAULT_TOKEN, Env:\KW_D, Env:\KW_X, Env:\KW_Y, Env:\KW_ID, Env:\KW_H, Env:\KW_C -ErrorAction SilentlyContinue
+        $ErrorActionPreference = $anterior
+    }
+}
+
 $base = $Base.TrimEnd('/')
 Add-Type -AssemblyName System.Net.Http
 $http = [System.Net.Http.HttpClient]::new()
@@ -40,8 +103,13 @@ $http.Timeout = [TimeSpan]::FromSeconds(30)
 $script:ok = 0
 $script:falhas = New-Object System.Collections.Generic.List[string]
 
-function Chamar([string]$metodo, [string]$caminho, [string]$corpo = $null, [byte[]]$bytes = $null) {
+function Chamar([string]$metodo, [string]$caminho, [string]$corpo = $null, [byte[]]$bytes = $null, [switch]$SemBff) {
     $req = [System.Net.Http.HttpRequestMessage]::new([System.Net.Http.HttpMethod]::new($metodo), "$base$caminho")
+    if (-not $SemBff) {
+        # Como o BFF: o segredo compartilhado e o IP do "navegador".
+        [void]$req.Headers.TryAddWithoutValidation('X-Kawashi-Bff', $script:segredoDoBff)
+        [void]$req.Headers.TryAddWithoutValidation('X-Kawashi-Ip-Cliente', '127.0.0.1')
+    }
     if ($null -ne $bytes -and $bytes.Length -gt 0) {
         $req.Content = [System.Net.Http.ByteArrayContent]::new($bytes)
     } elseif (-not [string]::IsNullOrEmpty($corpo)) {
@@ -97,26 +165,52 @@ try {
     $r = Chamar GET '/actuator/health'
     Confere 'health UP' ($r.Status -eq 200 -and $r.Json.status -eq 'UP')
 
-    Write-Host '== login'
-    if (-not $env:SMOKE_SENHA) { throw 'Defina a variavel de ambiente SMOKE_SENHA com a senha do usuario.' }
+    Write-Host '== so o BFF e login por passkey'
     $script:token = $null
+    $r = Chamar POST '/api/auth/passkey/login/opcoes' -SemBff
+    Confere 'sem o segredo do BFF a API recusa ate o login (403)' ($r.Status -eq 403) "status=$($r.Status)"
     $r = Chamar GET '/api/empresas'
     Confere 'sem token a API recusa (401)' ($r.Status -eq 401)
-    $r = Chamar POST '/api/auth/login' (Corpo @{ email = $Email; senha = $env:SMOKE_SENHA })
-    Confere 'login 200 com token kw_' ($r.Status -eq 200 -and $r.Json.token -match '^kw_') "status=$($r.Status)"
-    $script:token = $r.Json.token
-    if ($r.Json.escopo -eq 'TROCAR_SENHA') {
-        if (-not $env:SMOKE_SENHA_NOVA) { throw 'A senha esta vencida: defina SMOKE_SENHA_NOVA com a senha nova.' }
-        $r = Chamar GET '/api/empresas'
-        Confere 'senha vencida: o resto da API da 403' ($r.Status -eq 403)
-        $r = Chamar POST '/api/auth/trocar-senha' (Corpo @{ senhaAtual = $env:SMOKE_SENHA; senhaNova = $env:SMOKE_SENHA_NOVA })
-        Confere 'troca de senha 204' ($r.Status -eq 204) "status=$($r.Status) $($r.Texto)"
-        $r = Chamar GET '/api/auth/eu'
-        Confere 'depois da troca o token antigo para de valer (401)' ($r.Status -eq 401)
-        $script:token = $null
-        $r = Chamar POST '/api/auth/login' (Corpo @{ email = $Email; senha = $env:SMOKE_SENHA_NOVA })
-        Confere 'login com a senha nova 200, escopo COMPLETO' ($r.Status -eq 200 -and $r.Json.escopo -eq 'COMPLETO') "status=$($r.Status)"
+
+    $pk = Read-Vault $caminhoDaPasskey
+    if (-not $pk) {
+        # Primeira vez: aceita o convite com uma passkey de software.
+        $convite = Read-Vault $caminhoDoConvite
+        if (-not $convite -or $convite.link -notmatch '#(kwc_[A-Za-z0-9_-]{43})$') {
+            throw "Nao ha passkey de teste nem convite no Vault para o usuario $UsuarioId. Crie a conta com scripts/criar-usuario.ps1 (ou um convite novo com -UsuarioId $UsuarioId)."
+        }
+        $segredoDoConvite = $Matches[1]
+        $r = Chamar POST '/api/auth/convite/opcoes' (Corpo @{ convite = $segredoDoConvite })
+        Confere 'opcoes do convite 200' ($r.Status -eq 200) "status=$($r.Status) $($r.Texto)"
+        $pk = New-PasskeyDeSoftware
+        $credencial = Get-RespostaDeCadastro $pk $r.Json.publicKey.challenge $r.Json.publicKey.user.id
+        $r = Chamar POST '/api/auth/convite' ('{"convite":"' + $segredoDoConvite + '","nome":"Smoke (software)","credencial":' + $credencial + '}')
+        Confere 'convite aceito: token e 10 codigos de recuperacao' ($r.Status -eq 200 -and @($r.Json.codigosDeRecuperacao).Count -eq 10) "status=$($r.Status) $($r.Texto)"
+        if ($r.Status -ne 200) { throw 'O convite nao foi aceito; sem login nao da para seguir.' }
+        Save-Passkey $pk
+        $anterior = $ErrorActionPreference; $ErrorActionPreference = 'Continue'
+        $env:VAULT_TOKEN = $tokenDoVault
+        docker exec -e VAULT_TOKEN kawashi-vault vault kv metadata delete $caminhoDoConvite 2>&1 | Out-Null
+        Remove-Item Env:\VAULT_TOKEN; $ErrorActionPreference = $anterior
         $script:token = $r.Json.token
+        $segredoDoConvite = $null
+    }
+    # Entra com a passkey (tambem na primeira vez, para provar que ela funciona).
+    $r = Chamar POST '/api/auth/passkey/login/opcoes'
+    Confere 'desafio de login 200' ($r.Status -eq 200 -and $r.Json.publicKey.challenge) "status=$($r.Status)"
+    $resposta = Get-RespostaDeLogin $pk $r.Json.publicKey.challenge
+    # O contador novo vai para o Vault ANTES do login: se o login falhar, o guardado fica a frente, e
+    # o proximo nao parece um clone (contador voltando).
+    Save-Passkey $pk
+    $tokenDoConvite = $script:token
+    $script:token = $null
+    $r = Chamar POST '/api/auth/passkey/login' ('{"credencial":' + $resposta + '}')
+    Confere 'login por passkey 200 com token kw_, escopo COMPLETO' ($r.Status -eq 200 -and $r.Json.token -match '^kw_' -and $r.Json.escopo -eq 'COMPLETO') "status=$($r.Status) $($r.Texto)"
+    $x = Chamar POST '/api/auth/passkey/login' ('{"credencial":' + $resposta + '}')
+    Confere 'a mesma resposta de novo e recusada (desafio de uso unico, 401)' ($x.Status -eq 401) "status=$($x.Status)"
+    $script:token = $r.Json.token
+    if ($tokenDoConvite) {
+        $script:token = $tokenDoConvite; [void](Chamar POST '/api/auth/logout'); $script:token = $r.Json.token
     }
 
     Write-Host '== empresa e filial'

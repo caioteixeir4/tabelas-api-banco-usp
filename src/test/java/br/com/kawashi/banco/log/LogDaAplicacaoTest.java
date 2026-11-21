@@ -131,6 +131,7 @@ class LogDaAplicacaoTest {
         assertThat(acessos.get(0)).containsEntry("METODO", "GET").containsEntry("CAMINHO", "/api/empresas/" + id);
         assertThat(((Number) acessos.get(0).get("STATUS")).intValue()).isEqualTo(200);
         assertThat(((Number) acessos.get(1).get("STATUS")).intValue()).isEqualTo(404);
-        assertThat(acessos.get(0).get("IP_ORIGEM")).isNotNull();
+        // O IP gravado e o do navegador, repassado pelo BFF, e nao o do BFF (o da conexao).
+        assertThat(acessos.get(0).get("IP_ORIGEM")).isEqualTo(Api.IP_DE_TESTE);
     }
 }

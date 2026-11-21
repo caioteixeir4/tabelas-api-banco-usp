@@ -9,7 +9,6 @@ import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.support.TransactionTemplate;
 
 import br.com.kawashi.banco.compartilhado.cifra.CifraDeDados;
-import br.com.kawashi.banco.login.HashDeSenha;
 import br.com.kawashi.banco.login.ParametrosDeSeguranca;
 import br.com.kawashi.banco.login.SchemasDoLogin;
 import br.com.kawashi.banco.login.Tokens;
@@ -20,20 +19,23 @@ import br.com.kawashi.banco.pessoa.DocumentoCifrado;
  * Usuarios de login para os testes. Toda a /api exige token, entao quase todo teste precisa de um.
  *
  * <ul>
- *   <li>{@link #novo}: cria empresa, pessoa e usuario dentro da transacao do teste (desfeita no
- *       fim: nao sobra nada);</li>
+ *   <li>{@link #novo}: cria empresa, pessoa e usuario (com o convite de cadastro) dentro da
+ *       transacao do teste (desfeita no fim: nao sobra nada);</li>
+ *   <li>{@link #token}: token de escopo completo emitido direto, sem cerimonia de passkey. Os testes
+ *       de cadastro so precisam de "alguem logado"; a cerimonia de verdade e testada no
+ *       PasskeyApiTest, com o {@link AutenticadorDeTeste};</li>
  *   <li>{@link #tokenPersistente}: para o teste com servidor real, que grava de verdade em outras
  *       threads. Usa um usuario FIXO, criado na primeira execucao e reaproveitado (a API nao tem
- *       permissao para apagar usuario, de proposito), com a senha regravada a cada uso.</li>
+ *       permissao para apagar usuario, de proposito).</li>
  * </ul>
  */
 @Component
 public class UsuarioDeTeste {
 
-    public static final String SENHA = "uma frase longa de teste 2026";
     private static final String EMAIL_PERSISTENTE = "servidor-real@teste.kawashi.invalid";
 
-    public record Criado(long usuarioId, long pessoaId, String email, String senha) {
+    /** Usuario recem-criado: ainda sem passkey, com o convite de cadastro. */
+    public record Criado(long usuarioId, long pessoaId, String email, String convite) {
     }
 
     private final JdbcTemplate jdbc;
@@ -42,32 +44,26 @@ public class UsuarioDeTeste {
     private final Tokens tokens;
     private final ParametrosDeSeguranca parametros;
     private final SchemasDoLogin schemas;
-    private final HashDeSenha hashDeSenha;
     private final TransactionTemplate novaTransacao;
 
     public UsuarioDeTeste(JdbcTemplate jdbc, CifraDeDados cifra, Usuarios usuarios, Tokens tokens, ParametrosDeSeguranca parametros,
-            SchemasDoLogin schemas, HashDeSenha hashDeSenha, PlatformTransactionManager transacoes) {
+            SchemasDoLogin schemas, PlatformTransactionManager transacoes) {
         this.jdbc = jdbc;
         this.cifra = cifra;
         this.usuarios = usuarios;
         this.tokens = tokens;
         this.parametros = parametros;
         this.schemas = schemas;
-        this.hashDeSenha = hashDeSenha;
         this.novaTransacao = new TransactionTemplate(transacoes);
         this.novaTransacao.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
     }
 
-    /** Usuario novo (senha {@link #SENHA}), numa empresa e pessoa novas. */
+    /** Usuario novo numa empresa e pessoa novas; o convite de cadastro vem junto. */
     public Criado novo() {
-        return novo(false);
-    }
-
-    public Criado novo(boolean senhaTemporaria) {
         long pessoaId = pessoaNova();
         String email = "usuario" + ThreadLocalRandom.current().nextLong(1_000_000_000L) + "@teste.kawashi.invalid";
-        long id = usuarios.criar(pessoaId, email, SENHA.toCharArray(), senhaTemporaria);
-        return new Criado(id, pessoaId, email, SENHA);
+        Usuarios.Criado c = usuarios.criar(pessoaId, email, "TESTE");
+        return new Criado(c.usuarioId(), pessoaId, email, c.convite());
     }
 
     /** Token de escopo completo para um usuario novo: o que a maioria dos testes precisa. */
@@ -76,7 +72,7 @@ public class UsuarioDeTeste {
     }
 
     public String token(Criado usuario) {
-        return tokens.emitir(usuario.usuarioId(), "COMPLETO", "127.0.0.1", parametros.atuais()).token();
+        return tokens.emitir(usuario.usuarioId(), null, "COMPLETO", Api.IP_DE_TESTE, parametros.atuais()).token();
     }
 
     /** Token gravado de verdade (commit), para pedidos que chegam por outras threads. */
@@ -86,14 +82,12 @@ public class UsuarioDeTeste {
             Long id = jdbc.query("SELECT ID FROM " + schemas.login("USUARIO") + " WHERE EMAIL_INDICE = ?",
                     (r, n) -> r.getLong(1), indice).stream().findFirst().orElse(null);
             if (id == null) {
-                id = usuarios.criar(pessoaNova(), EMAIL_PERSISTENTE, SENHA.toCharArray(), false);
+                id = usuarios.criar(pessoaNova(), EMAIL_PERSISTENTE, "TESTE").usuarioId();
             } else {
                 // Volta ao estado de partida, seja qual for o que outra execucao deixou.
-                jdbc.update("UPDATE " + schemas.login("USUARIO") + " SET SENHA_HASH = ?, SENHA_ALTERADA_EM = SYS_EXTRACT_UTC(SYSTIMESTAMP),"
-                        + " TENTATIVAS_FALHAS = 0, BLOQUEADO_ATE = NULL, ATIVO = TRUE WHERE ID = ?",
-                        hashDeSenha.gerar(SENHA.toCharArray()), id);
+                jdbc.update("UPDATE " + schemas.login("USUARIO") + " SET ATIVO = TRUE WHERE ID = ?", id);
             }
-            return tokens.emitir(id, "COMPLETO", "127.0.0.1", parametros.atuais()).token();
+            return tokens.emitir(id, null, "COMPLETO", Api.IP_DE_TESTE, parametros.atuais()).token();
         });
     }
 

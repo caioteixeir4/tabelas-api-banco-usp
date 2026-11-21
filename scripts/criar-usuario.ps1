@@ -1,53 +1,75 @@
 <#
 .SYNOPSIS
-  Cria um usuario do login da API para uma pessoa ja cadastrada, com uma senha temporaria forte
-  que vai para o Vault e nunca aparece na tela.
+  Cria um usuario do login para uma pessoa ja cadastrada (ou um convite novo para quem perdeu o
+  acesso). Nao ha senha: o usuario recebe um LINK DE CONVITE, que vai para o Vault e nunca aparece
+  na tela.
 
 .DESCRIPTION
-  Enquanto nao existe a autorizacao (etapa 4), nao ha endpoint para criar usuario: criar usuario
-  sera coisa de administrador. Este script e o caminho, e o do primeiro usuario.
+  O login e so por passkey (ver docs/api-e-regras.md, "Login"). A conta nasce com um convite de
+  uso unico, valido por CONVITE_HORAS (24 h): no link, a pessoa cadastra a passkey do aparelho dela
+  e recebe os codigos de recuperacao. Enquanto nao existe a autorizacao (etapa 4), nao ha endpoint
+  para criar usuario; este script e o caminho.
 
   O que ele faz:
-    1. gera uma senha temporaria forte (gerador criptografico do sistema);
-    2. guarda a senha no Vault, em kawashi-secrets/usuarios-api/<AMBIENTE>/<pessoa>, campo
-       senha_temporaria (precisa do token do Vault do repositorio de regras);
-    3. sobe a API SEM servidor web, so para gravar o usuario (CriarUsuarioNaSubida), e encerra.
-       A senha vai para o processo por variavel de ambiente, nunca por argumento (ficaria no
-       historico e na lista de processos);
-    4. o usuario nasce com a senha VENCIDA: o primeiro login so serve para troca-la. A senha
-       temporaria e conhecida por quem criou a conta; a definitiva, so pela pessoa.
+    1. confere que o Vault esta no ar (o link precisa ir para algum lugar);
+    2. sobe a API SEM servidor web, so para criar o usuario/convite (CriarUsuarioNaSubida), e
+       encerra. O segredo do convite vem por um arquivo temporario, nunca pela saida nem por log;
+    3. monta o link  <Site>/convite.html#kwc_...  (o segredo vai depois do #: o navegador nunca
+       o envia ao servidor) e guarda no Vault, em kawashi-secrets/convites/<AMBIENTE>/<usuario>,
+       campo link. Apaga o arquivo temporario.
 
-  Entregue a senha temporaria a pessoa por um canal seguro, lendo do Vault:
-      vault kv get -field=senha_temporaria kawashi-secrets/usuarios-api/<AMBIENTE>/<pessoa>
-  e apague o segredo depois que ela trocar a senha.
+  Entregue o link a pessoa por um canal seguro, lendo do Vault:
+      vault kv get -field=link kawashi-secrets/convites/<AMBIENTE>/<usuario>
+  e apague o segredo depois que ela cadastrar a passkey (o convite so vale uma vez, de qualquer jeito).
 
-  A pessoa precisa existir e estar ativa (cadastro de PESSOA na API). O e-mail e o nome de login.
+  Modos:
+    -PessoaId e -Email   usuario novo (a pessoa precisa existir e estar ativa);
+    -UsuarioId           convite novo para um usuario que ja existe e perdeu as passkeys e os
+                         codigos. Ao ser usado, derruba todas as sessoes dele.
 
 .PARAMETER PessoaId
   Id da PESSOA que vai ter o usuario (relacao 1 para 1).
 
 .PARAMETER Email
-  E-mail de login.
+  E-mail da conta (aparece no aparelho como nome da passkey).
+
+.PARAMETER UsuarioId
+  Id do usuario que precisa de um convite novo.
+
+.PARAMETER Site
+  Endereco do site (do BFF). Padrao: http://localhost:9090.
 
 .PARAMETER InfraEnvFile
   O .env do repositorio de regras, com o token do Vault. Padrao: ..\regras-banco-usp\infra\.env.
 
 .EXAMPLE
   .\scripts\criar-usuario.ps1 -PessoaId 42 -Email caio@empresa.com.br
+
+.EXAMPLE
+  .\scripts\criar-usuario.ps1 -UsuarioId 7
 #>
+[CmdletBinding(DefaultParameterSetName = 'Novo')]
 param(
-    [Parameter(Mandatory = $true)]
+    [Parameter(Mandatory = $true, ParameterSetName = 'Novo')]
     [ValidateRange(1, [long]::MaxValue)]
     [long]$PessoaId,
 
-    [Parameter(Mandatory = $true)]
-    [ValidatePattern('^[^@\s"''`]{1,64}@[^@\s"''`]+\.[^@\s"''`.]+$')]
+    [Parameter(Mandatory = $true, ParameterSetName = 'Novo')]
+    [ValidatePattern('^[A-Za-z0-9._%+-]{1,64}@[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)+$')]
     [string]$Email,
+
+    [Parameter(Mandatory = $true, ParameterSetName = 'Convite')]
+    [ValidateRange(1, [long]::MaxValue)]
+    [long]$UsuarioId,
+
+    [ValidatePattern('^https?://[A-Za-z0-9.-]+(:\d+)?$')]
+    [string]$Site = 'http://localhost:9090',
 
     [string]$InfraEnvFile
 )
 
 $ErrorActionPreference = 'Stop'
+# Pasta calculada aqui: com [CmdletBinding()] e -File, o $PSScriptRoot fica vazio no bloco param.
 $aqui = Split-Path -Parent $MyInvocation.MyCommand.Path
 $raiz = (Resolve-Path (Join-Path $aqui '..')).Path
 if (-not $InfraEnvFile) { $InfraEnvFile = Join-Path $raiz '..\regras-banco-usp\infra\.env' }
@@ -64,45 +86,72 @@ function Get-ValorDoEnv {
 
 $token = Get-ValorDoEnv $InfraEnvFile 'VAULT_DEV_ROOT_TOKEN_ID'
 $schema = Get-ValorDoEnv (Join-Path $raiz '.env') 'DB_SCHEMA'
-if (-not $token) { throw "Nao achei o token do Vault em '$InfraEnvFile'. A senha temporaria precisa ir para o Vault." }
+if (-not $token) { throw "Nao achei o token do Vault em '$InfraEnvFile'. O link do convite precisa ir para o Vault." }
 $ambiente = if ($schema -match '^KAWASHI_ENV_(.+)$') { $Matches[1] } else { throw "Nao achei DB_SCHEMA no .env da API." }
 
-# 1. Senha temporaria: 24 caracteres do gerador criptografico (sem caracteres que atrapalham em JSON/shell).
-$alfabeto = [char[]]'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789-_.'
-$bytes = New-Object byte[] 24
-$gerador = [System.Security.Cryptography.RandomNumberGenerator]::Create()
-try { $gerador.GetBytes($bytes) } finally { $gerador.Dispose() }
-$senha = -join ($bytes | ForEach-Object { $alfabeto[$_ % $alfabeto.Length] })
-
-# 2. Vault primeiro: se nao der para guardar, nao cria um usuario cuja senha ninguem conhece.
-$caminho = "kawashi-secrets/usuarios-api/$ambiente/$PessoaId"
+# 1. Vault no ar e com o engine de segredos (o modo dev perde tudo ao reiniciar: vault-init.ps1).
 $anterior = $ErrorActionPreference; $ErrorActionPreference = 'Continue'
-docker exec -e VAULT_TOKEN=$token kawashi-vault vault kv put $caminho "senha_temporaria=$senha" "email=$Email" 2>&1 | Out-Null
-$okVault = ($LASTEXITCODE -eq 0)
+$env:VAULT_TOKEN = $token
+docker exec -e VAULT_TOKEN kawashi-vault vault secrets list 2>&1 | Select-String -SimpleMatch 'kawashi-secrets/' -Quiet | Set-Variable okVault
+Remove-Item Env:\VAULT_TOKEN
 $ErrorActionPreference = $anterior
-if (-not $okVault) { throw "Nao consegui gravar no Vault ($caminho). Ele esta no ar? (vault-init.ps1 no repositorio de regras)" }
+if (-not $okVault) { throw "O Vault nao esta no ar ou nao tem o engine kawashi-secrets (rode infra/scripts/vault-init.ps1 no repositorio de regras)." }
 
-# 3. Cria pela propria API, sem servidor web, e encerra.
-Write-Host "-> Criando o usuario (a API sobe sem servidor web e encerra)..."
-$env:CRIAR_USUARIO_SENHA = $senha
+# 2. Cria pela propria API, sem servidor web, e encerra. O segredo volta por arquivo temporario.
+$arquivo = Join-Path ([IO.Path]::GetTempPath()) ("kw-convite-" + [guid]::NewGuid().ToString('N') + ".tmp")
+$argumentos = if ($PSCmdlet.ParameterSetName -eq 'Novo') {
+    "--spring.main.web-application-type=none --app.criar-usuario.modo=novo --app.criar-usuario.pessoa-id=$PessoaId --app.criar-usuario.email=$Email"
+} else {
+    "--spring.main.web-application-type=none --app.criar-usuario.modo=convite --app.criar-usuario.usuario-id=$UsuarioId"
+}
+Write-Host "-> Criando o convite (a API sobe sem servidor web e encerra)..."
+$env:CRIAR_USUARIO_ARQUIVO = $arquivo
 try {
     Push-Location $raiz
-    $argumentos = "--spring.main.web-application-type=none --app.criar-usuario.pessoa-id=$PessoaId --app.criar-usuario.email=$Email"
     $saida = (cmd /c "mvn -q -o spring-boot:run `"-Dspring-boot.run.arguments=$argumentos`" 2>&1") -join "`n"
     $codigo = $LASTEXITCODE
 } finally {
-    Remove-Item Env:\CRIAR_USUARIO_SENHA -ErrorAction SilentlyContinue
+    Remove-Item Env:\CRIAR_USUARIO_ARQUIVO -ErrorAction SilentlyContinue
     Pop-Location
-    $senha = $null
 }
 
 $criado = [regex]::Match($saida, 'USUARIO_CRIADO id=(\d+)')
-if (-not $criado.Success) {
+if (-not $criado.Success -or -not (Test-Path -LiteralPath $arquivo)) {
+    Remove-Item -LiteralPath $arquivo -ErrorAction SilentlyContinue
     $motivo = [regex]::Match($saida, 'USUARIO_NAO_CRIADO: ([^\r\n]+)').Groups[1].Value
-    docker exec -e VAULT_TOKEN=$token kawashi-vault vault kv metadata delete $caminho 2>&1 | Out-Null
-    throw "O usuario NAO foi criado (codigo $codigo). $motivo"
+    if (-not $motivo) { $motivo = 'Veja se a API compila e se o .env esta completo (inclusive BFF_SEGREDO).' }
+    throw "O convite NAO foi criado (codigo $codigo). $motivo"
 }
+$id = $criado.Groups[1].Value
+
+# 3. Link no Vault. Token e link vao por variavel de ambiente ("docker exec -e NOME" nao poe o valor
+#    na linha de comando); o link so tem caracteres de URL, sem espaco nem curinga do sh.
+try {
+    $segredo = [IO.File]::ReadAllText($arquivo).Trim()
+} finally {
+    # Sobrescreve antes de apagar: o segredo nao fica no disco.
+    [IO.File]::WriteAllBytes($arquivo, (New-Object byte[] 128))
+    Remove-Item -LiteralPath $arquivo -Force
+}
+if ($segredo -notmatch '^kwc_[A-Za-z0-9_-]{43}$') { throw "O arquivo do convite veio num formato inesperado. Nada foi para o Vault." }
+$caminho = "kawashi-secrets/convites/$ambiente/$id"
+$anterior = $ErrorActionPreference; $ErrorActionPreference = 'Continue'
+try {
+    $env:VAULT_TOKEN = $token
+    $env:KW_LINK = "$Site/convite.html#$segredo"
+    $env:KW_EXPIRA = (Get-Date).ToUniversalTime().AddHours(24).ToString('yyyy-MM-ddTHH:mmZ')
+    docker exec -e VAULT_TOKEN -e KW_LINK -e KW_EXPIRA kawashi-vault sh -c ('vault kv put ' + $caminho + ' link=$KW_LINK expira_em=$KW_EXPIRA') 2>&1 | Out-Null
+    $okVault = ($LASTEXITCODE -eq 0)
+} finally {
+    Remove-Item Env:\KW_LINK, Env:\KW_EXPIRA, Env:\VAULT_TOKEN -ErrorAction SilentlyContinue
+    $ErrorActionPreference = $anterior
+    $segredo = $null
+}
+if (-not $okVault) {
+    throw "O convite foi criado (usuario $id), mas NAO consegui grava-lo no Vault. Ele vence sozinho; gere outro com -UsuarioId $id."
+}
+
 Write-Host ""
-Write-Host "== Usuario criado (id $($criado.Groups[1].Value)) ==" -ForegroundColor Green
-Write-Host "Senha temporaria no Vault: $caminho (campo senha_temporaria). Ela nao aparece aqui."
-Write-Host "No primeiro login a pessoa so consegue trocar a senha. Depois disso, apague o segredo do Vault."
+Write-Host "== Convite criado (usuario $id) ==" -ForegroundColor Green
+Write-Host "Link no Vault: $caminho (campo link). Ele nao aparece aqui."
+Write-Host "Vale uma vez, por 24 horas. Depois que a pessoa cadastrar a passkey, apague o segredo do Vault."

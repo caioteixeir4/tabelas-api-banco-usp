@@ -18,9 +18,14 @@ o banco Oracle.
   validações de CNPJ/CPF/UF, regras de negócio e erros no formato RFC 9457.
 - **Logs da aplicação** num schema separado (`KAWASHI_ENV_<AMBIENTE>_LOG`), em que a API só insere:
   quem mudou qual registro, encadeado por hash, e cada chamada à API.
-- **Login** (desde 18/11/2026): toda a `/api` exige token. Senha com argon2id, token opaco (15 min
-  renovados com o uso, teto de 8 h, até 3 sessões), bloqueio da conta e do IP, troca obrigatória aos
-  90 dias. As tabelas ficam nos schemas `_LOGIN` e `_SESSAO`, criados pelo repositório de regras.
+- **Login só por passkey** (desde 20/11/2026; não existe senha): a conta nasce de um convite de uso
+  único, a pessoa cadastra a passkey do aparelho (digital, rosto ou PIN) e recebe 10 códigos de
+  recuperação. Token opaco (15 min renovados com o uso, teto de 8 h, até 3 sessões), bloqueio por IP,
+  detecção de aparelho clonado (contador). As tabelas ficam nos schemas `_LOGIN` e `_SESSAO`, criados
+  pelo repositório de regras.
+- **A API só atende o BFF** ([`bff-banco-usp`](../bff-banco-usp), o servidor do site): todo pedido
+  precisa de um segredo compartilhado. O token nunca chega ao navegador; ele fica guardado no BFF, e o
+  navegador recebe só um cookie de sessão `HttpOnly`.
 - **Dados pessoais protegidos (LGPD):** CPF/CNPJ de pessoa, e-mail e telefone são gravados
   **cifrados** pela API (AES-256-GCM, chave fora do banco) e saem **mascarados** nas respostas; o valor
   inteiro só por um caminho de "revelar", que fica no log de acesso. O disco do banco também é cifrado
@@ -31,7 +36,7 @@ o banco Oracle.
 Documentação:
 
 - [`docs/modelo-de-dados.md`](docs/modelo-de-dados.md): as tabelas, os schemas e o porquê de cada
-  decisão, incluindo o que ainda é proposta (login e autorização).
+  decisão, incluindo o que ainda é proposta (autorização).
 - [`docs/diagrama-tabelas.html`](docs/diagrama-tabelas.html): o diagrama, campo a campo (abrir no
   navegador).
 - [`docs/api-e-regras.md`](docs/api-e-regras.md): endpoints, regras, logs, concorrência.
@@ -40,8 +45,8 @@ Documentação:
 
 Desenhado e documentado, ainda não implementado:
 
-1. **Segunda entrega do login:** 2FA opcional, códigos de recuperação, aparelhos de confiança com o
-   token preso ao aparelho (DPoP), esqueci minha senha, confirmação de e-mail, aceite de termos.
+1. **Complementos do login:** confirmação de e-mail, aceite de termos e criação de usuário pela API
+   (por um administrador, quando a autorização existir).
 2. **Autorização**: perfis, permissões e o vínculo do usuário com cada empresa (multiempresa).
 
 Enquanto isso, **todo usuário logado pode tudo**. O que já limita o estrago: a conta de banco que atende os pedidos não consegue apagar nem alterar tabela, não
@@ -76,26 +81,35 @@ no ar (`docker compose up -d` dentro de `infra/`).
    **Perder a `CIFRA_CHAVE_DADOS` é perder os dados cifrados.** O Vault de desenvolvimento é em
    memória: depois de reiniciá-lo, reponha a cópia com `-SoCopiarParaOVault`.
 
-3. **Crie o primeiro usuário** (precisa de uma PESSOA cadastrada; a senha temporária vai para o
-   Vault, não aparece na tela, e o primeiro login só serve para trocá-la):
+3. **Gere o segredo do BFF** (vai para o `.env` daqui e para o do `bff-banco-usp`, e uma cópia para o
+   Vault; nunca para a tela). Sem ele nem a API nem o BFF sobem:
+
+   ```powershell
+   .\scripts\gerar-segredo-do-bff.ps1
+   ```
+
+4. **Crie o primeiro usuário** (precisa de uma PESSOA cadastrada). Não há senha: o usuário recebe um
+   **link de convite** de uso único (24 h), que vai para o Vault e não aparece na tela. No link, a
+   pessoa cadastra a passkey e recebe os códigos de recuperação. Quem perdeu tudo ganha um convite
+   novo com `-UsuarioId`:
 
    ```powershell
    .\scripts\criar-usuario.ps1 -PessoaId 42 -Email voce@empresa.com.br
    ```
 
-4. **Suba a API** (as migrações rodam sozinhas na primeira vez):
+5. **Suba a API** (as migrações rodam sozinhas na primeira vez):
 
    ```bash
    mvn spring-boot:run
    ```
 
-5. **Rode os testes** (todos, contra o Oracle real):
+6. **Rode os testes** (todos, contra o Oracle real):
 
    ```bash
    mvn test
    ```
 
-6. **HTTPS** (opcional no desenvolvimento, obrigatório fora dele). Gera um certificado autoassinado
+7. **HTTPS** (opcional no desenvolvimento, obrigatório fora dele). Gera um certificado autoassinado
    para `localhost` e liga o HTTPS obrigatório no `.env`:
 
    ```powershell
@@ -119,7 +133,10 @@ Configuração, por variável de ambiente ou pelo `.env`:
 | `PORT` | Porta | `8080` |
 | `EXIGIR_HTTPS` | `true` recusa pedido a `/api/**` que não chegou por HTTPS | `false` |
 | `SSL_ATIVO`, `SSL_KEYSTORE`, `SSL_KEYSTORE_PASSWORD` | HTTPS direto na aplicação (keystore PKCS12) | desligado |
-| `app.senha.argon2-memoria-kib`, `-iteracoes`, `-paralelismo` | Custo do argon2id. Abaixo do mínimo da OWASP a API não sobe (só os testes podem, com `app.senha.custo-de-teste`) | `65536`, `3`, `4` |
+| `BFF_SEGREDO` | Segredo compartilhado com o BFF (cabeçalho `X-Kawashi-Bff`), pelo menos 32 caracteres. Sem ele a API não sobe | sem padrão |
+| `WEBAUTHN_RP_ID` | Domínio do **site** (do BFF) para as passkeys. Trocar o domínio invalida as passkeys cadastradas | `localhost` |
+| `WEBAUTHN_ORIGENS` | Endereços exatos de onde o navegador faz a cerimônia, separados por vírgula | `http://localhost:9090` |
+| `WEBAUTHN_RP_NOME` | Nome que o aparelho mostra | `Kawashi` |
 | `CIFRA_CHAVE_DADOS`, `CIFRA_CHAVE_INDICE` | Chaves (32 bytes em base64) que cifram os dados pessoais e geram a impressão digital deles. Sem elas a API não sobe | sem padrão |
 
 As senhas também ficam no Vault, em `kawashi-secrets/api/<conta>`. O schema de log é deduzido
@@ -166,10 +183,13 @@ proxy) e chamam os endpoints por MockMvc. Cada teste roda numa transação que �
 então não sobra dado no banco e os testes não interferem entre si. Os documentos usados são
 CNPJ/CPF válidos e aleatórios (`GeradorDeDocumentos`), nunca reais.
 
-A suíte tem **149 testes** (última execução de `mvn test`, 18/11/2026, todos passando). Toda chamada
-à API nos testes vai com token: `testes/UsuarioDeTeste` cria o usuário (dentro da transação do teste,
-que é desfeita) e emite o token. Nos testes o argon2id roda com custo baixo (`src/test/resources`). É menor que a do modelo
-antigo (296): são menos tabelas, e os testes foram reescritos mais densos, vários casos por teste.
+A suíte tem **150 testes** (última execução de `mvn clean test`, 20/11/2026, todos passando). Toda
+chamada à API nos testes finge vir do BFF (`testes/Api` manda o segredo de teste e um IP de navegador)
+e vai com token: `testes/UsuarioDeTeste` cria o usuário (dentro da transação do teste, que é desfeita)
+e emite o token. A cerimônia de passkey de verdade é testada com `testes/AutenticadorDeTeste`, um
+"aparelho" em Java que gera a chave P-256, monta o CBOR e assina como um autenticador real; a API o
+verifica com o WebAuthn4J sem atalho nenhum. É menor que a do modelo antigo (296): são menos tabelas,
+e os testes foram reescritos mais densos, vários casos por teste.
 
 | Grupo | Testes |
 |---|---|
@@ -180,8 +200,7 @@ antigo (296): são menos tabelas, e os testes foram reescritos mais densos, vár
 | `ServidorRealTest` (porta real: 12 pedidos simultâneos contra as travas e contra o log, corpo fragmentado) | 8 |
 | `DocumentosTest` (CNPJ, CPF, UF, sem banco) | 31 |
 | `ConexaoProxyTest` (as duas contas de banco; a de execução não cria, altera nem apaga tabela) | 6 |
-| `LoginApiTest` (token opaco, 401 igual para todo erro, bloqueio da conta e do IP, logout, sair de todos, limite de 3 sessões, validade deslizante com teto, senha vencida, troca de senha, o que a API não consegue fazer no banco; com a sessão do banco forçada fora de UTC) | 20 |
-| `HashEPoliticaDeSenhaTest` (argon2id, custo mínimo, política de senha; sem banco) | 7 |
+| `PasskeyApiTest` (com a sessão do banco forçada em −05:00: convite, entrar, desafio de uso único e desafio vencido, token vencido, origem e domínio conferidos, verificação da pessoa exigida, clone com a mesma credencial, contador que volta, código de recuperação só para cadastrar passkey, remoção derruba as sessões da passkey, sair, bloqueio por IP, a exigência do BFF) | 28 |
 | `ConexaoCifradaTest` (o banco exige cifra: a conexão normal funciona, um cliente que recusa cifrar é barrado com `ORA-12660`) | 3 |
 | `HttpsObrigatorioTest` (HTTP puro recusado, cabeçalhos de segurança) | 4 |
 | `TratadorDeErrosTest` | 2 |
@@ -195,20 +214,24 @@ apagá-las.
 Como a transação do teste mantém a sessão aberta, ela esconde um tipo de erro de produção. Por isso
 existe também um roteiro por **HTTP real**, [`scripts/smoke-http.ps1`](scripts/smoke-http.ps1): com
 a API no ar, cria empresa, filial, pessoas de cada tipo, contatos e endereços, viola as regras de
-propósito (51 verificações, incluindo login, troca de senha obrigatória, máscara, revelar e logout) e apaga os cadastros que criou, conferindo que nada sobrou.
+propósito (52 verificações na primeira rodada, 50 nas seguintes, incluindo a exigência do BFF, login por passkey, desafio de uso único, máscara, revelar e logout) e apaga os cadastros que criou, conferindo que nada sobrou.
 
 ```bash
 PORT=18080 mvn spring-boot:run          # em um terminal
 ```
 
 ```powershell
-$env:SMOKE_SENHA = '...'   # a senha do usuário, sem ecoar (por exemplo, lida do Vault)
-.\scripts\smoke-http.ps1 -Base http://localhost:18080 -Email voce@empresa.com.br
+.\scripts\criar-usuario.ps1 -PessoaId 42 -Email smoke@teste.kawashi.invalid   # só na primeira vez
+.\scripts\smoke-http.ps1 -Base http://localhost:18080 -UsuarioId 7
 ```
 
-O roteiro entra com login, confere o 401 sem token e, se a senha estiver vencida (primeiro login),
-troca pela de `SMOKE_SENHA_NOVA` e entra de novo. No fim faz logout e confere que o token parou de
-valer.
+O roteiro fala com a API como o BFF (lê o `BFF_SEGREDO` do `.env`, sem mostrar) e entra com uma
+**passkey de software** ([`scripts/passkey-de-software.ps1`](scripts/passkey-de-software.ps1)) de uma
+conta de teste. Na primeira vez ele lê o convite do Vault, cadastra a passkey e guarda a chave no
+Vault (`kawashi-secrets/smoke-passkey/<AMBIENTE>/<usuario>`); nas seguintes, entra com ela. Passkey de
+software só serve para conta de teste do desenvolvimento: a chave fica no Vault, e não presa num
+aparelho. No fim faz logout e confere que o token parou de valer. Última execução: 20/11/2026,
+52 ok e depois 50 ok, contra a conta fixa de teste (usuário 108 do `TESTE_DEV`).
 
 ## Armadilhas encontradas pelo caminho
 
@@ -223,6 +246,15 @@ valer.
   ocupa 2 bytes. As colunas de texto livre são `VARCHAR2(n CHAR)`.
 - **Falta de privilégio tem dois códigos.** Pelo `sqlplus` aparece `ORA-01031`; pelo JDBC do Oracle
   23, o mais específico `ORA-41900`. Os testes aceitam os dois.
+- **Com o BFF na frente, o IP da conexão é sempre o do BFF.** Se a API bloqueasse por ele, uma pessoa
+  errando bloquearia todo mundo. O BFF manda o IP do navegador em `X-Kawashi-Ip-Cliente`, e a API só
+  acredita nesse cabeçalho depois de conferir o segredo (senão qualquer um inventaria o próprio IP).
+- **O PowerShell 5.1 atrapalha quem passa segredo para o Vault.** Pela entrada padrão ele põe um BOM
+  na frente; em argumento ele estraga aspas duplas. Os scripts passam o valor por variável de
+  ambiente (`docker exec -e NOME`, sem `=valor`), que não aparece nem na linha de comando.
+- **O Maven não recompila um arquivo restaurado com a data antiga.** Ao conferir um teste quebrando o
+  código de propósito, restaurar o arquivo com `mv` do backup deixou a classe quebrada compilada. Depois
+  de restaurar, `touch` no arquivo (ou `mvn clean`).
 
 ## Pendências
 

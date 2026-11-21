@@ -1,12 +1,6 @@
 package br.com.kawashi.banco.login;
 
-import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
-import java.security.SecureRandom;
 import java.time.LocalDateTime;
-import java.util.Base64;
-import java.util.HexFormat;
 import java.util.List;
 import java.util.Optional;
 import java.util.regex.Pattern;
@@ -17,14 +11,18 @@ import org.springframework.stereotype.Component;
 /**
  * Os tokens de acesso. Decisoes (detalhadas em docs/modelo-de-dados.md, "Token de acesso"):
  * <ul>
- *   <li><b>opaco</b>, nao JWT: "kw_" + 32 bytes aleatorios. Pode ser cortado na hora (logout, troca
- *       de senha, desligamento) e nao ha chave de assinatura que, vazada, permita forjar acesso;</li>
+ *   <li><b>opaco</b>, nao JWT: "kw_" + 32 bytes aleatorios. Pode ser cortado na hora (logout,
+ *       passkey removida, desligamento) e nao ha chave de assinatura que, vazada, permita forjar
+ *       acesso;</li>
  *   <li>no banco so fica o <b>SHA-256</b>: quem le a tabela nao consegue usar o token;</li>
+ *   <li>o token nunca chega ao navegador: quem o guarda e o BFF, do lado do servidor;</li>
  *   <li>validade <b>deslizante com teto</b>: cada uso empurra o vencimento ({@code TOKEN_MINUTOS})
  *       sem passar do teto ({@code TOKEN_TETO_HORAS} depois do login). A renovacao e gravada no
- *       maximo uma vez por minuto, nao a cada pedido;</li>
+ *       maximo uma vez por minuto;</li>
  *   <li>no maximo {@code SESSOES_MAXIMAS} sessoes ativas: a seguinte derruba a mais antiga;</li>
- *   <li>toda conta de tempo usa o relogio do BANCO (SYS_EXTRACT_UTC(SYSTIMESTAMP)), nunca o da aplicacao.</li>
+ *   <li>o token guarda com qual passkey a sessao foi aberta: remover a passkey derruba as sessoes
+ *       dela;</li>
+ *   <li>toda conta de tempo usa o relogio do BANCO, em UTC, nunca o da aplicacao.</li>
  * </ul>
  */
 @Component
@@ -44,7 +42,6 @@ public class Tokens {
     private final JdbcTemplate jdbc;
     private final SchemasDoLogin schemas;
     private final LogDeSeguranca log;
-    private final SecureRandom sorteio = new SecureRandom();
 
     public Tokens(JdbcTemplate jdbc, SchemasDoLogin schemas, LogDeSeguranca log) {
         this.jdbc = jdbc;
@@ -52,26 +49,23 @@ public class Tokens {
         this.log = log;
     }
 
-    public TokenEmitido emitir(long usuarioId, String escopo, String ip, ParametrosDeSeguranca.Parametros p) {
+    public TokenEmitido emitir(long usuarioId, Long passkeyId, String escopo, String ip, ParametrosDeSeguranca.Parametros p) {
         // Limite de sessoes: se ja tem o maximo, derruba as mais antigas ate abrir uma vaga.
         List<Long> ativas = jdbc.queryForList("SELECT ID FROM " + schemas.sessao("TOKEN")
-                + " WHERE USUARIO_ID = ? AND REVOGADO_EM IS NULL AND EXPIRA_EM > SYS_EXTRACT_UTC(SYSTIMESTAMP) AND EXPIRA_ABSOLUTO_EM > SYS_EXTRACT_UTC(SYSTIMESTAMP)"
-                + " ORDER BY CRIADO_EM, ID", Long.class, usuarioId);
+                + " WHERE USUARIO_ID = ? AND REVOGADO_EM IS NULL AND EXPIRA_EM > SYS_EXTRACT_UTC(SYSTIMESTAMP)"
+                + " AND EXPIRA_ABSOLUTO_EM > SYS_EXTRACT_UTC(SYSTIMESTAMP) ORDER BY CRIADO_EM, ID", Long.class, usuarioId);
         for (int i = 0; i <= ativas.size() - p.sessoesMaximas(); i++) {
             revogar(ativas.get(i), "LIMITE_SESSOES");
             log.registrar("SESSAO_ENCERRADA", usuarioId, "limite de " + p.sessoesMaximas() + " sessoes: a mais antiga caiu",
                     ip, LogDeSeguranca.quem(usuarioId));
         }
-
-        byte[] aleatorio = new byte[32];
-        sorteio.nextBytes(aleatorio);
-        String token = PREFIXO + Base64.getUrlEncoder().withoutPadding().encodeToString(aleatorio);
+        String token = PREFIXO + Aleatorio.base64Url32();
         String hash = hash(token);
         jdbc.update("INSERT INTO " + schemas.sessao("TOKEN")
-                + " (USUARIO_ID, TOKEN_HASH, ESCOPO, EXPIRA_EM, EXPIRA_ABSOLUTO_EM, IP_ORIGEM) VALUES (?, ?, ?,"
+                + " (USUARIO_ID, PASSKEY_ID, TOKEN_HASH, ESCOPO, EXPIRA_EM, EXPIRA_ABSOLUTO_EM, IP_ORIGEM) VALUES (?, ?, ?, ?,"
                 + " LEAST(SYS_EXTRACT_UTC(SYSTIMESTAMP) + NUMTODSINTERVAL(?, 'MINUTE'), SYS_EXTRACT_UTC(SYSTIMESTAMP) + NUMTODSINTERVAL(?, 'HOUR')),"
                 + " SYS_EXTRACT_UTC(SYSTIMESTAMP) + NUMTODSINTERVAL(?, 'HOUR'), ?)",
-                usuarioId, hash, escopo, p.tokenMinutos(), p.tokenTetoHoras(), p.tokenTetoHoras(), ip);
+                usuarioId, passkeyId, hash, escopo, p.tokenMinutos(), p.tokenTetoHoras(), p.tokenTetoHoras(), ip);
         return jdbc.queryForObject("SELECT ID, ESCOPO, EXPIRA_EM, EXPIRA_ABSOLUTO_EM FROM " + schemas.sessao("TOKEN")
                 + " WHERE TOKEN_HASH = ?", (r, n) -> new TokenEmitido(r.getLong(1), token, r.getString(2),
                         r.getTimestamp(3).toLocalDateTime(), r.getTimestamp(4).toLocalDateTime()), hash);
@@ -112,18 +106,20 @@ public class Tokens {
                 + " WHERE ID = ? AND REVOGADO_EM IS NULL", motivo, tokenId);
     }
 
-    /** Derruba todas as sessoes ativas do usuario. Devolve quantas caiam. */
-    public int revogarTodos(long usuarioId, String motivo) {
+    /** Derruba todas as sessoes ativas do usuario, menos (opcionalmente) uma. Devolve quantas cairam. */
+    public int revogarTodos(long usuarioId, String motivo, Long menosEsta) {
         return jdbc.update("UPDATE " + schemas.sessao("TOKEN") + " SET REVOGADO_EM = SYS_EXTRACT_UTC(SYSTIMESTAMP), MOTIVO_REVOGACAO = ?"
-                + " WHERE USUARIO_ID = ? AND REVOGADO_EM IS NULL", motivo, usuarioId);
+                + " WHERE USUARIO_ID = ? AND REVOGADO_EM IS NULL AND ID <> NVL(?, -1)", motivo, usuarioId, menosEsta);
+    }
+
+    /** Derruba as sessoes abertas com uma passkey. */
+    public int revogarDaPasskey(long passkeyId, String motivo) {
+        return jdbc.update("UPDATE " + schemas.sessao("TOKEN") + " SET REVOGADO_EM = SYS_EXTRACT_UTC(SYSTIMESTAMP), MOTIVO_REVOGACAO = ?"
+                + " WHERE PASSKEY_ID = ? AND REVOGADO_EM IS NULL", motivo, passkeyId);
     }
 
     /** SHA-256 em hexadecimal: e so isto que vai para o banco. */
     public static String hash(String token) {
-        try {
-            return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(token.getBytes(StandardCharsets.UTF_8)));
-        } catch (NoSuchAlgorithmException ex) {
-            throw new IllegalStateException(ex);
-        }
+        return Aleatorio.sha256(token);
     }
 }

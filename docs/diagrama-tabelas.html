@@ -230,11 +230,11 @@
      ===================================================================================== -->
 <script id="modelo" type="application/json">
 {
-  "estado": "Cadastros, logs, cadastro de contas e o login (usuário, senha, token, bloqueios) existem no Oracle, conferidos campo a campo em 18/11/2026. CPF, e-mail e telefone são gravados cifrados. 2FA, aparelhos e autorização ainda são proposta.",
+  "estado": "Cadastros, logs, cadastro de contas e o login por passkey (usuário, passkeys, convites, códigos de recuperação, token, desafios, bloqueios) existem no Oracle, conferidos campo a campo em 20/11/2026. Não há senha de usuário. CPF, e-mail e telefone são gravados cifrados. Aceite de termos e autorização ainda são proposta.",
   "esquemas": {
     "padrao": { "rotulo": "KAWASHI_ENV_<AMB>", "nome": "cadastros" },
-    "login": { "rotulo": "KAWASHI_ENV_<AMB>_LOGIN", "nome": "login: usuário, senha, 2FA, aparelhos" },
-    "sessao": { "rotulo": "KAWASHI_ENV_<AMB>_SESSAO", "nome": "o que expira: tokens, pedidos de senha, bloqueios" },
+    "login": { "rotulo": "KAWASHI_ENV_<AMB>_LOGIN", "nome": "login: usuário, passkeys, convites, códigos" },
+    "sessao": { "rotulo": "KAWASHI_ENV_<AMB>_SESSAO", "nome": "o que expira: tokens, desafios, bloqueios" },
     "log": { "rotulo": "KAWASHI_ENV_<AMB>_LOG", "nome": "logs: só recebem linhas novas" },
     "adm": { "rotulo": "SYS (repositório de regras)", "nome": "contas do banco: quem é, o que pode, validade da senha" }
   },
@@ -528,36 +528,33 @@
     },
     {
       "id": "login",
-      "titulo": "Login: usuÃ¡rio, senha e sessÃ£o",
+      "titulo": "Login por passkey: usuário, passkeys e sessão",
       "selo": "real",
       "seloTexto": "no Oracle hoje",
-      "subtitulo": "TrÃªs schemas, pela cor: LOGIN (o que Ã© permanente do usuÃ¡rio), SESSAO (o que expira; o banco apaga o vencido) e LOG (histÃ³rico, sÃ³ recebe linhas novas). Os donos sÃ£o schemas em que ninguÃ©m loga: a API lÃª e grava o que precisa, sÃ³ LÃŠ os parÃ¢metros e nÃ£o apaga sessÃ£o nem log. Toda hora Ã© gravada e comparada em UTC. A PESSOA aparece repetida, em cinza, sÃ³ para mostrar a ligaÃ§Ã£o.",
+      "subtitulo": "Não há senha. A conta nasce de um CONVITE; a pessoa cadastra uma PASSKEY (o banco guarda só a chave pública) e recebe CODIGOS de recuperação. Para entrar, o aparelho assina um DESAFIO de uso único, e a API emite um TOKEN (que fica no BFF, nunca no navegador). Três schemas, pela cor: LOGIN (permanente), SESSAO (o que expira; o banco apaga o vencido) e LOG (só recebe linhas novas). Ninguém loga nos donos; a API lê e grava o que precisa, só LÊ os parâmetros e não apaga nada. Toda hora em UTC. A PESSOA aparece repetida, em cinza, só para mostrar a ligação.",
       "colunas": [
-        { "v": "centro", "tabelas": ["HISTORICO_SENHA", "PARAMETRO_SEGURANCA"] },
-        { "v": "centro", "tabelas": ["PESSOA_REF", "USUARIO"] },
+        { "v": "centro", "tabelas": ["CONVITE", "CODIGO_RECUPERACAO", "DESAFIO", "PARAMETRO_SEGURANCA"] },
+        { "v": "centro", "tabelas": ["PESSOA_REF", "USUARIO", "PASSKEY"] },
         { "v": "centro", "tabelas": ["TOKEN", "BLOQUEIO_IP", "TENTATIVA_LOGIN", "LOG_SEGURANCA"] }
       ],
       "tabelas": [
         {
           "id": "PESSOA_REF", "nome": "PESSOA", "schema": "padrao", "fantasma": true,
-          "desc": "sÃ³ a chave aparece aqui; os campos estÃ£o no quadro de cadastros",
-          "ponte": "repetida: esta tabela Ã© do quadro de cadastros",
+          "desc": "só a chave aparece aqui; os campos estão no quadro de cadastros",
+          "ponte": "repetida: esta tabela é do quadro de cadastros",
           "campos": [ { "n": "ID", "t": "NUMBER", "pk": true, "ident": true } ],
           "restricoes": []
         },
         {
           "id": "USUARIO", "nome": "USUARIO", "schema": "login",
-          "desc": "quem entra: uma pessoa, um e-mail, uma senha",
+          "desc": "quem entra: uma pessoa, um e-mail, nenhuma senha",
           "campos": [
             { "n": "ID", "t": "NUMBER", "pk": true, "ident": true },
-            { "n": "PESSOA_ID", "t": "NUMBER", "uq": true, "fk": { "t": "PESSOA_REF", "c": "ID", "esquema": "padrÃ£o" }, "nota": "Ãšnico: cada pessoa tem no mÃ¡ximo um usuÃ¡rio (1 para 1). Chave estrangeira entre schemas, ligada pela procedure KAWASHI_LIGAR_LOGIN_PESSOA, que o afterMigrate da API chama." },
-            { "n": "EMAIL_CIFRADO", "t": "VARCHAR2(1000)", "nota": "O e-mail de login, cifrado pela API (AES-256-GCM), como os outros dados pessoais." },
-            { "n": "EMAIL_INDICE", "t": "VARCHAR2(64)", "uq": true, "nota": "ImpressÃ£o digital do e-mail (HMAC-SHA256 com chave): Ã© por ela que o login acha o usuÃ¡rio e que o e-mail Ã© Ãºnico." },
-            { "n": "SENHA_HASH", "t": "VARCHAR2(300)", "nota": "SÃ³ o hash argon2id, no formato PHC ($argon2id$v=19$m=65536,t=3,p=4$sal$hash). A senha nunca Ã© gravada." },
-            { "n": "SENHA_ALTERADA_EM", "t": "TIMESTAMP(6)", "pad": "SYS_EXTRACT_UTC(SYSTIMESTAMP)", "nota": "Passados SENHA_VALIDADE_DIAS (90), o login devolve um token que sÃ³ serve para trocar a senha. UsuÃ¡rio criado com senha temporÃ¡ria nasce com esta data no passado." },
-            { "n": "TENTATIVAS_FALHAS", "t": "NUMBER(3)", "pad": "0", "nota": "Senhas erradas seguidas. No limite (5), a conta Ã© bloqueada; zera no login certo." },
-            { "n": "BLOQUEADO_ATE", "t": "TIMESTAMP(6)", "nulo": true, "nota": "AtÃ© este instante a conta nÃ£o entra, nem com a senha certa (30 min)." },
-            { "n": "ATIVO", "t": "BOOLEAN", "pad": "TRUE", "nota": "Inativo nÃ£o entra, e os tokens que jÃ¡ tinha param de valer na hora." },
+            { "n": "PESSOA_ID", "t": "NUMBER", "uq": true, "fk": { "t": "PESSOA_REF", "c": "ID", "esquema": "padrão" }, "nota": "Único: cada pessoa tem no máximo um usuário (1 para 1). Chave estrangeira entre schemas, ligada pela procedure KAWASHI_LIGAR_LOGIN_PESSOA, que o afterMigrate da API chama." },
+            { "n": "EMAIL_CIFRADO", "t": "VARCHAR2(1000)", "nota": "O e-mail da conta, cifrado pela API (AES-256-GCM), como os outros dados pessoais. É o nome que o aparelho mostra na passkey." },
+            { "n": "EMAIL_INDICE", "t": "VARCHAR2(64)", "uq": true, "nota": "Impressão digital do e-mail (HMAC-SHA256 com chave): é por ela que o código de recuperação acha o usuário e que o e-mail é único." },
+            { "n": "HANDLE", "t": "VARCHAR2(43)", "uq": true, "nota": "Identificador aleatório da conta (32 bytes, base64url) que vai para o aparelho como 'user.id' da passkey. Nem o e-mail nem o id do banco saem daqui. No login, o aparelho devolve o handle, e a API confere que é o dono da passkey." },
+            { "n": "ATIVO", "t": "BOOLEAN", "pad": "TRUE", "nota": "Inativo não entra, e os tokens que já tinha param de valer na hora." },
             { "n": "CRIADO_EM", "t": "TIMESTAMP(6)", "pad": "SYS_EXTRACT_UTC(SYSTIMESTAMP)" },
             { "n": "ATUALIZADO_EM", "t": "TIMESTAMP(6)", "pad": "SYS_EXTRACT_UTC(SYSTIMESTAMP)" }
           ],
@@ -565,37 +562,90 @@
             { "tipo": "PK", "nome": "PK_USUARIO", "regra": "ID" },
             { "tipo": "UNIQUE", "nome": "UK_USUARIO_PESSOA", "regra": "PESSOA_ID" },
             { "tipo": "UNIQUE", "nome": "UK_USUARIO_EMAIL", "regra": "EMAIL_INDICE" },
-            { "tipo": "FK", "nome": "FK_USUARIO_PESSOA", "regra": "PESSOA_ID â†’ KAWASHI_ENV_<AMB>.PESSOA (ID), entre schemas, sem cascade" },
+            { "tipo": "UNIQUE", "nome": "UK_USUARIO_HANDLE", "regra": "HANDLE" },
+            { "tipo": "FK", "nome": "FK_USUARIO_PESSOA", "regra": "PESSOA_ID → KAWASHI_ENV_<AMB>.PESSOA (ID), entre schemas, sem cascade" },
             { "tipo": "CHECK", "nome": "CK_USUARIO_EMAIL_CIFRADO", "regra": "EMAIL_CIFRADO LIKE 'v1:%' AND LENGTH(EMAIL_CIFRADO) >= 43" },
             { "tipo": "CHECK", "nome": "CK_USUARIO_EMAIL_INDICE", "regra": "REGEXP_LIKE(EMAIL_INDICE, '^[0-9a-f]{64}$')" },
-            { "tipo": "CHECK", "nome": "CK_USUARIO_SENHA_HASH", "regra": "SENHA_HASH LIKE '$argon2id$%'" },
-            { "tipo": "CHECK", "nome": "CK_USUARIO_TENTATIVAS", "regra": "TENTATIVAS_FALHAS >= 0" }
+            { "tipo": "CHECK", "nome": "CK_USUARIO_HANDLE", "regra": "REGEXP_LIKE(HANDLE, '^[A-Za-z0-9_-]{43}$')" }
           ]
         },
         {
-          "id": "HISTORICO_SENHA", "nome": "HISTORICO_SENHA", "schema": "login",
-          "desc": "as senhas anteriores, para a nova nÃ£o repetir",
+          "id": "PASSKEY", "nome": "PASSKEY", "schema": "login",
+          "desc": "as passkeys do usuário: só a chave pública",
+          "campos": [
+            { "n": "ID", "t": "NUMBER", "pk": true, "ident": true },
+            { "n": "USUARIO_ID", "t": "NUMBER", "fk": { "t": "USUARIO", "c": "ID" }, "nota": "Até PASSKEYS_MAXIMAS (10) ativas por usuário. A última não pode ser removida." },
+            { "n": "CREDENCIAL_ID", "t": "VARCHAR2(1400)", "uq": true, "nota": "O id que o aparelho deu à passkey (base64url). É por ele que o login acha a passkey." },
+            { "n": "DADOS_CREDENCIAL", "t": "VARCHAR2(4000)", "nota": "A chave PÚBLICA e o resto do que o WebAuthn guarda (attested credential data, base64). Vazada, não serve para entrar: a chave privada nunca sai do aparelho." },
+            { "n": "CONTADOR", "t": "NUMBER(19)", "pad": "0", "nota": "Contador de assinaturas. Se o aparelho mandar um valor menor ou igual ao guardado (e não zero), é um clone: o login é recusado e vai CONTADOR_SUSPEITO para o LOG_SEGURANCA. Passkeys sincronizadas mandam sempre 0." },
+            { "n": "UV_INICIALIZADO", "t": "BOOLEAN", "nota": "Se o aparelho verificou a pessoa (digital, rosto, PIN) no cadastro. A API exige a verificação sempre." },
+            { "n": "BACKUP_ELEGIVEL", "t": "BOOLEAN", "nota": "Passkey que pode ser sincronizada (iCloud, Google). Aparece como 'sincronizada' na lista." },
+            { "n": "BACKUP_FEITO", "t": "BOOLEAN", "nota": "Se já está sincronizada; atualizado a cada login." },
+            { "n": "TRANSPORTES", "t": "VARCHAR2(200)", "nulo": true, "nota": "Como o aparelho se conecta (internal, usb, nfc, ble, hybrid), separados por vírgula." },
+            { "n": "NOME", "t": "VARCHAR2(60 CHAR)", "nota": "Como a pessoa a chamou (\"Notebook\", \"Celular\")." },
+            { "n": "CRIADA_EM", "t": "TIMESTAMP(6)", "pad": "SYS_EXTRACT_UTC(SYSTIMESTAMP)" },
+            { "n": "ULTIMO_USO_EM", "t": "TIMESTAMP(6)", "nulo": true },
+            { "n": "REVOGADA_EM", "t": "TIMESTAMP(6)", "nulo": true, "nota": "Removida pela pessoa. Nada é apagado; as sessões abertas com ela caem (PASSKEY_REMOVIDA)." }
+          ],
+          "restricoes": [
+            { "tipo": "PK", "nome": "PK_PASSKEY", "regra": "ID" },
+            { "tipo": "UNIQUE", "nome": "UK_PASSKEY_CREDENCIAL", "regra": "CREDENCIAL_ID" },
+            { "tipo": "FK", "nome": "FK_PASSKEY_USUARIO", "regra": "USUARIO_ID → USUARIO (ID), sem cascade" },
+            { "tipo": "CHECK", "nome": "CK_PASSKEY_CREDENCIAL", "regra": "REGEXP_LIKE(CREDENCIAL_ID, '^[A-Za-z0-9_-]+$')" },
+            { "tipo": "CHECK", "nome": "CK_PASSKEY_CONTADOR", "regra": "CONTADOR >= 0" },
+            { "tipo": "INDEX", "nome": "IX_PASSKEY_USUARIO", "regra": "(USUARIO_ID, REVOGADA_EM)" }
+          ]
+        },
+        {
+          "id": "CONVITE", "nome": "CONVITE", "schema": "login",
+          "desc": "como uma conta nasce: convite de uso único",
           "campos": [
             { "n": "ID", "t": "NUMBER", "pk": true, "ident": true },
             { "n": "USUARIO_ID", "t": "NUMBER", "fk": { "t": "USUARIO", "c": "ID" } },
-            { "n": "SENHA_HASH", "t": "VARCHAR2(300)", "nota": "Hash argon2id de cada senha jÃ¡ usada. Na troca, a nova Ã© conferida contra a atual e as Ãºltimas SENHA_HISTORICO (5)." },
-            { "n": "CRIADO_EM", "t": "TIMESTAMP(6)", "pad": "SYS_EXTRACT_UTC(SYSTIMESTAMP)" }
+            { "n": "TOKEN_HASH", "t": "VARCHAR2(64)", "uq": true, "nota": "SHA-256 do segredo do convite ('kwc_' + 32 bytes). O segredo vai no link, depois do # (o navegador nunca o manda ao servidor)." },
+            { "n": "FINALIDADE", "t": "VARCHAR2(20)", "nota": "'CADASTRO' (a primeira passkey) ou 'NOVA_PASSKEY' (quem perdeu tudo: ao ser usado, derruba todas as sessões)." },
+            { "n": "CRIADO_POR", "t": "VARCHAR2(128)", "nota": "Quem emitiu (hoje, \"SCRIPT\": o criar-usuario.ps1)." },
+            { "n": "CRIADO_EM", "t": "TIMESTAMP(6)", "pad": "SYS_EXTRACT_UTC(SYSTIMESTAMP)" },
+            { "n": "EXPIRA_EM", "t": "TIMESTAMP(6)", "nota": "CONVITE_HORAS (24) depois de criado." },
+            { "n": "USADO_EM", "t": "TIMESTAMP(6)", "nulo": true, "nota": "Marcado de forma atômica: dois pedidos com o mesmo convite, só um vale." }
           ],
           "restricoes": [
-            { "tipo": "PK", "nome": "PK_HISTORICO_SENHA", "regra": "ID" },
-            { "tipo": "FK", "nome": "FK_HISTORICO_SENHA_USUARIO", "regra": "USUARIO_ID â†’ USUARIO (ID), sem cascade" },
-            { "tipo": "CHECK", "nome": "CK_HISTORICO_SENHA_HASH", "regra": "SENHA_HASH LIKE '$argon2id$%'" },
-            { "tipo": "INDEX", "nome": "IX_HISTORICO_SENHA_USUARIO", "regra": "(USUARIO_ID, CRIADO_EM)" }
+            { "tipo": "PK", "nome": "PK_CONVITE", "regra": "ID" },
+            { "tipo": "UNIQUE", "nome": "UK_CONVITE_TOKEN", "regra": "TOKEN_HASH" },
+            { "tipo": "FK", "nome": "FK_CONVITE_USUARIO", "regra": "USUARIO_ID → USUARIO (ID), sem cascade" },
+            { "tipo": "CHECK", "nome": "CK_CONVITE_TOKEN", "regra": "REGEXP_LIKE(TOKEN_HASH, '^[0-9a-f]{64}$')" },
+            { "tipo": "CHECK", "nome": "CK_CONVITE_FINALIDADE", "regra": "FINALIDADE IN ('CADASTRO', 'NOVA_PASSKEY')" },
+            { "tipo": "CHECK", "nome": "CK_CONVITE_VALIDADE", "regra": "EXPIRA_EM > CRIADO_EM" },
+            { "tipo": "INDEX", "nome": "IX_CONVITE_USUARIO", "regra": "USUARIO_ID" }
+          ]
+        },
+        {
+          "id": "CODIGO_RECUPERACAO", "nome": "CODIGO_RECUPERACAO", "schema": "login",
+          "desc": "códigos de uso único para quem perdeu os aparelhos",
+          "campos": [
+            { "n": "ID", "t": "NUMBER", "pk": true, "ident": true },
+            { "n": "USUARIO_ID", "t": "NUMBER", "fk": { "t": "USUARIO", "c": "ID" } },
+            { "n": "CODIGO_HASH", "t": "VARCHAR2(64)", "uq": true, "nota": "SHA-256 do código (16 caracteres sem letras ambíguas, em grupos de 4). São CODIGOS_RECUPERACAO (10), mostrados uma única vez. Usado, dá um token que só cadastra passkey nova." },
+            { "n": "CRIADO_EM", "t": "TIMESTAMP(6)", "pad": "SYS_EXTRACT_UTC(SYSTIMESTAMP)" },
+            { "n": "USADO_EM", "t": "TIMESTAMP(6)", "nulo": true },
+            { "n": "REVOGADO_EM", "t": "TIMESTAMP(6)", "nulo": true, "nota": "Gerar códigos novos revoga os anteriores." }
+          ],
+          "restricoes": [
+            { "tipo": "PK", "nome": "PK_CODIGO_RECUPERACAO", "regra": "ID" },
+            { "tipo": "UNIQUE", "nome": "UK_CODIGO_RECUPERACAO_HASH", "regra": "CODIGO_HASH" },
+            { "tipo": "FK", "nome": "FK_CODIGO_RECUPERACAO_USUARIO", "regra": "USUARIO_ID → USUARIO (ID), sem cascade" },
+            { "tipo": "CHECK", "nome": "CK_CODIGO_RECUPERACAO_HASH", "regra": "REGEXP_LIKE(CODIGO_HASH, '^[0-9a-f]{64}$')" },
+            { "tipo": "INDEX", "nome": "IX_CODIGO_RECUPERACAO_USUARIO", "regra": "USUARIO_ID" }
           ]
         },
         {
           "id": "PARAMETRO_SEGURANCA", "nome": "PARAMETRO_SEGURANCA", "schema": "login",
-          "desc": "os nÃºmeros das regras; a API sÃ³ lÃª",
+          "desc": "os números das regras; a API só lê",
           "campos": [
-            { "n": "CHAVE", "t": "VARCHAR2(40)", "pk": true, "nota": "TOKEN_MINUTOS (15), TOKEN_TETO_HORAS (8), SESSOES_MAXIMAS (3), LOGIN_MAX_TENTATIVAS (5), LOGIN_BLOQUEIO_MINUTOS (30), IP_MAX_FALHAS (10), IP_JANELA_MINUTOS (10), IP_BLOQUEIO_MINUTOS (60), SENHA_VALIDADE_DIAS (90), SENHA_HISTORICO (5), SENHA_MINIMO (12)." },
-            { "n": "VALOR", "t": "NUMBER", "nota": "Falta de parÃ¢metro Ã© erro na API, nunca um valor padrÃ£o mais fraco." },
+            { "n": "CHAVE", "t": "VARCHAR2(40)", "pk": true, "nota": "TOKEN_MINUTOS (15), TOKEN_TETO_HORAS (8), SESSOES_MAXIMAS (3), IP_MAX_FALHAS (10), IP_JANELA_MINUTOS (10), IP_BLOQUEIO_MINUTOS (60), DESAFIO_MINUTOS (5), CONVITE_HORAS (24), CODIGOS_RECUPERACAO (10), PASSKEYS_MAXIMAS (10)." },
+            { "n": "VALOR", "t": "NUMBER", "nota": "Falta de parâmetro é erro na API, nunca um valor padrão mais fraco." },
             { "n": "DESCRICAO", "t": "VARCHAR2(200 CHAR)" },
-            { "n": "ATUALIZADO_POR", "t": "VARCHAR2(128)", "nulo": true, "nota": "Preenchido pelo gatilho com quem mudou. Toda mudanÃ§a vira uma linha PARAMETRO_ALTERADO no LOG_SEGURANCA, com o valor antigo e o novo." },
+            { "n": "ATUALIZADO_POR", "t": "VARCHAR2(128)", "nulo": true, "nota": "Preenchido pelo gatilho com quem mudou. Toda mudança vira uma linha PARAMETRO_ALTERADO no LOG_SEGURANCA, com o valor antigo e o novo." },
             { "n": "ATUALIZADO_EM", "t": "TIMESTAMP(6)", "pad": "SYS_EXTRACT_UTC(SYSTIMESTAMP)" }
           ],
           "restricoes": [
@@ -605,37 +655,63 @@
         },
         {
           "id": "TOKEN", "nome": "TOKEN", "schema": "sessao",
-          "desc": "a sessÃ£o: token opaco, validade deslizante com teto",
+          "desc": "a sessão: token opaco, validade deslizante com teto",
           "campos": [
             { "n": "ID", "t": "NUMBER", "pk": true, "ident": true },
             { "n": "USUARIO_ID", "t": "NUMBER", "fk": { "t": "USUARIO", "c": "ID" } },
-            { "n": "TOKEN_HASH", "t": "VARCHAR2(64)", "uq": true, "nota": "SHA-256 do token. O token Ã© OPACO ('kw_' + 32 bytes aleatÃ³rios), nÃ£o JWT: pode ser cortado na hora e nÃ£o hÃ¡ chave de assinatura que, vazada, permita forjar acesso. Ele sÃ³ existe na resposta do login e no cabeÃ§alho Authorization; quem lÃª o banco nÃ£o consegue usÃ¡-lo." },
-            { "n": "ESCOPO", "t": "VARCHAR2(20)", "pad": "'COMPLETO'", "nota": "'COMPLETO' ou 'TROCAR_SENHA' (senha vencida: sÃ³ serve para trocar a senha, sair e ver a prÃ³pria sessÃ£o; o resto dÃ¡ 403)." },
+            { "n": "PASSKEY_ID", "t": "NUMBER", "nulo": true, "fk": { "t": "PASSKEY", "c": "ID" }, "nota": "Com qual passkey entrou (vazio quando entrou com código de recuperação). Remover a passkey derruba as sessões dela." },
+            { "n": "TOKEN_HASH", "t": "VARCHAR2(64)", "uq": true, "nota": "SHA-256 do token. O token é OPACO ('kw_' + 32 bytes aleatórios), não JWT: pode ser cortado na hora e não há chave de assinatura que, vazada, permita forjar acesso. Ele fica guardado no BFF e só circula entre o BFF e a API." },
+            { "n": "ESCOPO", "t": "VARCHAR2(20)", "pad": "'COMPLETO'", "nota": "'COMPLETO' ou 'CADASTRAR_PASSKEY' (entrou com código de recuperação: só serve para ver e cadastrar passkeys, sair e ver a própria sessão; o resto dá 403)." },
             { "n": "CRIADO_EM", "t": "TIMESTAMP(6)", "pad": "SYS_EXTRACT_UTC(SYSTIMESTAMP)" },
-            { "n": "ULTIMO_USO_EM", "t": "TIMESTAMP(6)", "pad": "SYS_EXTRACT_UTC(SYSTIMESTAMP)", "nota": "Gravado no mÃ¡ximo uma vez por minuto, junto com a renovaÃ§Ã£o." },
-            { "n": "EXPIRA_EM", "t": "TIMESTAMP(6)", "nota": "Deslizante: cada uso empurra para 15 minutos Ã  frente, nunca alÃ©m do teto." },
-            { "n": "EXPIRA_ABSOLUTO_EM", "t": "TIMESTAMP(6)", "nota": "Teto: 8 horas depois do login. Passado, sÃ³ com novo login." },
+            { "n": "ULTIMO_USO_EM", "t": "TIMESTAMP(6)", "pad": "SYS_EXTRACT_UTC(SYSTIMESTAMP)", "nota": "Gravado no máximo uma vez por minuto, junto com a renovação." },
+            { "n": "EXPIRA_EM", "t": "TIMESTAMP(6)", "nota": "Deslizante: cada uso empurra para 15 minutos à frente, nunca além do teto." },
+            { "n": "EXPIRA_ABSOLUTO_EM", "t": "TIMESTAMP(6)", "nota": "Teto: 8 horas depois do login. Passado, só com novo login." },
             { "n": "REVOGADO_EM", "t": "TIMESTAMP(6)", "nulo": true },
-            { "n": "MOTIVO_REVOGACAO", "t": "VARCHAR2(20)", "nulo": true, "nota": "LOGOUT, SAIR_DE_TODOS, TROCA_SENHA (derruba todas), APARELHO_REMOVIDO, LIMITE_SESSOES (a quarta sessÃ£o derruba a mais antiga), USUARIO_DESLIGADO ou SUSPEITA." },
-            { "n": "IP_ORIGEM", "t": "VARCHAR2(45)", "nulo": true, "nota": "SÃ³ registro: o token nÃ£o Ã© preso ao IP." }
+            { "n": "MOTIVO_REVOGACAO", "t": "VARCHAR2(20)", "nulo": true, "nota": "LOGOUT, SAIR_DE_TODOS, PASSKEY_REMOVIDA, LIMITE_SESSOES (a quarta sessão derruba a mais antiga), USUARIO_DESLIGADO, RECUPERACAO (código ou convite de recuperação: cai tudo) ou SUSPEITA." },
+            { "n": "IP_ORIGEM", "t": "VARCHAR2(45)", "nulo": true, "nota": "IP do navegador (o BFF informa). Só registro: o token não é preso ao IP." }
           ],
           "restricoes": [
             { "tipo": "PK", "nome": "PK_TOKEN", "regra": "ID" },
             { "tipo": "UNIQUE", "nome": "UK_TOKEN_HASH", "regra": "TOKEN_HASH" },
-            { "tipo": "FK", "nome": "FK_TOKEN_USUARIO", "regra": "USUARIO_ID â†’ USUARIO (ID), entre schemas, sem cascade" },
+            { "tipo": "FK", "nome": "FK_TOKEN_USUARIO", "regra": "USUARIO_ID → USUARIO (ID), entre schemas, sem cascade" },
+            { "tipo": "FK", "nome": "FK_TOKEN_PASSKEY", "regra": "PASSKEY_ID → PASSKEY (ID), entre schemas, sem cascade" },
             { "tipo": "CHECK", "nome": "CK_TOKEN_HASH", "regra": "REGEXP_LIKE(TOKEN_HASH, '^[0-9a-f]{64}$')" },
-            { "tipo": "CHECK", "nome": "CK_TOKEN_ESCOPO", "regra": "ESCOPO IN ('COMPLETO', 'TROCAR_SENHA')" },
+            { "tipo": "CHECK", "nome": "CK_TOKEN_ESCOPO", "regra": "ESCOPO IN ('COMPLETO', 'CADASTRAR_PASSKEY')" },
             { "tipo": "CHECK", "nome": "CK_TOKEN_VALIDADE", "regra": "EXPIRA_EM > CRIADO_EM AND EXPIRA_EM <= EXPIRA_ABSOLUTO_EM" },
-            { "tipo": "CHECK", "nome": "CK_TOKEN_REVOGACAO", "regra": "(REVOGADO_EM IS NULL AND MOTIVO_REVOGACAO IS NULL) OR (REVOGADO_EM IS NOT NULL AND MOTIVO_REVOGACAO IN ('LOGOUT', 'SAIR_DE_TODOS', 'TROCA_SENHA', 'APARELHO_REMOVIDO', 'LIMITE_SESSOES', 'USUARIO_DESLIGADO', 'SUSPEITA'))" },
+            { "tipo": "CHECK", "nome": "CK_TOKEN_REVOGACAO", "regra": "(REVOGADO_EM IS NULL AND MOTIVO_REVOGACAO IS NULL) OR (REVOGADO_EM IS NOT NULL AND MOTIVO_REVOGACAO IN ('LOGOUT', 'SAIR_DE_TODOS', 'PASSKEY_REMOVIDA', 'LIMITE_SESSOES', 'USUARIO_DESLIGADO', 'RECUPERACAO', 'SUSPEITA'))" },
             { "tipo": "INDEX", "nome": "IX_TOKEN_USUARIO", "regra": "(USUARIO_ID, REVOGADO_EM)" },
-            { "tipo": "INDEX", "nome": "IX_TOKEN_EXPIRA", "regra": "EXPIRA_ABSOLUTO_EM: o job de limpeza apaga o que venceu hÃ¡ mais de 7 dias" }
+            { "tipo": "INDEX", "nome": "IX_TOKEN_PASSKEY", "regra": "PASSKEY_ID" },
+            { "tipo": "INDEX", "nome": "IX_TOKEN_EXPIRA", "regra": "EXPIRA_ABSOLUTO_EM: o job de limpeza apaga o que venceu há mais de 7 dias" }
+          ]
+        },
+        {
+          "id": "DESAFIO", "nome": "DESAFIO", "schema": "sessao",
+          "desc": "o que o aparelho assina: uso único, 5 minutos",
+          "campos": [
+            { "n": "ID", "t": "NUMBER", "pk": true, "ident": true },
+            { "n": "VALOR", "t": "VARCHAR2(43)", "uq": true, "nota": "32 bytes aleatórios (base64url). Consumido de forma atômica: usado ou vencido, não serve, então uma assinatura capturada não pode ser reapresentada." },
+            { "n": "FINALIDADE", "t": "VARCHAR2(20)", "nota": "'LOGIN' ou 'CADASTRO'. Um desafio só serve para a finalidade em que nasceu." },
+            { "n": "USUARIO_ID", "t": "NUMBER", "nulo": true, "fk": { "t": "USUARIO", "c": "ID" }, "nota": "Obrigatório no cadastro (o desafio é preso ao usuário do convite ou da sessão); vazio no login (o aparelho é que diz qual conta)." },
+            { "n": "CRIADO_EM", "t": "TIMESTAMP(6)", "pad": "SYS_EXTRACT_UTC(SYSTIMESTAMP)" },
+            { "n": "EXPIRA_EM", "t": "TIMESTAMP(6)", "nota": "DESAFIO_MINUTOS (5) depois de criado. O job apaga 1 dia depois de vencer." },
+            { "n": "USADO_EM", "t": "TIMESTAMP(6)", "nulo": true }
+          ],
+          "restricoes": [
+            { "tipo": "PK", "nome": "PK_DESAFIO", "regra": "ID" },
+            { "tipo": "UNIQUE", "nome": "UK_DESAFIO_VALOR", "regra": "VALOR" },
+            { "tipo": "FK", "nome": "FK_DESAFIO_USUARIO", "regra": "USUARIO_ID → USUARIO (ID), entre schemas, sem cascade" },
+            { "tipo": "CHECK", "nome": "CK_DESAFIO_VALOR", "regra": "REGEXP_LIKE(VALOR, '^[A-Za-z0-9_-]{43}$')" },
+            { "tipo": "CHECK", "nome": "CK_DESAFIO_FINALIDADE", "regra": "FINALIDADE IN ('LOGIN', 'CADASTRO')" },
+            { "tipo": "CHECK", "nome": "CK_DESAFIO_CADASTRO", "regra": "FINALIDADE = 'LOGIN' OR USUARIO_ID IS NOT NULL" },
+            { "tipo": "CHECK", "nome": "CK_DESAFIO_VALIDADE", "regra": "EXPIRA_EM > CRIADO_EM" },
+            { "tipo": "INDEX", "nome": "IX_DESAFIO_EXPIRA", "regra": "EXPIRA_EM" }
           ]
         },
         {
           "id": "BLOQUEIO_IP", "nome": "BLOQUEIO_IP", "schema": "sessao",
-          "desc": "IPs barrados por excesso de logins errados",
+          "desc": "IPs barrados por excesso de falhas",
           "campos": [
-            { "n": "IP", "t": "VARCHAR2(45)", "pk": true, "nota": "10 logins errados do mesmo IP em 10 minutos bloqueiam o IP por 1 hora, mesmo testando e-mails diferentes (robÃ´). A resposta Ã© 429 com Retry-After." },
+            { "n": "IP", "t": "VARCHAR2(45)", "pk": true, "nota": "IP do navegador, informado pelo BFF. 10 falhas do mesmo IP em 10 minutos (em qualquer cerimônia: login, convite, código) bloqueiam o IP por 1 hora. A resposta é 429 com Retry-After." },
             { "n": "BLOQUEADO_ATE", "t": "TIMESTAMP(6)" },
             { "n": "MOTIVO", "t": "VARCHAR2(100 CHAR)" },
             { "n": "CRIADO_EM", "t": "TIMESTAMP(6)", "pad": "SYS_EXTRACT_UTC(SYSTIMESTAMP)" }
@@ -646,34 +722,34 @@
         },
         {
           "id": "TENTATIVA_LOGIN", "nome": "TENTATIVA_LOGIN", "schema": "log",
-          "desc": "toda tentativa de login, certa ou errada",
+          "desc": "toda tentativa, certa ou errada, com o motivo",
           "campos": [
             { "n": "ID", "t": "NUMBER", "pk": true, "ident": true },
-            { "n": "EMAIL_INDICE", "t": "VARCHAR2(64)", "nulo": true, "nota": "A impressÃ£o digital do e-mail tentado, nunca o e-mail: correlaciona tentativas sem guardar dado pessoal." },
-            { "n": "USUARIO_ID", "t": "NUMBER", "nulo": true, "nota": "Sem chave estrangeira, como todo log: sobrevive ao usuÃ¡rio." },
+            { "n": "METODO", "t": "VARCHAR2(20)", "nota": "'PASSKEY', 'CONVITE' ou 'CODIGO_RECUPERACAO'." },
+            { "n": "USUARIO_ID", "t": "NUMBER", "nulo": true, "nota": "Sem chave estrangeira, como todo log: sobrevive ao usuário." },
             { "n": "IP_ORIGEM", "t": "VARCHAR2(45)", "nulo": true },
             { "n": "SUCESSO", "t": "BOOLEAN" },
-            { "n": "MOTIVO", "t": "VARCHAR2(30)", "nulo": true, "nota": "Por que falhou. A resposta ao cliente Ã© sempre a mesma; o motivo fica sÃ³ aqui." },
-            { "n": "DATA_HORA", "t": "TIMESTAMP(6)", "pad": "SYS_EXTRACT_UTC(SYSTIMESTAMP)", "nota": "Hora do servidor, em UTC, posta pelo gatilho (a informada Ã© ignorada)." }
+            { "n": "MOTIVO", "t": "VARCHAR2(30)", "nulo": true, "nota": "Por que falhou. A resposta ao cliente é sempre a mesma; o motivo fica só aqui." },
+            { "n": "DATA_HORA", "t": "TIMESTAMP(6)", "pad": "SYS_EXTRACT_UTC(SYSTIMESTAMP)", "nota": "Hora do servidor, em UTC, posta pelo gatilho (a informada é ignorada)." }
           ],
           "restricoes": [
             { "tipo": "PK", "nome": "PK_TENTATIVA_LOGIN", "regra": "ID" },
-            { "tipo": "CHECK", "nome": "CK_TENTATIVA_MOTIVO", "regra": "MOTIVO IS NULL OR MOTIVO IN ('SENHA_ERRADA', 'USUARIO_INEXISTENTE', 'USUARIO_INATIVO', 'CONTA_BLOQUEADA', 'IP_BLOQUEADO')" },
-            { "tipo": "INDEX", "nome": "IX_TENTATIVA_IP", "regra": "(IP_ORIGEM, DATA_HORA): contar as falhas de um IP na janela" },
-            { "tipo": "INDEX", "nome": "IX_TENTATIVA_EMAIL", "regra": "(EMAIL_INDICE, DATA_HORA)" }
+            { "tipo": "CHECK", "nome": "CK_TENTATIVA_METODO", "regra": "METODO IN ('PASSKEY', 'CODIGO_RECUPERACAO', 'CONVITE')" },
+            { "tipo": "CHECK", "nome": "CK_TENTATIVA_MOTIVO", "regra": "MOTIVO IS NULL OR MOTIVO IN ('CREDENCIAL_DESCONHECIDA', 'VERIFICACAO_FALHOU', 'DESAFIO_INVALIDO', 'USUARIO_INATIVO', 'IP_BLOQUEADO', 'CODIGO_INVALIDO', 'CONVITE_INVALIDO', 'CONTADOR_SUSPEITO')" },
+            { "tipo": "INDEX", "nome": "IX_TENTATIVA_IP", "regra": "(IP_ORIGEM, DATA_HORA): contar as falhas de um IP na janela" }
           ]
         },
         {
           "id": "LOG_SEGURANCA", "nome": "LOG_SEGURANCA", "schema": "log",
-          "desc": "eventos de seguranÃ§a, encadeados por hash",
+          "desc": "eventos de segurança, encadeados por hash",
           "campos": [
             { "n": "ID", "t": "NUMBER", "pk": true, "ident": true },
-            { "n": "ORDEM", "t": "NUMBER", "uq": true, "nota": "NumeraÃ§Ã£o sem buraco, dada pelo gatilho, como no LOG_ALTERACAO." },
-            { "n": "EVENTO", "t": "VARCHAR2(40)", "nota": "LOGIN, LOGOUT, SAIR_DE_TODOS, SENHA_ALTERADA, CONTA_BLOQUEADA, IP_BLOQUEADO, SESSAO_ENCERRADA, USUARIO_CRIADO ou PARAMETRO_ALTERADO." },
+            { "n": "ORDEM", "t": "NUMBER", "uq": true, "nota": "Numeração sem buraco, dada pelo gatilho, como no LOG_ALTERACAO." },
+            { "n": "EVENTO", "t": "VARCHAR2(40)", "nota": "LOGIN, LOGOUT, SAIR_DE_TODOS, PASSKEY_CADASTRADA, PASSKEY_REMOVIDA, CODIGOS_GERADOS, CODIGO_USADO, CONVITE_CRIADO, CONVITE_USADO, IP_BLOQUEADO, SESSAO_ENCERRADA, USUARIO_CRIADO, PARAMETRO_ALTERADO ou CONTADOR_SUSPEITO." },
             { "n": "USUARIO_ID", "t": "NUMBER", "nulo": true },
             { "n": "DETALHE", "t": "VARCHAR2(500 CHAR)", "nulo": true },
             { "n": "IP_ORIGEM", "t": "VARCHAR2(45)", "nulo": true },
-            { "n": "FEITO_POR", "t": "VARCHAR2(128)", "nota": "\"USUARIO:<id>\", \"API\" ou a conta do banco que mudou um parÃ¢metro." },
+            { "n": "FEITO_POR", "t": "VARCHAR2(128)", "nota": "\"USUARIO:<id>\", \"API\" ou a conta do banco que mudou um parâmetro." },
             { "n": "DATA_HORA", "t": "TIMESTAMP(6)", "pad": "SYS_EXTRACT_UTC(SYSTIMESTAMP)" },
             { "n": "HASH_ANTERIOR", "t": "VARCHAR2(64)", "nulo": true },
             { "n": "HASH", "t": "VARCHAR2(64)", "nota": "SHA-256 desta linha com a anterior. Alterar ou apagar uma linha aparece na view V_LOG_SEGURANCA_QUEBRAS." }
@@ -681,122 +757,38 @@
           "restricoes": [
             { "tipo": "PK", "nome": "PK_LOG_SEGURANCA", "regra": "ID" },
             { "tipo": "UNIQUE", "nome": "UK_LOG_SEGURANCA_ORDEM", "regra": "ORDEM" },
-            { "tipo": "CHECK", "nome": "CK_LOG_SEGURANCA_EVENTO", "regra": "EVENTO IN ('LOGIN', 'LOGOUT', 'SAIR_DE_TODOS', 'SENHA_ALTERADA', 'CONTA_BLOQUEADA', 'IP_BLOQUEADO', 'SESSAO_ENCERRADA', 'USUARIO_CRIADO', 'PARAMETRO_ALTERADO')" },
+            { "tipo": "CHECK", "nome": "CK_LOG_SEGURANCA_EVENTO", "regra": "EVENTO IN ('LOGIN', 'LOGOUT', 'SAIR_DE_TODOS', 'PASSKEY_CADASTRADA', 'PASSKEY_REMOVIDA', 'CODIGOS_GERADOS', 'CODIGO_USADO', 'CONVITE_CRIADO', 'CONVITE_USADO', 'IP_BLOQUEADO', 'SESSAO_ENCERRADA', 'USUARIO_CRIADO', 'PARAMETRO_ALTERADO', 'CONTADOR_SUSPEITO')" },
             { "tipo": "INDEX", "nome": "IX_LOG_SEGURANCA_USUARIO", "regra": "(USUARIO_ID, DATA_HORA)" }
           ]
         }
       ],
       "relacoes": [
-        { "pai": "PESSOA_REF", "filho": "USUARIO", "fk": "PESSOA_ID", "pk": "ID", "card": "1:1", "nome": "FK_USUARIO_PESSOA", "obs": "Cada pessoa tem no mÃ¡ximo um usuÃ¡rio. A ligaÃ§Ã£o vai do LOGIN para o cadastro, nunca o contrÃ¡rio." },
-        { "pai": "USUARIO", "filho": "HISTORICO_SENHA", "fk": "USUARIO_ID", "pk": "ID", "card": "1:N", "nome": "FK_HISTORICO_SENHA_USUARIO", "lado": "esq" },
-        { "pai": "USUARIO", "filho": "TOKEN", "fk": "USUARIO_ID", "pk": "ID", "card": "1:N", "nome": "FK_TOKEN_USUARIO", "obs": "Um usuÃ¡rio tem atÃ© 3 sessÃµes ativas." }
+        { "pai": "PESSOA_REF", "filho": "USUARIO", "fk": "PESSOA_ID", "pk": "ID", "card": "1:1", "nome": "FK_USUARIO_PESSOA", "obs": "Cada pessoa tem no máximo um usuário. A ligação vai do LOGIN para o cadastro, nunca o contrário." },
+        { "pai": "USUARIO", "filho": "PASSKEY", "fk": "USUARIO_ID", "pk": "ID", "card": "1:N", "nome": "FK_PASSKEY_USUARIO", "obs": "Até 10 passkeys ativas; a última não pode ser removida." },
+        { "pai": "USUARIO", "filho": "CONVITE", "fk": "USUARIO_ID", "pk": "ID", "card": "1:N", "nome": "FK_CONVITE_USUARIO", "lado": "esq" },
+        { "pai": "USUARIO", "filho": "CODIGO_RECUPERACAO", "fk": "USUARIO_ID", "pk": "ID", "card": "1:N", "nome": "FK_CODIGO_RECUPERACAO_USUARIO", "lado": "esq" },
+        { "pai": "USUARIO", "filho": "DESAFIO", "fk": "USUARIO_ID", "pk": "ID", "card": "1:N", "nome": "FK_DESAFIO_USUARIO", "lado": "esq" },
+        { "pai": "USUARIO", "filho": "TOKEN", "fk": "USUARIO_ID", "pk": "ID", "card": "1:N", "nome": "FK_TOKEN_USUARIO", "obs": "Um usuário tem até 3 sessões ativas." },
+        { "pai": "PASSKEY", "filho": "TOKEN", "fk": "PASSKEY_ID", "pk": "ID", "card": "1:N", "nome": "FK_TOKEN_PASSKEY", "obs": "Remover a passkey derruba as sessões dela." }
       ],
       "extras": []
     },    {
       "id": "seguranca",
-      "titulo": "Proposta: 2FA, aparelhos e recuperaÃ§Ã£o",
+      "titulo": "Proposta: aceite de termos",
       "selo": "prop",
-      "seloTexto": "proposta, prÃ³xima rodada do login",
-      "subtitulo": "O que falta do login: segundo fator opcional, cÃ³digos de recuperaÃ§Ã£o, aparelhos de confianÃ§a (e o token preso ao aparelho), cÃ³digos temporÃ¡rios (esqueci minha senha, confirmar e-mail) e aceite de termos. USUARIO e TOKEN aparecem repetidas, em cinza: estÃ£o no quadro do login.",
+      "seloTexto": "proposta, ainda não existe no banco",
+      "subtitulo": "O que ainda falta do login: o registro de qual versão dos termos de uso e da política de privacidade cada usuário aceitou (LGPD). O USUARIO aparece repetido, em cinza: está no quadro do login.",
       "colunas": [
-        { "v": "centro", "tabelas": ["SEGUNDO_FATOR", "CODIGO_RECUPERACAO", "ACEITE_TERMO"] },
         { "v": "centro", "tabelas": ["USUARIO_REF"] },
-        { "v": "centro", "tabelas": ["DISPOSITIVO", "TOKEN_REF", "CODIGO_TEMPORARIO"] }
+        { "v": "centro", "tabelas": ["ACEITE_TERMO"] }
       ],
       "tabelas": [
         {
           "id": "USUARIO_REF", "nome": "USUARIO", "schema": "login", "fantasma": true,
-          "desc": "sÃ³ a chave aparece aqui; os campos estÃ£o no quadro do login",
-          "ponte": "repetida: esta tabela Ã© do quadro do login",
+          "desc": "só a chave aparece aqui; os campos estão no quadro do login",
+          "ponte": "repetida: esta tabela é do quadro do login",
           "campos": [ { "n": "ID", "t": "NUMBER", "pk": true, "ident": true } ],
           "restricoes": []
-        },
-        {
-          "id": "TOKEN_REF", "nome": "TOKEN", "schema": "sessao", "fantasma": true,
-          "desc": "a coluna nova que entra com os aparelhos; o resto estÃ¡ no quadro do login",
-          "ponte": "repetida: esta tabela Ã© do quadro do login",
-          "campos": [
-            { "n": "ID", "t": "NUMBER", "pk": true, "ident": true },
-            { "n": "DISPOSITIVO_ID", "t": "NUMBER", "nulo": true, "fk": { "t": "DISPOSITIVO", "c": "ID" }, "nota": "Coluna nova: de qual aparelho veio o login. Ã‰ o que permite encerrar as sessÃµes de um aparelho e, com a chave do aparelho, prender o token a ele (DPoP): token roubado nÃ£o serve em outro aparelho." }
-          ],
-          "restricoes": []
-        },
-        {
-          "id": "SEGUNDO_FATOR", "nome": "SEGUNDO_FATOR", "schema": "login",
-          "desc": "o 2FA, opcional: só existe linha para quem ativou",
-          "campos": [
-            { "n": "ID", "t": "NUMBER", "pk": true, "ident": true },
-            { "n": "USUARIO_ID", "t": "NUMBER", "fk": { "t": "USUARIO_REF", "c": "ID" }, "uq": "UK_SEGUNDO_FATOR_USUARIO" },
-            { "n": "TIPO", "t": "VARCHAR2(10)", "pad": "'TOTP'", "nota": "'TOTP' é o código de 6 dígitos do aplicativo autenticador (Google Authenticator, Authy)." },
-            { "n": "SEGREDO_CIFRADO", "t": "VARCHAR2(500)", "nota": "A semente do autenticador, cifrada com uma chave que fica no Vault. Diferente da senha, ela precisa ser lida de volta, então é cifrada e não hash." },
-            { "n": "ATIVADO_EM", "t": "TIMESTAMP(6)", "nulo": true, "nota": "Vazio enquanto o usuário não confirmou o primeiro código." },
-            { "n": "ULTIMO_USO_EM", "t": "TIMESTAMP(6)", "nulo": true },
-            { "n": "CRIADO_EM", "t": "TIMESTAMP(6)", "pad": "SYSTIMESTAMP" }
-          ],
-          "restricoes": [
-            { "tipo": "PK", "nome": "PK_SEGUNDO_FATOR", "regra": "ID" },
-            { "tipo": "UNIQUE", "nome": "UK_SEGUNDO_FATOR_USUARIO", "regra": "USUARIO_ID" },
-            { "tipo": "FK", "nome": "FK_SEGUNDO_FATOR_USUARIO", "regra": "USUARIO_ID → USUARIO (ID), sem cascade" },
-            { "tipo": "CHECK", "nome": "CK_SEGUNDO_FATOR_TIPO", "regra": "TIPO IN ('TOTP')" }
-          ]
-        },
-        {
-          "id": "CODIGO_RECUPERACAO", "nome": "CODIGO_RECUPERACAO", "schema": "login",
-          "desc": "códigos de reserva para quem perdeu o celular",
-          "campos": [
-            { "n": "ID", "t": "NUMBER", "pk": true, "ident": true },
-            { "n": "USUARIO_ID", "t": "NUMBER", "fk": { "t": "USUARIO_REF", "c": "ID" } },
-            { "n": "CODIGO_HASH", "t": "VARCHAR2(64)", "nota": "Hash de cada código de uso único entregue ao ativar o 2FA." },
-            { "n": "USADO_EM", "t": "TIMESTAMP(6)", "nulo": true },
-            { "n": "CRIADO_EM", "t": "TIMESTAMP(6)", "pad": "SYSTIMESTAMP" }
-          ],
-          "restricoes": [
-            { "tipo": "PK", "nome": "PK_CODIGO_RECUPERACAO", "regra": "ID" },
-            { "tipo": "FK", "nome": "FK_CODIGO_RECUPERACAO_USUARIO", "regra": "USUARIO_ID → USUARIO (ID), sem cascade" },
-            { "tipo": "INDEX", "nome": "IX_CODIGO_RECUPERACAO_USUARIO", "regra": "USUARIO_ID" }
-          ]
-        },
-        {
-          "id": "DISPOSITIVO", "nome": "DISPOSITIVO", "schema": "login",
-          "desc": "aparelhos que o usuário já usou; dispositivo de confiança",
-          "campos": [
-            { "n": "ID", "t": "NUMBER", "pk": true, "ident": true },
-            { "n": "USUARIO_ID", "t": "NUMBER", "fk": { "t": "USUARIO_REF", "c": "ID" }, "uq": "UK_DISPOSITIVO", "uqCom": ["USUARIO_ID", "IDENTIFICADOR_HASH"] },
-            { "n": "IDENTIFICADOR_HASH", "t": "VARCHAR2(64)", "uq": "UK_DISPOSITIVO", "uqCom": ["USUARIO_ID", "IDENTIFICADOR_HASH"], "nota": "Hash de um identificador aleatório que a API grava no aparelho no primeiro login." },
-            { "n": "NOME", "t": "VARCHAR2(100 CHAR)", "nulo": true, "nota": "Como aparece para o usuário, por exemplo \"Chrome no Windows\"." },
-            { "n": "CONFIAVEL_ATE", "t": "TIMESTAMP(6)", "nulo": true, "nota": "Dispositivo de confiança: enquanto esta data não passar, o login neste aparelho não pede o 2FA. Vazio = sempre pede." },
-            { "n": "ULTIMO_IP", "t": "VARCHAR2(45)", "nulo": true },
-            { "n": "ULTIMO_USO_EM", "t": "TIMESTAMP(6)", "nulo": true },
-            { "n": "REVOGADO_EM", "t": "TIMESTAMP(6)", "nulo": true },
-            { "n": "CRIADO_EM", "t": "TIMESTAMP(6)", "pad": "SYSTIMESTAMP" }
-          ],
-          "restricoes": [
-            { "tipo": "PK", "nome": "PK_DISPOSITIVO", "regra": "ID" },
-            { "tipo": "UNIQUE", "nome": "UK_DISPOSITIVO", "regra": "(USUARIO_ID, IDENTIFICADOR_HASH)" },
-            { "tipo": "FK", "nome": "FK_DISPOSITIVO_USUARIO", "regra": "USUARIO_ID → USUARIO (ID), sem cascade" }
-          ]
-        },
-        {
-          "id": "CODIGO_TEMPORARIO", "nome": "CODIGO_TEMPORARIO", "schema": "sessao",
-          "desc": "código de uso único enviado ao usuário, com validade curta",
-          "campos": [
-            { "n": "ID", "t": "NUMBER", "pk": true, "ident": true },
-            { "n": "USUARIO_ID", "t": "NUMBER", "fk": { "t": "USUARIO_REF", "c": "ID" } },
-            { "n": "FINALIDADE", "t": "VARCHAR2(20)", "nota": "'REDEFINIR_SENHA' (esqueci minha senha), 'CONFIRMAR_EMAIL' (link de confirmação) ou 'SEGUNDO_FATOR' (senha certa, aguardando o código do 2FA). Um código só serve para a finalidade em que nasceu." },
-            { "n": "CODIGO_HASH", "t": "VARCHAR2(64)", "uq": "UK_CODIGO_TEMPORARIO_HASH", "nota": "Só o hash. O código em si vai por e-mail ou fica com o navegador." },
-            { "n": "TENTATIVAS", "t": "NUMBER(2)", "pad": "0", "nota": "Quantas vezes o código foi testado errado. Passou do limite, o código morre, mesmo dentro da validade." },
-            { "n": "EXPIRA_EM", "t": "TIMESTAMP(6)" },
-            { "n": "USADO_EM", "t": "TIMESTAMP(6)", "nulo": true },
-            { "n": "IP_ORIGEM", "t": "VARCHAR2(45)", "nulo": true },
-            { "n": "CRIADO_EM", "t": "TIMESTAMP(6)", "pad": "SYSTIMESTAMP" }
-          ],
-          "restricoes": [
-            { "tipo": "PK", "nome": "PK_CODIGO_TEMPORARIO", "regra": "ID" },
-            { "tipo": "UNIQUE", "nome": "UK_CODIGO_TEMPORARIO_HASH", "regra": "CODIGO_HASH" },
-            { "tipo": "FK", "nome": "FK_CODIGO_TEMPORARIO_USUARIO", "regra": "USUARIO_ID → USUARIO (ID), sem cascade" },
-            { "tipo": "CHECK", "nome": "CK_CODIGO_TEMPORARIO_FINALIDADE", "regra": "FINALIDADE IN ('REDEFINIR_SENHA', 'CONFIRMAR_EMAIL', 'SEGUNDO_FATOR')" },
-            { "tipo": "CHECK", "nome": "CK_CODIGO_TEMPORARIO_VALIDADE", "regra": "EXPIRA_EM > CRIADO_EM" }
-          ]
         },
         {
           "id": "ACEITE_TERMO", "nome": "ACEITE_TERMO", "schema": "login",
@@ -807,7 +799,7 @@
             { "n": "DOCUMENTO", "t": "VARCHAR2(30)", "uq": "UK_ACEITE_TERMO", "uqCom": ["USUARIO_ID", "DOCUMENTO", "VERSAO"], "nota": "'TERMOS_DE_USO' ou 'POLITICA_DE_PRIVACIDADE'." },
             { "n": "VERSAO", "t": "VARCHAR2(20)", "uq": "UK_ACEITE_TERMO", "uqCom": ["USUARIO_ID", "DOCUMENTO", "VERSAO"], "nota": "Quando sai uma versão nova, o login pede o aceite de novo." },
             { "n": "IP_ORIGEM", "t": "VARCHAR2(45)", "nulo": true },
-            { "n": "ACEITO_EM", "t": "TIMESTAMP(6)", "pad": "SYSTIMESTAMP" }
+            { "n": "ACEITO_EM", "t": "TIMESTAMP(6)", "pad": "SYS_EXTRACT_UTC(SYSTIMESTAMP)" }
           ],
           "restricoes": [
             { "tipo": "PK", "nome": "PK_ACEITE_TERMO", "regra": "ID" },
@@ -817,12 +809,7 @@
         }
       ],
       "relacoes": [
-        { "pai": "USUARIO_REF", "filho": "SEGUNDO_FATOR", "fk": "USUARIO_ID", "pk": "ID", "card": "1:1", "nome": "FK_SEGUNDO_FATOR_USUARIO", "lado": "esq" },
-        { "pai": "USUARIO_REF", "filho": "CODIGO_RECUPERACAO", "fk": "USUARIO_ID", "pk": "ID", "card": "1:N", "nome": "FK_CODIGO_RECUPERACAO_USUARIO", "lado": "esq" },
-        { "pai": "USUARIO_REF", "filho": "ACEITE_TERMO", "fk": "USUARIO_ID", "pk": "ID", "card": "1:N", "nome": "FK_ACEITE_TERMO_USUARIO", "lado": "esq" },
-        { "pai": "USUARIO_REF", "filho": "DISPOSITIVO", "fk": "USUARIO_ID", "pk": "ID", "card": "1:N", "nome": "FK_DISPOSITIVO_USUARIO" },
-        { "pai": "USUARIO_REF", "filho": "CODIGO_TEMPORARIO", "fk": "USUARIO_ID", "pk": "ID", "card": "1:N", "nome": "FK_CODIGO_TEMPORARIO_USUARIO" },
-        { "pai": "DISPOSITIVO", "filho": "TOKEN_REF", "fk": "DISPOSITIVO_ID", "pk": "ID", "card": "1:N", "nome": "FK_TOKEN_DISPOSITIVO", "lado": "dir" }
+        { "pai": "USUARIO_REF", "filho": "ACEITE_TERMO", "fk": "USUARIO_ID", "pk": "ID", "card": "1:N", "nome": "FK_ACEITE_TERMO_USUARIO" }
       ],
       "extras": []
     },    {
@@ -956,18 +943,18 @@
     { "de": "FILIAL", "para": "FILIAL, igual a hoje" },
     { "de": "CONTATO (nome, e-mail, telefone de um cliente)", "para": "CONTATO: uma linha por e-mail ou telefone, de uma filial ou de uma pessoa" },
     { "de": "ENDERECO (só de cliente)", "para": "ENDERECO de uma filial ou de uma pessoa" },
-    { "de": "sem log na API", "para": "LOG_ALTERACAO e LOG_ACESSO (existem); LOG_SEGURANCA e TENTATIVA_LOGIN (entram com o login)" },
+    { "de": "sem log na API", "para": "LOG_ALTERACAO, LOG_ACESSO, LOG_SEGURANCA e TENTATIVA_LOGIN" },
     { "de": "sem controle de quem pode o quê", "para": "PERFIL, PERMISSAO e USUARIO_EMPRESA (perfil do usuário em cada empresa)" },
     { "de": "CONFIGURACAO_FISCAL e os schemas SEFAZ e SIMPLES_NACIONAL", "para": "Removidos: eram só material de teste" },
     { "de": "PESSOA.DOCUMENTO e CONTATO.VALOR em texto puro", "para": "DOCUMENTO_CIFRADO + DOCUMENTO_INDICE e VALOR_CIFRADO + VALOR_INDICE: cifrados pela API (V6)" },
-    { "de": "API sem login (quem alcançava a porta lia e gravava tudo)", "para": "USUARIO, HISTORICO_SENHA, PARAMETRO_SEGURANCA (LOGIN), TOKEN e BLOQUEIO_IP (SESSAO), TENTATIVA_LOGIN e LOG_SEGURANCA (LOG); toda a /api exige token" },
+    { "de": "API sem login (quem alcançava a porta lia e gravava tudo)", "para": "Login só por passkey: USUARIO, PASSKEY, CONVITE, CODIGO_RECUPERACAO, PARAMETRO_SEGURANCA (LOGIN), TOKEN, DESAFIO e BLOQUEIO_IP (SESSAO), TENTATIVA_LOGIN e LOG_SEGURANCA (LOG); toda a /api exige token, e só o BFF chama a API" },
     { "de": "contas do banco sem registro de quem é e de que cargo tem", "para": "SYS.KAWASHI_CONTA e as visões V_KAWASHI_CONTAS e V_KAWASHI_CONTA_LIBERACOES (repositório de regras)" }
   ],
   "abertas": [
     "Feito (etapa 1): cadastros em torno de PESSOA e logs da aplicação, com a API e os testes.",
     "Feito (etapa 2): endurecimento. A API usa duas contas de banco (a que atende os pedidos não cria, altera nem apaga tabela), HTTPS obrigatório, e o log ganhou uma âncora no Vault que denuncia até o DBA que recalcula a corrente.",
-    "Feito (etapa 3, primeira entrega): login. Schemas LOGIN e SESSAO, senha com argon2id, token opaco (15 min deslizantes, teto de 8 h, até 3 sessões), bloqueio da conta (5 erros, 30 min) e do IP (10 erros em 10 min, 1 h), troca obrigatória aos 90 dias, e toda a /api exigindo token.",
-    "Próxima (etapa 3, segunda entrega): 2FA opcional, códigos de recuperação, aparelhos de confiança com o token preso ao aparelho (DPoP), esqueci minha senha, confirmação de e-mail e aceite de termos.",
+    "Feito (etapa 3): login só por passkey (20/11/2026, no lugar da senha). A conta nasce de um convite de uso único, a pessoa cadastra a passkey e recebe 10 códigos de recuperação; token opaco (15 min deslizantes, teto de 8 h, até 3 sessões) guardado no BFF, nunca no navegador; bloqueio do IP (10 falhas em 10 min, 1 h); a API só atende o BFF.",
+    "Falta do login: confirmação de e-mail, aceite de termos e criação de usuário pela API (por administrador, com a autorização).",
     "Depois (etapa 4): autorização por perfil e por empresa.",
     "Feito (criptografia, pela LGPD): três camadas. O disco do banco é cifrado (TDE), a API cifra CPF, e-mail e telefone antes de gravar, e as respostas saem mascaradas (o valor inteiro só pelo caminho de revelar, que fica no log de acesso).",
     "Feito (cadastro de contas): toda conta criada pelos scripts (pessoa, API, administrador) entra em SYS.KAWASHI_CONTA com perfil e cargo; o painel mostra as liberações e a situação da senha contra o limite de 90 dias.",

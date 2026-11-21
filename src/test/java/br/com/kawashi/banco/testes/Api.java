@@ -53,8 +53,28 @@ public class Api {
         return mvc.perform(autenticado(MockMvcRequestBuilders.delete(caminho)));
     }
 
-    /** O pedido montado por quem chama, com o token deste cliente (para casos com IP, HTTPS etc.). */
+    /**
+     * Segredo do BFF dos testes (src/test/resources/application.properties). Todo pedido dos testes
+     * finge vir do BFF, como em producao; quem quer conferir a recusa sem ele monta o pedido na mao.
+     */
+    public static final String SEGREDO_DO_BFF = "segredo-so-dos-testes-0123456789abcdef";
+
+    /** IP do navegador que os testes fingem ter (o BFF manda o IP real em X-Kawashi-Ip-Cliente). */
+    public static final String IP_DE_TESTE = "198.51.100.7";
+
+    /** Marca o pedido como vindo do BFF (segredo e IP do navegador). */
+    public static MockHttpServletRequestBuilder doBff(MockHttpServletRequestBuilder pedido) {
+        return doBff(pedido, IP_DE_TESTE);
+    }
+
+    /** Idem, com outro IP de navegador (testes de bloqueio por IP). */
+    public static MockHttpServletRequestBuilder doBff(MockHttpServletRequestBuilder pedido, String ipDoNavegador) {
+        return pedido.header("X-Kawashi-Bff", SEGREDO_DO_BFF).header("X-Kawashi-Ip-Cliente", ipDoNavegador);
+    }
+
+    /** O pedido montado por quem chama, com o segredo do BFF e o token deste cliente (para casos com IP, HTTPS etc.). */
     public MockHttpServletRequestBuilder autenticado(MockHttpServletRequestBuilder pedido) {
+        doBff(pedido);
         return token == null ? pedido : pedido.header("Authorization", "Bearer " + token);
     }
 

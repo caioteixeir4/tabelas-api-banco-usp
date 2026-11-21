@@ -220,6 +220,8 @@ class ServidorRealTest {
         return HttpRequest.newBuilder(URI.create("http://localhost:" + porta + caminho))
                 .header("Content-Type", "application/json")
                 .header("Authorization", "Bearer " + token)
+                .header("X-Kawashi-Bff", Api.SEGREDO_DO_BFF)
+                .header("X-Kawashi-Ip-Cliente", Api.IP_DE_TESTE)
                 .POST(HttpRequest.BodyPublishers.ofInputStream(
                         () -> new ByteArrayInputStream(corpo.getBytes(StandardCharsets.UTF_8))))
                 .build();
@@ -232,6 +234,8 @@ class ServidorRealTest {
         HttpRequest pedido = HttpRequest.newBuilder(URI.create("http://localhost:" + porta + caminho))
                 .header("Content-Type", "application/json")
                 .header("Authorization", "Bearer " + token)
+                .header("X-Kawashi-Bff", Api.SEGREDO_DO_BFF)
+                .header("X-Kawashi-Ip-Cliente", Api.IP_DE_TESTE)
                 .method(metodo, corpo)
                 .build();
         return http.send(pedido, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));

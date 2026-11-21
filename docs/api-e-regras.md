@@ -7,9 +7,11 @@ estrutura das tabelas está nas migrações `V5` e `V6` (`src/main/resources/db/
 
 ## Convenções
 
-- **Login obrigatório:** toda a `/api` exige `Authorization: Bearer <token>`, menos o próprio
-  `POST /api/auth/login`. Sem token, ou com token vencido, revogado ou inválido: `401`, sempre com a
-  mesma mensagem. Token na URL é recusado. Ver "Login" abaixo.
+- **Só o BFF chama a API:** todo pedido leva o segredo `X-Kawashi-Bff` e o IP do navegador em
+  `X-Kawashi-Ip-Cliente`; sem o segredo, `403` a tudo. Ver "Login" abaixo.
+- **Login obrigatório:** toda a `/api` exige `Authorization: Bearer <token>`, menos as cerimônias de
+  passkey que levam a um token. Sem token, ou com token vencido, revogado ou inválido: `401`, sempre
+  com a mesma mensagem. Token na URL é recusado.
 - **Caminho base:** `/api`. JSON em UTF-8. Datas em ISO-8601, em UTC e sem fuso (`criadoEm`,
   `atualizadoEm`).
 - **Status:** `201` com header `Location` ao criar, `204` ao excluir, `400` para campo inválido,
@@ -41,7 +43,7 @@ estrutura das tabelas está nas migrações `V5` e `V6` (`src/main/resources/db/
 
 | Recurso | Endpoints |
 |---|---|
-| Login | `POST /api/auth/login` (sem token), `POST /api/auth/logout`, `POST /api/auth/sair-de-todos`, `POST /api/auth/trocar-senha`, `GET /api/auth/eu` |
+| Login (passkey) | sem token: `POST /api/auth/passkey/login/opcoes`, `POST /api/auth/passkey/login`, `POST /api/auth/convite/opcoes`, `POST /api/auth/convite`, `POST /api/auth/recuperacao`. Com token: `GET /api/auth/eu`, `GET/POST /api/auth/passkeys`, `POST /api/auth/passkeys/opcoes`, `DELETE /api/auth/passkeys/{id}`, `POST /api/auth/codigos-de-recuperacao`, `POST /api/auth/logout`, `POST /api/auth/sair-de-todos` |
 | Empresa | `POST /api/empresas`, `GET /api/empresas` (filtros `cnpj`, `razaoSocial`, `ativa`), `GET/PUT/DELETE /api/empresas/{id}`, `POST /api/empresas/{id}/inativar`, `POST /api/empresas/{id}/reativar` |
 | Filial | `POST/GET /api/empresas/{empresaId}/filiais`, `GET/PUT/DELETE /api/filiais/{id}`, `POST /api/filiais/{id}/inativar`, `POST /api/filiais/{id}/reativar` |
 | Pessoa | `POST/GET /api/empresas/{empresaId}/pessoas` (filtros `tipo`, `ativa`), `GET/PUT/DELETE /api/pessoas/{id}`, `GET /api/pessoas/{id}/documento` (revela o documento inteiro), `POST /api/pessoas/{id}/inativar`, `POST /api/pessoas/{id}/reativar` |
@@ -132,13 +134,13 @@ regras. Só a conta de execução da API tem acesso a ele, e só `INSERT` e `SEL
 - **`LOG_ALTERACAO`**: toda criação, alteração e exclusão de cadastro gera uma linha (tabela, id,
   ação), gravada na **mesma transação** da mudança: mudança desfeita não deixa log, e não existe
   mudança gravada sem log. Pedido recusado não gera linha.
-- **`LOG_ACESSO`**: cada chamada a `/api/**` (IP, método, caminho, status). Só o caminho entra,
-  nunca a query string nem o corpo.
+- **`LOG_ACESSO`**: cada chamada a `/api/**` (quem, IP do navegador repassado pelo BFF, método,
+  caminho, status). Só o caminho entra, nunca a query string nem o corpo.
 - **Encadeamento:** um gatilho do banco numera cada linha de `LOG_ALTERACAO` sem buraco, carimba a
   hora do servidor e grava um hash que inclui o da linha anterior. A API não escolhe nenhum desses
   valores. A view `V_LOG_ALTERACAO_QUEBRAS` devolve as linhas com problema (vazia = corrente
   inteira).
-- Enquanto a API não tem login, o campo `USUARIO` do log é sempre `API`.
+- O campo `USUARIO` dos dois logs é `USUARIO:<id>` do token (vazio no `LOG_ACESSO` de pedido sem token).
 
 O que a API tenta e não consegue (`LogDaAplicacaoTest`): alterar ou apagar linhas de log
 (`ORA-41900`, falta o privilégio) e enxergar a tabela de controle da corrente (`ORA-00942`).
@@ -149,28 +151,68 @@ por último, para a trava durar o mínimo.
 
 ## Login
 
-Detalhes e o porquê de cada escolha em "Token de acesso", em [`modelo-de-dados.md`](modelo-de-dados.md).
-Os números ficam em `PARAMETRO_SEGURANCA` (a API só lê).
+Só por **passkey** (WebAuthn): não existe senha. Detalhes e o porquê de cada escolha em "Login por
+passkey", em [`modelo-de-dados.md`](modelo-de-dados.md). Os números ficam em `PARAMETRO_SEGURANCA` (a
+API só lê). A verificação criptográfica é da biblioteca WebAuthn4J (`login/Passkeys`).
+
+### Quem chama: só o BFF
+
+A API não atende o navegador. Quem chama é o **BFF** (repositório `bff-banco-usp`, o servidor do
+site), e todo pedido a `/api/**` precisa de dois cabeçalhos (`FiltroDoBff`):
+
+| Cabeçalho | Sem ele |
+|---|---|
+| `X-Kawashi-Bff`: o segredo compartilhado (`BFF_SEGREDO`, 32+ caracteres, comparado em tempo constante) | `403` a tudo, inclusive ao login |
+| `X-Kawashi-Ip-Cliente`: o IP do navegador | `400`. Com o BFF na frente, o IP da conexão é sempre o dele; sem o IP real, o bloqueio por IP pegaria todo mundo de uma vez. A API só acredita nesse cabeçalho **depois** de conferir o segredo |
+
+O token também só circula entre o BFF e a API: o navegador recebe um cookie de sessão `HttpOnly` e
+nunca vê o token (um script malicioso na página não tem o que roubar). Em produção, a API também não
+deve ser alcançável pela rede de fora; o segredo é a segunda barreira.
+
+### Cerimônias sem token
+
+As respostas de passkey (`credencial`) são o `PublicKeyCredential.toJSON()` do navegador, como veio.
 
 | Pedido | Resposta |
 |---|---|
-| `POST /api/auth/login` `{ "email", "senha" }` certo | `200` `{ "token": "kw_...", "tipo": "Bearer", "escopo": "COMPLETO", "expiraEm": "...Z", "expiraAbsolutoEm": "...Z" }` |
-| e-mail inexistente, senha errada, usuário inativo ou conta bloqueada | `401`, **a mesma** mensagem e o mesmo tempo de resposta para os quatro casos |
-| 5 senhas erradas seguidas | a conta fica bloqueada por 30 minutos, mesmo para a senha certa |
-| 10 logins errados do mesmo IP em 10 minutos | `429` com `Retry-After`: o IP fica bloqueado por 1 hora |
-| senha com mais de 90 dias | `200` com `"escopo": "TROCAR_SENHA"`: o token só serve para `trocar-senha`, `logout` e `eu` (o resto dá `403`) |
+| `POST /api/auth/passkey/login/opcoes` | `200` `{ "publicKey": {...} }`: desafio novo (uso único, 5 min), `userVerification: required`, sem lista de credenciais (o aparelho mostra as contas que tem) |
+| `POST /api/auth/passkey/login` `{ "credencial" }` válida | `200` `{ "token": "kw_...", "tipo": "Bearer", "escopo": "COMPLETO", "expiraEm": "...Z", "expiraAbsolutoEm": "...Z" }` |
+| credencial desconhecida, assinatura que não confere, desafio inventado/usado/vencido, outra origem ou outro domínio, aparelho que não verificou a pessoa, usuário desligado | `401`, **a mesma** mensagem. O motivo vai só para `TENTATIVA_LOGIN` |
+| contador de assinaturas que volta (aparelho clonado) | `401`, e um `CONTADOR_SUSPEITO` no `LOG_SEGURANCA` |
+| `POST /api/auth/convite/opcoes` `{ "convite" }` | `200` com as opções de cadastro (`residentKey: required`, `attestation: none`, ES256 ou RS256). Convite inválido, usado ou vencido: `401` |
+| `POST /api/auth/convite` `{ "convite", "nome", "credencial" }` | `200` com o token e `codigosDeRecuperacao` (10, **mostrados uma única vez**). O convite deixa de valer. Se era um convite de recuperação, todas as sessões antigas caem |
+| `POST /api/auth/recuperacao` `{ "email", "codigo" }` | `200` com um token de escopo `CADASTRAR_PASSKEY`: só serve para ver e cadastrar passkeys, `logout` e `eu` (o resto dá `403`). O código deixa de valer e as outras sessões caem. Código aceito com ou sem traços, em qualquer caixa |
+| 10 falhas do mesmo IP em 10 minutos (em qualquer cerimônia) | `429` com `Retry-After`: o IP fica bloqueado por 1 hora |
+
+O segredo do convite vai no **corpo**, nunca no caminho: o `LOG_ACESSO` grava o caminho.
+
+### Com token
+
+| Pedido | Resposta |
+|---|---|
+| `GET /api/auth/eu` | `200` `{ usuarioId, pessoaId, escopo, expiraEm, expiraAbsolutoEm }` |
+| `GET /api/auth/passkeys` | `200` lista `{ id, nome, criadaEm, ultimoUsoEm, sincronizada }` (horas em UTC com `Z`; nada da chave) |
+| `POST /api/auth/passkeys/opcoes` e `POST /api/auth/passkeys` `{ "nome", "credencial" }` | `201` `{ id, nome }`. Aparelho já cadastrado, resposta que não confere ou limite de 10 passkeys: `422` |
+| `DELETE /api/auth/passkeys/{id}` | `204`, e as sessões abertas com essa passkey caem. A última passkey não pode ser removida (`422`); passkey de outra pessoa: `404` |
+| `POST /api/auth/codigos-de-recuperacao` | `200` `{ "codigos": [...] }`: 10 novos; os anteriores deixam de valer |
 | `POST /api/auth/logout` | `204`: este token para de valer na hora |
 | `POST /api/auth/sair-de-todos` | `204`: todas as sessões do usuário caem |
-| `POST /api/auth/trocar-senha` `{ "senhaAtual", "senhaNova" }` | `204` e **todas** as sessões caem (entre de novo). Senha atual errada: `422` (e conta como tentativa errada). Senha nova fraca, conhecida, com o e-mail ou repetindo uma das 5 anteriores: `422` com a lista em `problemas` |
 | quarta sessão do mesmo usuário | a mais antiga cai |
 
-O token vale 15 minutos e é renovado com o uso, até 8 horas depois do login. As horas da resposta
-vêm em UTC (com `Z`). Os logs passam a dizer quem fez: `LOG_ACESSO.USUARIO` e `LOG_ALTERACAO.USUARIO`
-gravam `USUARIO:<id>`.
+O token só é aceito em `Authorization: Bearer`; token na URL é recusado. Token ausente, inválido,
+vencido ou revogado recebem a mesma resposta `401`. Ele vale 15 minutos, é renovado com o uso, até 8
+horas depois do login. Os logs dizem quem fez: `LOG_ACESSO.USUARIO` e `LOG_ALTERACAO.USUARIO` gravam
+`USUARIO:<id>`.
+
+### Criar usuário
+
+Ainda não há endpoint (criar usuário será de administrador, com a autorização). O caminho é o
+`scripts/criar-usuario.ps1`: cria o usuário com um convite de uso único (24 h) e guarda o link
+(`<site>/convite.html#kwc_...`) no Vault, sem mostrar. O segredo vai depois do `#`, que o navegador
+nunca manda ao servidor; a página do convite o tira da barra de endereço assim que o lê.
 
 **Ainda sem autorização:** todo usuário logado pode tudo, inclusive revelar CPF e e-mail. Perfis,
 permissões e o vínculo com cada empresa são a etapa 4.
-
 ## Dados pessoais: cifra e máscara
 
 O documento da pessoa e o valor do contato **nunca chegam ao banco em claro**. A API cifra antes de
@@ -288,9 +330,8 @@ Sem isso, um `PUT` que muda o nome regravava também `ATIVA` com o valor lido an
 ## Limitações conhecidas
 
 - **`@Size` conta unidades UTF-16**, não pontos de código: um emoji vale 2. É o lado seguro.
-- **Não há autenticação nem autorização na API ainda.** Qualquer cliente que alcance a porta lê e
-  grava tudo. São as próximas duas etapas, já desenhadas em
-  [`modelo-de-dados.md`](modelo-de-dados.md).
+- **Ainda não há autorização.** Todo usuário logado lê e grava tudo. É a próxima etapa, desenhada
+  em [`modelo-de-dados.md`](modelo-de-dados.md).
 - **O log de alteração não guarda o valor antigo nem o novo**, só que o registro mudou. Guardar os
   valores levaria dado pessoal (CPF, nome) para o log.
 - **Os testes que gravam de verdade deixam linhas de log** no ambiente de teste, porque a API não

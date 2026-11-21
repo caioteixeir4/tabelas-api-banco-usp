@@ -58,12 +58,14 @@
             <scope>runtime</scope>
         </dependency>
 
-        <!-- Argon2id para o hash das senhas do login (ver login/HashDeSenha). Versao fixa: e codigo
-             de criptografia, atualizar so de proposito. -->
+
+        <!-- WebAuthn (passkeys): verificacao do cadastro e do login no servidor (ver login/Passkeys).
+             0.31.11 e a ultima da linha 0.31, ja madura em correcoes; a 0.32.0 tinha duas semanas
+             quando esta foi escolhida (18/11/2026). O Jackson 3 que ela usa e o do Spring Boot. -->
         <dependency>
-            <groupId>org.bouncycastle</groupId>
-            <artifactId>bcprov-jdk18on</artifactId>
-            <version>1.80</version>
+            <groupId>com.webauthn4j</groupId>
+            <artifactId>webauthn4j-core</artifactId>
+            <version>0.31.11.RELEASE</version>
         </dependency>
 
         <dependency>

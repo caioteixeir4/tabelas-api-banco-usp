@@ -15,25 +15,26 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 
 /**
- * Toda a /api/** exige um token valido, menos o proprio login. Regras:
+ * Toda a /api/** exige um token valido, menos as cerimonias que levam a um token (pedir desafio,
+ * entrar com passkey, aceitar convite, usar codigo de recuperacao). Regras:
  * <ul>
- *   <li>o token so e aceito no cabecalho {@code Authorization: Bearer kw_...}. Token na URL (que
- *       iria parar em logs, historico do navegador e proxies) e recusado;</li>
- *   <li>token ausente, malformado, inexistente, vencido ou revogado recebem a MESMA resposta 401:
- *       quem testa tokens nao aprende nada;</li>
- *   <li>token de escopo TROCAR_SENHA (senha vencida) so serve para trocar a senha, sair e ver a
- *       propria sessao: o resto da 403.</li>
+ *   <li>o token so e aceito no cabecalho {@code Authorization: Bearer kw_...}. Token na URL e
+ *       recusado. (Quem manda o cabecalho e o BFF; o navegador nem ve o token.)</li>
+ *   <li>token ausente, malformado, inexistente, vencido ou revogado recebem a MESMA resposta 401;</li>
+ *   <li>token de escopo CADASTRAR_PASSKEY (veio de um codigo de recuperacao) so serve para cadastrar
+ *       uma passkey nova, ver as passkeys, sair e ver a propria sessao: o resto da 403.</li>
  * </ul>
- * Roda depois do registro de acesso (que assim fica sabendo quem chamou) e da checagem de HTTPS
- * (um token nunca deve ser conferido se chegou por HTTP puro).
+ * Roda depois do registro de acesso, da checagem de HTTPS e da checagem do BFF.
  */
 @Component
 @Order(Ordered.HIGHEST_PRECEDENCE + 20)
 public class AutenticacaoFilter extends OncePerRequestFilter {
 
-    static final String LOGIN = "/api/auth/login";
-    private static final Set<String> PERMITIDOS_COM_SENHA_VENCIDA = Set.of("/api/auth/trocar-senha", "/api/auth/logout",
-            "/api/auth/eu");
+    /** Cerimonias que nao exigem token (todas POST). */
+    static final Set<String> SEM_TOKEN = Set.of("/api/auth/passkey/login/opcoes", "/api/auth/passkey/login",
+            "/api/auth/convite/opcoes", "/api/auth/convite", "/api/auth/recuperacao");
+    private static final Set<String> PERMITIDOS_SO_PARA_CADASTRAR = Set.of("/api/auth/passkeys", "/api/auth/passkeys/opcoes",
+            "/api/auth/logout", "/api/auth/eu");
 
     private final Tokens tokens;
     private final ParametrosDeSeguranca parametros;
@@ -46,7 +47,7 @@ public class AutenticacaoFilter extends OncePerRequestFilter {
     @Override
     protected boolean shouldNotFilter(HttpServletRequest requisicao) {
         String caminho = requisicao.getRequestURI();
-        return !caminho.startsWith("/api/") || ("POST".equals(requisicao.getMethod()) && LOGIN.equals(caminho));
+        return !caminho.startsWith("/api/") || ("POST".equals(requisicao.getMethod()) && SEM_TOKEN.contains(caminho));
     }
 
     @Override
@@ -61,11 +62,13 @@ public class AutenticacaoFilter extends OncePerRequestFilter {
         String token = cabecalho != null && cabecalho.regionMatches(true, 0, "Bearer ", 0, 7) ? cabecalho.substring(7).strip() : null;
         Optional<Tokens.Sessao> sessao = token == null ? Optional.empty() : tokens.validar(token, parametros.atuais());
         if (sessao.isEmpty()) {
-            recusar(resposta, 401, "Não autenticado", "Faça login e envie o token no cabeçalho Authorization: Bearer <token>.");
+            recusar(resposta, 401, "Não autenticado", "Entre com a sua passkey.");
             return;
         }
-        if ("TROCAR_SENHA".equals(sessao.get().escopo()) && !PERMITIDOS_COM_SENHA_VENCIDA.contains(requisicao.getRequestURI())) {
-            recusar(resposta, 403, "Senha vencida", "A senha venceu. Troque a senha em POST /api/auth/trocar-senha para continuar.");
+        if ("CADASTRAR_PASSKEY".equals(sessao.get().escopo())
+                && !PERMITIDOS_SO_PARA_CADASTRAR.contains(requisicao.getRequestURI())) {
+            recusar(resposta, 403, "Cadastre uma passkey", "Você entrou com um código de recuperação: cadastre uma passkey nova "
+                    + "e entre com ela para continuar.");
             return;
         }
         SessaoAtual.guardar(requisicao, sessao.get());

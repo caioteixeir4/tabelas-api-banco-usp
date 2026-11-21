@@ -17,9 +17,9 @@ import org.springframework.stereotype.Component;
 @Component
 public class ParametrosDeSeguranca {
 
-    public record Parametros(int tokenMinutos, int tokenTetoHoras, int sessoesMaximas, int loginMaxTentativas,
-            int loginBloqueioMinutos, int ipMaxFalhas, int ipJanelaMinutos, int ipBloqueioMinutos,
-            int senhaValidadeDias, int senhaHistorico, int senhaMinimo) {
+    public record Parametros(int tokenMinutos, int tokenTetoHoras, int sessoesMaximas, int ipMaxFalhas,
+            int ipJanelaMinutos, int ipBloqueioMinutos, int desafioMinutos, int conviteHoras, int codigosRecuperacao,
+            int passkeysMaximas) {
     }
 
     private final JdbcTemplate jdbc;
@@ -36,9 +36,9 @@ public class ParametrosDeSeguranca {
                 linha -> { valores.put(linha.getString(1), linha.getInt(2)); });
         return new Parametros(
                 exigir(valores, "TOKEN_MINUTOS"), exigir(valores, "TOKEN_TETO_HORAS"), exigir(valores, "SESSOES_MAXIMAS"),
-                exigir(valores, "LOGIN_MAX_TENTATIVAS"), exigir(valores, "LOGIN_BLOQUEIO_MINUTOS"),
                 exigir(valores, "IP_MAX_FALHAS"), exigir(valores, "IP_JANELA_MINUTOS"), exigir(valores, "IP_BLOQUEIO_MINUTOS"),
-                exigir(valores, "SENHA_VALIDADE_DIAS"), exigir(valores, "SENHA_HISTORICO"), exigir(valores, "SENHA_MINIMO"));
+                exigir(valores, "DESAFIO_MINUTOS"), exigir(valores, "CONVITE_HORAS"), exigir(valores, "CODIGOS_RECUPERACAO"),
+                exigir(valores, "PASSKEYS_MAXIMAS"));
     }
 
     private static int exigir(Map<String, Integer> valores, String chave) {

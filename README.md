@@ -66,6 +66,11 @@ schemas protegidos e o Vault montados pelo `regras-banco-usp`. O que liga cada p
 - **A API só atende o BFF** ([`bff-banco-usp`](https://github.com/caioteixeir4/bff-banco-usp), o servidor do site): todo pedido
   precisa de um segredo compartilhado. O token nunca chega ao navegador; ele fica guardado no BFF, e o
   navegador recebe só um cookie de sessão `HttpOnly`.
+- **Autorização multiempresa** (desde 23/11/2026): cada sessão vive dentro de uma empresa, e uma
+  empresa não enxerga a outra (404). Perfis por empresa (ADMINISTRADOR, OPERADOR, CONSULTA, e os que o
+  administrador criar), permissão conferida em toda rota, só o administrador dá cargo, toda empresa
+  com pelo menos um administrador, e um log de cada troca de cargo gravado pelo próprio banco. Empresa
+  nova só pelo administrador da plataforma, que não enxerga os dados das empresas.
 - **Dados pessoais protegidos (LGPD):** CPF/CNPJ de pessoa, e-mail e telefone são gravados
   **cifrados** pela API (AES-256-GCM, chave fora do banco) e saem **mascarados** nas respostas; o valor
   inteiro só por um caminho de "revelar", que fica no log de acesso. O disco do banco também é cifrado
@@ -76,22 +81,18 @@ schemas protegidos e o Vault montados pelo `regras-banco-usp`. O que liga cada p
 Documentação:
 
 - [`docs/modelo-de-dados.md`](docs/modelo-de-dados.md): as tabelas, os schemas e o porquê de cada
-  decisão, incluindo o que ainda é proposta (autorização).
+  decisão, incluindo o que ainda é proposta (aceite de termos).
 - [`docs/diagrama-tabelas.html`](docs/diagrama-tabelas.html): o diagrama, campo a campo (abrir no
   navegador).
 - [`docs/api-e-regras.md`](docs/api-e-regras.md): endpoints, regras, logs, concorrência.
 
 ## O que vem a seguir
 
-Desenhado e documentado, ainda não implementado:
+Ainda não implementado:
 
-1. **Complementos do login:** confirmação de e-mail, aceite de termos e criação de usuário pela API
-   (por um administrador, quando a autorização existir).
-2. **Autorização**: perfis, permissões e o vínculo do usuário com cada empresa (multiempresa).
-
-Enquanto isso, **todo usuário logado pode tudo**. O que já limita o estrago: a conta de banco que atende os pedidos não consegue apagar nem alterar tabela, não
-consegue mexer no log, a API pode exigir HTTPS, e CPF, e-mail e telefone saem mascarados (mas o
-caminho de revelar ainda é aberto, até a autorização existir).
+1. **Complementos do login:** confirmação de e-mail e aceite de termos (LGPD).
+2. **Dar acesso, pela API, a um usuário que já é de outra empresa** (hoje só pelo script).
+3. Os itens de segurança listados em "Pendências".
 
 ## Rodando
 
@@ -223,17 +224,20 @@ proxy) e chamam os endpoints por MockMvc. Cada teste roda numa transação que �
 então não sobra dado no banco e os testes não interferem entre si. Os documentos usados são
 CNPJ/CPF válidos e aleatórios (`GeradorDeDocumentos`), nunca reais.
 
-A suíte tem **150 testes** (última execução de `mvn clean test`, 20/11/2026, todos passando). Toda
+A suíte tem **165 testes** (última execução de `mvn clean test`, 23/11/2026, todos passando). Toda
 chamada à API nos testes finge vir do BFF (`testes/Api` manda o segredo de teste e um IP de navegador)
-e vai com token: `testes/UsuarioDeTeste` cria o usuário (dentro da transação do teste, que é desfeita)
-e emite o token. A cerimônia de passkey de verdade é testada com `testes/AutenticadorDeTeste`, um
+e vai com token: `testes/UsuarioDeTeste` cria a empresa, os perfis, o usuário e o vínculo de
+ADMINISTRADOR (dentro da transação do teste, que é desfeita) e emite o token preso à empresa. Cada
+`api.empresa()` cria outra empresa do mesmo usuário e troca a sessão para ela pela rota real
+`/api/auth/empresa`, então todo teste passa pelo isolamento de verdade. A cerimônia de passkey de verdade é testada com `testes/AutenticadorDeTeste`, um
 "aparelho" em Java que gera a chave P-256, monta o CBOR e assina como um autenticador real; a API o
 verifica com o WebAuthn4J sem atalho nenhum. É menor que a do modelo antigo (296): são menos tabelas,
 e os testes foram reescritos mais densos, vários casos por teste.
 
 | Grupo | Testes |
 |---|---|
-| `EmpresaEFilialApiTest` | 10 |
+| `EmpresaEFilialApiTest` (a plataforma cria a empresa com o primeiro administrador e não enxerga os dados; administrador de empresa não usa as rotas da plataforma; cada sessão só vê a sua empresa; filiais) | 12 |
+| `AutorizacaoApiTest` (nenhuma rota sem regra; cadastros de outra empresa dão 404 em todas as rotas; CONSULTA só lê, OPERADOR não revela nem mexe em usuários; sem empresa só dá para escolher; troca de cargo vale na hora e fica no log com de/para e quem; a empresa nunca fica sem administrador; desativar tira o acesso, inclusive por outro caminho; perfis editáveis menos o ADMINISTRADOR e as permissões exclusivas) | 13 |
 | `PessoaApiTest` (tipos, natureza e documento, participação, soma dos sócios) | 15 |
 | `ContatoEEnderecoApiTest` (as mesmas regras com dono filial e dono pessoa) | 12 |
 | `LogDaAplicacaoTest` (rastro de cada mudança, encadeamento, o que a API não consegue fazer no log) | 7 |
@@ -248,13 +252,22 @@ e os testes foram reescritos mais densos, vários casos por teste.
 | `DadosPessoaisCifradosTest` (o que fica na tabela, unicidade pela impressão digital, máscara, revelar com rastro, cifra adulterada por fora) | 13 |
 
 O `ServidorRealTest` é a exceção à transação desfeita: precisa gravar de verdade para disputar as
-travas. Ele apaga os cadastros que criou; as linhas de log ficam, porque a API não tem como
-apagá-las.
+travas. Ele usa um usuário e uma empresa **fixos** (criados na primeira execução), porque perfis e
+vínculos não se apagam; apaga os cadastros que criou dentro dela, e as linhas de log ficam, porque a
+API não tem como apagá-las.
+
+**Preparo único para os testes da plataforma:** o usuário fixo (`servidor-real@teste.kawashi.invalid`)
+precisa ser administrador da plataforma, e isso só se concede pelo banco. Rode uma vez, no repositório
+de regras, `infra/scripts/conceder-admin-plataforma.ps1 -Ambiente TESTE_DEV -UsuarioId <id> -Motivo
+"testes da plataforma"`. Sem isso, os testes da plataforma falham dizendo o que rodar.
 
 Como a transação do teste mantém a sessão aberta, ela esconde um tipo de erro de produção. Por isso
 existe também um roteiro por **HTTP real**, [`scripts/smoke-http.ps1`](scripts/smoke-http.ps1): com
-a API no ar, cria empresa, filial, pessoas de cada tipo, contatos e endereços, viola as regras de
-propósito (52 verificações na primeira rodada, 50 nas seguintes, incluindo a exigência do BFF, login por passkey, desafio de uso único, máscara, revelar e logout) e apaga os cadastros que criou, conferindo que nada sobrou.
+a API no ar, trabalha dentro da empresa da sessão da conta de teste (filial, pessoas de cada tipo,
+contatos e endereços), cria empresas pela plataforma e confere que não enxerga os dados delas, viola
+as regras de propósito (56 verificações na primeira rodada, 54 nas seguintes, incluindo a exigência do
+BFF, login por passkey, desafio de uso único, isolamento entre empresas, perfis, máscara, revelar e
+logout), apaga os cadastros que criou e inativa as empresas criadas (empresa com perfis não se apaga).
 
 ```bash
 PORT=18080 mvn spring-boot:run          # em um terminal
@@ -270,8 +283,11 @@ O roteiro fala com a API como o BFF (lê o `BFF_SEGREDO` do `.env`, sem mostrar)
 conta de teste. Na primeira vez ele lê o convite do Vault, cadastra a passkey e guarda a chave no
 Vault (`kawashi-secrets/smoke-passkey/<AMBIENTE>/<usuario>`); nas seguintes, entra com ela. Passkey de
 software só serve para conta de teste do desenvolvimento: a chave fica no Vault, e não presa num
-aparelho. No fim faz logout e confere que o token parou de valer. Última execução: 20/11/2026,
-52 ok e depois 50 ok, contra a conta fixa de teste (usuário 108 do `TESTE_DEV`).
+aparelho. No fim faz logout e confere que o token parou de valer. A conta precisa ter acesso a uma
+empresa (a do `ServidorRealTest`) e, para a parte da plataforma, ser administradora da plataforma.
+Última execução: 23/11/2026, 56 ok e depois 54 ok, contra a conta fixa de teste (usuário 108 do
+`TESTE_DEV`). O Vault de desenvolvimento esquece a chave da passkey de software quando reinicia:
+depois disso, gere um convite novo (`criar-usuario.ps1 -UsuarioId 108`) e o roteiro cadastra outra.
 
 ## Armadilhas encontradas pelo caminho
 
@@ -292,13 +308,20 @@ aparelho. No fim faz logout e confere que o token parou de valer. Última execu�
 - **O PowerShell 5.1 atrapalha quem passa segredo para o Vault.** Pela entrada padrão ele põe um BOM
   na frente; em argumento ele estraga aspas duplas. Os scripts passam o valor por variável de
   ambiente (`docker exec -e NOME`, sem `=valor`), que não aparece nem na linha de comando.
+- **Duas transações na mesma thread se travam para sempre.** Cada teste roda numa transação, e criar
+  um usuário grava no log encadeado, o que trava a linha de controle da corrente até o fim do teste.
+  Um apoio de teste que abria uma segunda transação (`REQUIRES_NEW`) para gravar no mesmo log ficava
+  esperando a primeira, que esperava ele: a suíte parava sem erro. O apoio passou a só ler.
+- **A prova pelo avesso acha teste que falta.** Quebrar a checagem do vínculo dentro do token não
+  derrubou nenhum teste: desativar pela API também revoga as sessões, então a checagem nunca era
+  exercitada. Entrou o teste do vínculo desativado direto no banco.
 - **O Maven não recompila um arquivo restaurado com a data antiga.** Ao conferir um teste quebrando o
   código de propósito, restaurar o arquivo com `mv` do backup deixou a classe quebrada compilada. Depois
   de restaurar, `touch` no arquivo (ou `mvn clean`).
 
 ## Pendências
 
-- **Login e autorização** (ver "O que vem a seguir").
+- **Complementos do login** (ver "O que vem a seguir").
 - **O log de alteração não guarda o valor antigo nem o novo**, só que o registro mudou.
 - Empacotamento (Dockerfile) e integração contínua.
 

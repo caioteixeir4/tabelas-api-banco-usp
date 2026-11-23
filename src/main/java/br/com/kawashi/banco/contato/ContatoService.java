@@ -65,7 +65,10 @@ public class ContatoService {
 
     @Transactional(readOnly = true)
     public Contato buscar(Long id) {
-        return repositorio.findById(id).orElseThrow(() -> new RecursoNaoEncontradoException("Contato", id));
+        Contato contato = repositorio.findById(id).orElseThrow(() -> new RecursoNaoEncontradoException("Contato", id));
+        // O contato e da empresa do dono, e quem le precisa poder ler o dono.
+        donos.exigirQueExiste(Dono.de(contato.getFilialId(), contato.getPessoaId()));
+        return contato;
     }
 
     @Transactional(readOnly = true)

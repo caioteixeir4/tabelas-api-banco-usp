@@ -29,7 +29,7 @@ class PessoaApiTest {
 
     @BeforeEach
     void preparar() throws Exception {
-        api = new Api(mvc, usuarios.token());
+        api = usuarios.api(mvc);
         empresaId = api.empresa();
         pessoas = "/api/empresas/" + empresaId + "/pessoas";
     }
@@ -94,6 +94,7 @@ class PessoaApiTest {
         api.criar(pessoas, Api.pessoaJson("COLABORADOR", cpf, null, "Analista"));
         // e cliente de outra empresa: outra linha
         api.criar("/api/empresas/" + api.empresa() + "/pessoas", Api.pessoaJson("CLIENTE", cpf, null, null));
+        api.entrarNa(empresaId);
         api.get(pessoas).andExpect(jsonPath("$.total").value(2));
     }
 
@@ -102,7 +103,7 @@ class PessoaApiTest {
         api.post("/api/empresas/999999999/pessoas", Api.pessoaJson("CLIENTE", GeradorDeDocumentos.cpf(), null, null))
                 .andExpect(status().isNotFound());
         api.get("/api/empresas/999999999/pessoas").andExpect(status().isNotFound());
-        api.post("/api/empresas/" + empresaId + "/inativar").andExpect(status().isOk());
+        usuarios.apiDaPlataforma(mvc).post("/api/plataforma/empresas/" + empresaId + "/inativar").andExpect(status().isOk());
         api.post(pessoas, Api.pessoaJson("CLIENTE", GeradorDeDocumentos.cpf(), null, null))
                 .andExpect(status().isUnprocessableEntity())
                 .andExpect(jsonPath("$.detail").value(containsString("inativa")));

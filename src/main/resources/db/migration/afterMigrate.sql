@@ -27,5 +27,9 @@ BEGIN
     -- (13_schema_login.sql) so liga o proprio ambiente de quem chama, e nao faz nada se ja estiver
     -- ligada.
     SYS.KAWASHI_LIGAR_LOGIN_PESSOA;
+
+    -- A autorizacao (14_autorizacao.sql) liga PERFIL, USUARIO_EMPRESA e TOKEN a EMPRESA deste schema e
+    -- cria o painel V_USUARIO_ACESSOS, que le a PESSOA. Mesmo motivo: so depois que as tabelas existem.
+    SYS.KAWASHI_LIGAR_AUTORIZACAO;
 END;
 /

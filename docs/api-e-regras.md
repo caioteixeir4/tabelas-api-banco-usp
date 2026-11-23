@@ -42,7 +42,9 @@ estrutura das tabelas está nas migrações `V5` e `V6` (`src/main/resources/db/
 ## Caminho de um pedido
 
 Todo pedido a `/api/**` passa pelos filtros nesta ordem (o número é o `@Order`), e cada um pode
-recusar antes do seguinte. Só chega ao controlador o que passou por todos.
+recusar antes do seguinte. Depois dos filtros, a regra de acesso da rota (`@Exige`) é conferida pelo
+`FiltroDePermissao`, e o serviço confere que o registro é da empresa da sessão. Só chega ao
+controlador o que passou por todos.
 
 ```mermaid
 flowchart TB
@@ -61,16 +63,20 @@ flowchart TB
     T -- não --> R401["401, sempre a mesma resposta"]
     T -- sim --> E{"escopo CADASTRAR_PASSKEY<br/>fora das rotas permitidas?"}
     E -- sim --> R403c["403"]
-    E -- não --> C
-    C --> SV["Serviço<br/>regras de negócio (404, 409, 422)<br/>e LOG_ALTERACAO na mesma transação"]
+    E -- não --> FP{"FiltroDePermissao<br/>(rotas fora de /api/auth)<br/>a rota tem @Exige? a sessão tem empresa?<br/>o perfil tem a permissão?"}
+    FP -- não --> R403d["403"]
+    FP -- sim --> C
+    C --> SV["Serviço<br/>registro de outra empresa: 404<br/>regras de negócio (404, 409, 422)<br/>e LOG_ALTERACAO na mesma transação"]
     SV --> DB[("Oracle<br/>conta de execução, schema _APP:<br/>só lê e grava linhas")]
 ```
 ## Endpoints
 
 | Recurso | Endpoints |
 |---|---|
-| Login (passkey) | sem token: `POST /api/auth/passkey/login/opcoes`, `POST /api/auth/passkey/login`, `POST /api/auth/convite/opcoes`, `POST /api/auth/convite`, `POST /api/auth/recuperacao`. Com token: `GET /api/auth/eu`, `GET/POST /api/auth/passkeys`, `POST /api/auth/passkeys/opcoes`, `DELETE /api/auth/passkeys/{id}`, `POST /api/auth/codigos-de-recuperacao`, `POST /api/auth/logout`, `POST /api/auth/sair-de-todos` |
-| Empresa | `POST /api/empresas`, `GET /api/empresas` (filtros `cnpj`, `razaoSocial`, `ativa`), `GET/PUT/DELETE /api/empresas/{id}`, `POST /api/empresas/{id}/inativar`, `POST /api/empresas/{id}/reativar` |
+| Login (passkey) | sem token: `POST /api/auth/passkey/login/opcoes`, `POST /api/auth/passkey/login`, `POST /api/auth/convite/opcoes`, `POST /api/auth/convite`, `POST /api/auth/recuperacao`. Com token: `GET /api/auth/eu`, `GET /api/auth/empresas`, `POST /api/auth/empresa`, `GET/POST /api/auth/passkeys`, `POST /api/auth/passkeys/opcoes`, `DELETE /api/auth/passkeys/{id}`, `POST /api/auth/codigos-de-recuperacao`, `POST /api/auth/logout`, `POST /api/auth/sair-de-todos` |
+| Empresa (a da sessão) | `GET /api/empresas` (só a da sessão; filtros `cnpj`, `razaoSocial`, `ativa`), `GET/PUT /api/empresas/{id}` |
+| Plataforma | `GET/POST /api/plataforma/empresas`, `POST /api/plataforma/empresas/{id}/inativar`, `.../reativar`, `DELETE /api/plataforma/empresas/{id}` |
+| Usuários e perfis (administrador) | `GET/POST /api/usuarios`, `PUT /api/usuarios/{id}/perfil`, `POST /api/usuarios/{id}/desativar`, `.../reativar`, `.../convite`, `GET /api/usuarios/historico`, `GET/POST /api/perfis`, `PUT /api/perfis/{id}/permissoes`, `GET /api/permissoes` |
 | Filial | `POST/GET /api/empresas/{empresaId}/filiais`, `GET/PUT/DELETE /api/filiais/{id}`, `POST /api/filiais/{id}/inativar`, `POST /api/filiais/{id}/reativar` |
 | Pessoa | `POST/GET /api/empresas/{empresaId}/pessoas` (filtros `tipo`, `ativa`), `GET/PUT/DELETE /api/pessoas/{id}`, `GET /api/pessoas/{id}/documento` (revela o documento inteiro), `POST /api/pessoas/{id}/inativar`, `POST /api/pessoas/{id}/reativar` |
 | Contato | `POST/GET /api/filiais/{filialId}/contatos`, `POST/GET /api/pessoas/{pessoaId}/contatos`, `GET/PUT/DELETE /api/contatos/{id}`, `GET /api/contatos/{id}/valor` (revela o valor inteiro) |
@@ -263,8 +269,10 @@ horas depois do login. Os logs dizem quem fez: `LOG_ACESSO.USUARIO` e `LOG_ALTER
 
 ### Criar usuário
 
-Ainda não há endpoint (criar usuário será de administrador, com a autorização). O caminho é o
-`scripts/criar-usuario.ps1`: cria o usuário com um convite de uso único (24 h) e guarda o link
+Pela API, o administrador da empresa cria o usuário já com o cargo (`POST /api/usuarios`, ver
+"Autorização"), e o primeiro administrador nasce com a empresa, pela plataforma. O script
+`scripts/criar-usuario.ps1` fica para o começo e para emergências: cria o usuário com um convite de
+uso único (24 h), dá acesso a uma empresa (`-Vincular`) e guarda o link
 (`<site>/convite.html#kwc_...`) no Vault, sem mostrar. O segredo vai depois do `#`, que o navegador
 nunca manda ao servidor; a página do convite o tira da barra de endereço assim que o lê.
 
@@ -289,8 +297,98 @@ flowchart TB
     end
 ```
 
-**Ainda sem autorização:** todo usuário logado pode tudo, inclusive revelar CPF e e-mail. Perfis,
-permissões e o vínculo com cada empresa são a etapa 4.
+## Autorização
+
+O login diz **quem** é a pessoa; a autorização diz **o que** ela pode fazer e **em quais empresas**.
+As tabelas e as travas do banco estão em `14_autorizacao.sql`, no repositório de regras; o porquê, em
+"Autorização", em [`modelo-de-dados.md`](modelo-de-dados.md).
+
+### Regras
+
+- **A sessão vive dentro de uma empresa** (`TOKEN.EMPRESA_ID`). Quem tem acesso a uma empresa só já
+  entra nela. Quem tem acesso a mais de uma escolhe (`POST /api/auth/empresa`), e trocar emite um
+  token novo, revogando o anterior. Sem empresa escolhida, as rotas de cadastro dão `403` ("Escolha a
+  empresa").
+- **Uma empresa não enxerga a outra.** Todo registro de outra empresa responde **404**, como se não
+  existisse (nem dá para descobrir que existe). A conferência fica no serviço, no método que busca o
+  registro, então toda alteração passa por ela. A listagem de empresas mostra só a da sessão.
+- **Cada rota tem uma regra** (`@Exige` no controlador), conferida antes do controlador
+  (`FiltroDePermissao`). Rota sem regra é **recusada** e o erro vai para o log: esquecer a regra
+  fecha a rota, nunca abre. Um teste varre todas as rotas e falha se alguma estiver sem regra.
+- **As permissões são lidas do banco a cada pedido.** Trocar o cargo de alguém vale na hora, sem
+  esperar a pessoa sair. Tirar o acesso derruba as sessões dela naquela empresa, e o token deixa de
+  valer mesmo se o vínculo for desativado por outro caminho (a validação confere o vínculo).
+- **Só o ADMINISTRADOR dá cargo.** As permissões de dar cargo e de gerenciar usuários são exclusivas
+  dele, e o banco recusa colocá-las em outro perfil. O ADMINISTRADOR tem todas as permissões e não se
+  edita.
+- **Toda empresa tem sempre pelo menos um administrador ativo.** A troca de cargo ou a desativação que
+  deixaria a empresa sem nenhum responde `422`; quem recusa é o banco, com trava por empresa (dois
+  administradores se rebaixando ao mesmo tempo passam um de cada vez).
+- **O log das trocas** (`LOG_PERMISSAO`): quem trocou, quando, o cargo de quem, de qual perfil para
+  qual, e cada permissão posta ou tirada de um perfil. Quem grava é o banco (gatilho), não a API, que
+  nem tem `INSERT` nele: nem mudança feita direto no banco escapa. É encadeado por hash.
+- **Contato e endereço** seguem o dono: os de uma filial usam as permissões de filial, os de uma
+  pessoa, as de pessoa. Quem gerencia também lê.
+
+| Permissão | ADMINISTRADOR | OPERADOR | CONSULTA |
+|---|:-:|:-:|:-:|
+| `EMPRESA_LER`, `FILIAL_LER`, `PESSOA_LER` | ✓ | ✓ | ✓ |
+| `FILIAL_GERENCIAR`, `PESSOA_GERENCIAR` (criar, alterar, inativar, excluir; contatos e endereços) | ✓ | ✓ | |
+| `EMPRESA_ALTERAR` (dados da própria empresa) | ✓ | | |
+| `DADO_PESSOAL_REVELAR` (CPF, e-mail e telefone inteiros) | ✓ | | |
+| `USUARIO_GERENCIAR` (exclusiva) | ✓ | | |
+| `PERFIL_GERENCIAR` (exclusiva: dar cargo, editar perfis) | ✓ | | |
+
+Esses são os perfis com que toda empresa nasce. O administrador muda o que OPERADOR e CONSULTA
+fazem e cria perfis novos; as permissões exclusivas não vão para eles.
+
+### Rotas
+
+| Pedido | Quem | Resposta |
+|---|---|---|
+| `GET /api/auth/empresas` | logado | as empresas em que entra, com o cargo em cada uma |
+| `POST /api/auth/empresa` `{ "empresaId" }` | logado | `200` com um token **novo** preso à empresa (o anterior cai). Sem vínculo: `404` |
+| `GET /api/auth/eu` | logado | também `empresaId`, `permissoes` (na empresa da sessão) e `adminPlataforma` |
+| `GET /api/usuarios` | administrador | o painel (`V_USUARIO_ACESSOS`): nome, cargo, perfil, situação, passkeys, último login |
+| `POST /api/usuarios` `{ "pessoaId", "email", "perfilId" }` | administrador | `201` com o `convite` (**uma vez**). Pessoa ou perfil de outra empresa: `404`; pessoa que já tem usuário: `409` |
+| `PUT /api/usuarios/{id}/perfil` `{ "perfilId" }` | administrador | `204`. Último administrador: `422` |
+| `POST /api/usuarios/{id}/desativar`, `/reativar` | administrador | `204`; desativar derruba as sessões dele nesta empresa. Último administrador: `422` |
+| `POST /api/usuarios/{id}/convite` | administrador | convite novo, só para quem é desta empresa (senão `404`) |
+| `GET /api/usuarios/historico` | administrador | o `LOG_PERMISSAO` da empresa (últimas 200 linhas) |
+| `GET /api/perfis`, `GET /api/permissoes` | administrador | perfis da empresa com as permissões de cada um; a lista de permissões |
+| `POST /api/perfis` `{ "nome", "descricao", "permissoes" }` | administrador | `201`. Nome repetido: `409`; permissão exclusiva ou desconhecida: `422` |
+| `PUT /api/perfis/{id}/permissoes` `{ "permissoes" }` | administrador | `204`: o perfil fica com exatamente essas (as que saem são desativadas). ADMINISTRADOR ou permissão exclusiva: `422` |
+| `POST /api/plataforma/empresas` | administrador da plataforma | `201` `{ empresaId, usuarioId, convite }`: a empresa, os perfis padrão, a pessoa e o usuário do primeiro administrador, o vínculo e o convite, numa transação só |
+| `GET /api/plataforma/empresas`, `POST .../{id}/inativar`, `.../reativar`, `DELETE .../{id}` | administrador da plataforma | todas as empresas; inativar e reativar. Excluir só empresa sem filiais, pessoas e perfis (`409` senão: se inativa) |
+
+O **administrador da plataforma** (tabela `ADMIN_PLATAFORMA`) é a equipe da Kawashi. Ele **não
+enxerga** os dados de dentro das empresas: para isso precisaria de um vínculo, como qualquer um. O
+papel só se concede pelo banco (`infra/scripts/conceder-admin-plataforma.ps1`, no repositório de
+regras), com a conta do engenheiro, e a concessão vai para o `LOG_SEGURANCA`.
+
+Como uma empresa nasce e como alguém ganha um cargo:
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant P as Administrador da plataforma
+    participant A as API
+    participant D as Oracle
+    participant G as Administrador da empresa
+    P->>A: POST /api/plataforma/empresas (empresa + primeiro administrador)
+    A->>D: EMPRESA, perfis ADMINISTRADOR, OPERADOR, CONSULTA, PESSOA, USUARIO, vínculo, convite
+    D->>D: gatilho grava PERFIL_CRIADO e VINCULO_CRIADO no LOG_PERMISSAO
+    A-->>P: 201 com o convite (uma vez)
+    Note over P,G: o convite chega ao administrador da empresa por um canal seguro, e ele cria a passkey
+    G->>A: POST /api/usuarios (pessoa da empresa, perfil OPERADOR)
+    A->>D: USUARIO, vínculo com ATUALIZADO_POR = USUARIO:<id>
+    A-->>G: 201 com o convite do funcionário
+    G->>A: PUT /api/usuarios/{id}/perfil (CONSULTA)
+    A->>D: UPDATE do vínculo
+    D->>D: gatilho grava PERFIL_TROCADO (OPERADOR para CONSULTA, por USUARIO:<id>)
+    D->>D: trava: a empresa continua com pelo menos um administrador?
+    A-->>G: 204 (ou 422 se ficaria sem administrador)
+```
 ## Dados pessoais: cifra e máscara
 
 O documento da pessoa e o valor do contato **nunca chegam ao banco em claro**. A API cifra antes de
@@ -424,8 +522,9 @@ Sem isso, um `PUT` que muda o nome regravava também `ATIVA` com o valor lido an
 ## Limitações conhecidas
 
 - **`@Size` conta unidades UTF-16**, não pontos de código: um emoji vale 2. É o lado seguro.
-- **Ainda não há autorização.** Todo usuário logado lê e grava tudo. É a próxima etapa, desenhada
-  em [`modelo-de-dados.md`](modelo-de-dados.md).
+- **Não há como dar acesso a um usuário de outra empresa pela API.** O administrador só cria
+  usuários para pessoas da própria empresa; ligar um usuário que já existe a outra empresa é pelo
+  script (`criar-usuario.ps1 -Vincular`).
 - **O log de alteração não guarda o valor antigo nem o novo**, só que o registro mudou. Guardar os
   valores levaria dado pessoal (CPF, nome) para o log.
 - **Os testes que gravam de verdade deixam linhas de log** no ambiente de teste, porque a API não

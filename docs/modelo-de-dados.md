@@ -1,27 +1,27 @@
 # Modelo de dados
 
-> **Situação em 20/11/2026.** Os **cadastros** (`EMPRESA`, `FILIAL`, `PESSOA`, `CONTATO`, `ENDERECO`)
+> **Situação em 23/11/2026.** Os **cadastros** (`EMPRESA`, `FILIAL`, `PESSOA`, `CONTATO`, `ENDERECO`)
 > e os **logs** (`LOG_ALTERACAO`, `LOG_ACESSO`) existem no banco e têm API e testes. CPF/CNPJ de
 > pessoa, e-mail e telefone são gravados **cifrados** pela API (migração `V6`) e saem **mascarados**
 > nas respostas; o disco do banco também é cifrado. O **cadastro de contas do banco** (quem é cada
 > conta, o que pode e quando a senha vence) existe no repositório de regras. O **login** da API existe
 > e é **só por passkey** (desde 20/11/2026; não há senha de usuário): toda a `/api` exige token, e só
-> o **BFF** (o servidor do site, repositório `bff-banco-usp`) fala com a API. A **autorização**
-> (perfis, permissões, vínculo com cada empresa) e a confirmação de e-mail e o aceite de termos ainda
-> são proposta. O desenho, campo a campo, está em [`diagrama-tabelas.html`](diagrama-tabelas.html)
+> o **BFF** (o servidor do site, repositório `bff-banco-usp`) fala com a API. A **autorização
+> multiempresa** existe desde 23/11/2026: cada sessão vive numa empresa, perfis por empresa, e o banco
+> garante as regras de cargo. A confirmação de e-mail e o aceite de termos ainda são proposta. O desenho, campo a campo, está em [`diagrama-tabelas.html`](diagrama-tabelas.html)
 > (abra no navegador); a API está em [`api-e-regras.md`](api-e-regras.md); este texto explica o porquê.
 
 ## Visão geral
 
-São 22 tabelas de negócio (5 delas ainda propostas) em 4 schemas por ambiente (mais uma interna, de controle do log), e uma visão de painel de usuários (`V_USUARIO_ACESSOS`, proposta). A separação por schema não é só organização: cada schema
+São 24 tabelas de negócio (1 delas ainda proposta) em 4 schemas por ambiente (mais uma interna, de controle do log), e uma visão de painel de usuários (`V_USUARIO_ACESSOS`). A separação por schema não é só organização: cada schema
 recebe uma permissão diferente, e é isso que limita o estrago se a API ou uma conta for comprometida.
 
 | Schema | O que guarda | Tabelas | O que a conta de execução da API pode fazer |
 |---|---|---|---|
 | `KAWASHI_ENV_<AMB>` | cadastros | `EMPRESA`, `FILIAL`, `PESSOA`, `CONTATO`, `ENDERECO` | ler e gravar linhas; não cria, altera nem apaga tabela |
-| `KAWASHI_ENV_<AMB>_LOGIN` | o que é permanente do usuário e a autorização | existem: `USUARIO`, `PASSKEY`, `CONVITE`, `CODIGO_RECUPERACAO`, `PARAMETRO_SEGURANCA`; propostas: `ACEITE_TERMO`, `PERFIL`, `PERMISSAO`, `PERFIL_PERMISSAO`, `USUARIO_EMPRESA` | ler, criar e alterar (parâmetros: só ler). Nenhum `DELETE` |
+| `KAWASHI_ENV_<AMB>_LOGIN` | o que é permanente do usuário e a autorização | `USUARIO`, `PASSKEY`, `CONVITE`, `CODIGO_RECUPERACAO`, `PARAMETRO_SEGURANCA`, `ADMIN_PLATAFORMA`, `PERMISSAO`, `PERFIL`, `PERFIL_PERMISSAO`, `USUARIO_EMPRESA`; proposta: `ACEITE_TERMO` | ler, criar e alterar (parâmetros, permissões e administradores da plataforma: só ler). Nenhum `DELETE` |
 | `KAWASHI_ENV_<AMB>_SESSAO` | o que expira | `TOKEN`, `DESAFIO`, `BLOQUEIO_IP` | ler, criar e alterar; quem apaga o vencido é um job do banco |
-| `KAWASHI_ENV_<AMB>_LOG` | histórico | `LOG_ALTERACAO`, `LOG_ACESSO`, `LOG_SEGURANCA`, `TENTATIVA_LOGIN` | **só inserir e ler** |
+| `KAWASHI_ENV_<AMB>_LOG` | histórico | `LOG_ALTERACAO`, `LOG_ACESSO`, `LOG_SEGURANCA`, `TENTATIVA_LOGIN`, `LOG_PERMISSAO` | **só inserir e ler** (`LOG_PERMISSAO`: só ler; quem grava são os gatilhos) |
 
 `<AMB>` é o ambiente (`TESTE_DEV`, `DEV`, `INFRA`, `HOMOLOG`, `PROD`...). Os schemas são criados pelo
 repositório `regras-banco-usp`; as tabelas de cadastro, por este. **As do login, da sessão e do log**
@@ -30,8 +30,8 @@ insere no log" (e "a API não lê a chave das passkeys pela conta de migração"
 banco, e não uma promessa, o dono precisa ser outro.
 
 Regra das chaves estrangeiras entre schemas: **o schema de serviço aponta para o padrão, nunca o
-contrário**. `USUARIO` aponta para `PESSOA` (e, com a autorização, `USUARIO_EMPRESA` e `TOKEN`
-apontarão para `EMPRESA`); nenhuma tabela de cadastro sabe que o login existe.
+contrário**. `USUARIO` aponta para `PESSOA`; `PERFIL`, `USUARIO_EMPRESA` e `TOKEN` apontam para
+`EMPRESA`; nenhuma tabela de cadastro sabe que o login existe.
 
 Cada tabela existe uma vez só no banco. No diagrama, quando um quadro precisa de uma tabela de outro
 (o login precisa da `PESSOA`; a autorização, do `USUARIO` e da `EMPRESA`), ela aparece **repetida em
@@ -87,24 +87,54 @@ para o qual foi criada (um site falso não consegue usá-la: imune a phishing).
 - **`ACEITE_TERMO`** (proposta): qual versão dos termos de uso e da política de privacidade o usuário
   aceitou, quando e de qual IP. O sistema guarda CPF, e a LGPD pede esse registro.
 
-## Autorização (schema `LOGIN`, proposta)
+## Autorização (schema `LOGIN`, aplicada em 23/11/2026)
 
 O login diz **quem é** o usuário. Estas tabelas dizem **o que ele pode fazer e em quais empresas**.
+São criadas pelo repositório de regras (`14_autorizacao.sql`), como as do login: quem é dono de uma
+tabela pode tudo nela, e o dono aqui é um schema em que ninguém loga.
 
-- **`PERMISSAO`**: cada ação que a API protege, por código (`PESSOA_LER`, `PESSOA_ALTERAR`,
-  `USUARIO_GERENCIAR`...).
-- **`PERFIL`**: um conjunto de permissões com nome (`ADMINISTRADOR`, `OPERADOR`, `CONSULTA`).
-- **`PERFIL_PERMISSAO`**: quais permissões cada perfil tem (N para N).
+- **`PERMISSAO`**: cada ação que a API protege, por código (`PESSOA_LER`, `PESSOA_GERENCIAR`,
+  `DADO_PESSOAL_REVELAR`, `USUARIO_GERENCIAR`...). Lista fixa: a API só lê. `EXCLUSIVA_ADMIN` marca
+  as que só o ADMINISTRADOR pode ter (dar cargo e gerenciar usuários).
+- **`PERFIL`**: os cargos **de cada empresa**. Toda empresa nasce com ADMINISTRADOR, OPERADOR e
+  CONSULTA, e o administrador pode criar outros. O ADMINISTRADOR é `FIXO`: tem todas as permissões
+  sem precisar de linhas, e o banco recusa renomeá-lo, desativá-lo ou dar e tirar permissão dele.
+- **`PERFIL_PERMISSAO`**: quais permissões cada perfil tem (N para N). Tirar uma permissão é
+  **desativar** a linha: a API não tem `DELETE` em nenhuma tabela da autorização.
 - **`USUARIO_EMPRESA`**: em quais empresas o usuário entra e com qual perfil em cada uma. É o
   **multiempresa**: o mesmo usuário pode ser administrador numa empresa e só consulta em outra, e
-  sem uma linha aqui ele não enxerga nada daquela empresa.
-- **`V_USUARIO_ACESSOS`** (visão): o painel dos usuários da aplicação, igual ao das contas do banco.
-  Uma linha por usuário e empresa, com nome e cargo (da `PESSOA`), o perfil naquela empresa, quantas
-  passkeys ativas e o último login. Todo usuário criado aparece aqui sem cadastro à parte.
+  sem uma linha ativa aqui ele não enxerga nada daquela empresa. A chave estrangeira do perfil é
+  composta, `(PERFIL_ID, EMPRESA_ID)`, para o banco garantir que o perfil é da mesma empresa.
+- **`ADMIN_PLATAFORMA`**: a equipe da Kawashi, que cria empresas novas e o primeiro administrador de
+  cada uma. Só se concede pelo banco (script do engenheiro), e não dá acesso aos dados das empresas.
+- **`LOG_PERMISSAO`** (schema de log): quem mudou o cargo de quem, quando, de qual perfil para qual,
+  e cada permissão posta ou tirada. Gravado por gatilho do banco, encadeado por hash.
+- **`V_USUARIO_ACESSOS`** (visão): o painel dos usuários da aplicação, como o das contas do banco.
+  Uma linha por usuário e empresa, com nome e cargo (da `PESSOA`), o perfil naquela empresa, se está
+  ativo, quantas passkeys ativas tem e o último login. Todo usuário aparece aqui sem cadastro à parte.
 
-Cada sessão valerá para **uma** empresa (`TOKEN.EMPRESA_ID`). A API conferirá, a cada chamada, a
-permissão do perfil que o usuário tem naquela empresa. Para trocar de empresa, emite outro token.
+O que o **banco** garante, mesmo para quem contorna a API (provado no teste caixa-preta
+`Test-Autorizacao.ps1`):
 
+| Regra | Como |
+|---|---|
+| Toda empresa tem pelo menos um administrador ativo | gatilho composto em `USUARIO_EMPRESA`: depois de cada alteração, trava o perfil ADMINISTRADOR da empresa e conta; zero recusa (`ORA-20103`). A trava faz dois administradores que se rebaixam ao mesmo tempo passarem um de cada vez |
+| O perfil do vínculo é da mesma empresa | chave estrangeira composta para `UK_PERFIL_ID_EMPRESA` |
+| Só o ADMINISTRADOR dá cargo | `EXCLUSIVA_ADMIN` + gatilho de `PERFIL_PERMISSAO` (`ORA-20108`) |
+| O ADMINISTRADOR não se edita | gatilhos de `PERFIL` e `PERFIL_PERMISSAO` (`ORA-20101`, `ORA-20107`); no máximo um fixo por empresa (índice único) |
+| Quem fez cada mudança fica registrado | a API é obrigada a informar `USUARIO:<id>` ou `SCRIPT:<nome>` (`ORA-20104` senão); direto no banco, vale a conta de quem está conectado |
+| Nenhuma troca passa sem log | os gatilhos gravam no `LOG_PERMISSAO`; a API nem tem `INSERT` nele |
+| Ninguém se promove pela API | a API só lê `ADMIN_PLATAFORMA` e `PERMISSAO` |
+
+Cada sessão vale para **uma** empresa (`TOKEN.EMPRESA_ID`). A API confere, a cada chamada, a
+permissão do perfil que o usuário tem naquela empresa (lida do banco a cada pedido: trocar o cargo
+vale na hora) e que o registro pedido é da empresa da sessão (senão, 404). Para trocar de empresa,
+emite outro token. Os detalhes da API estão em "Autorização", em [`api-e-regras.md`](api-e-regras.md).
+
+**Decisões desta etapa, com o Caio:** empresa nova só pelo administrador da plataforma; perfis
+editáveis por empresa, mas só o administrador dá cargo, e toda empresa sempre com pelo menos um;
+log próprio das trocas (quem, quando, de quê para quê); sessão presa a uma empresa; revelar CPF,
+e-mail e telefone com permissão própria.
 ## O que expira (schema `SESSAO`)
 
 Tudo aqui tem data de validade obrigatória. Quem apaga o vencido é um job do banco
@@ -212,7 +242,7 @@ depois de conferir o segredo.
 | Convite | uso único, 24 h, segredo depois do `#` no link | O que vem depois do `#` o navegador nunca manda ao servidor (não cai em log de acesso nem em proxy); a página o tira da barra de endereço ao ler. O segredo vai no **corpo** dos pedidos, nunca no caminho. |
 | Bloqueio por IP | 10 falhas em 10 min bloqueiam o IP por 1 h | Vale para qualquer cerimônia (login, convite, código). Não há bloqueio por conta: com passkey não há senha para adivinhar, e bloquear a conta só serviria para um atacante trancar a vítima do lado de fora. |
 | Fuso | tudo em **UTC** (`SYS_EXTRACT_UTC(SYSTIMESTAMP)`) | Gravado, comparado e devolvido em UTC (as respostas trazem o "Z"). Comparar a coluna com `SYSTIMESTAMP` faria o Oracle ler a coluna no fuso da sessão: com a API em −05:00, um token vencido valia mais 5 horas (achado pelo teste, corrigido). |
-| Empresa | um token por empresa (`TOKEN.EMPRESA_ID`) | Entra com a autorização (etapa 4). |
+| Empresa | um token por empresa (`TOKEN.EMPRESA_ID`) | Trocar de empresa emite outro token e revoga o anterior (ver "Autorização"). |
 
 **Diferenças em relação ao desenho original:**
 - `PARAMETRO_SEGURANCA` tem a `CHAVE` como chave primária e o `VALOR` numérico, e a API só a **lê**.
@@ -221,10 +251,8 @@ depois de conferir o segredo.
 - `TENTATIVA_LOGIN` não guarda e-mail (nem a impressão digital dele): no login por passkey o e-mail
   nem é informado.
 
-Ficam para depois: confirmação de e-mail, aceite de termos, criação de usuário pela API (por
-administrador, com a autorização), localização suspeita e a âncora do `LOG_SEGURANCA` no Vault. A
-autorização por perfil e por empresa (etapa 4) vem a seguir; até lá, todo usuário logado pode tudo,
-inclusive revelar CPF.
+Ficam para depois: confirmação de e-mail, aceite de termos, localização suspeita e a âncora do
+`LOG_SEGURANCA` no Vault. A criação de usuário pela API entrou com a autorização (etapa 4).
 
 ## Como cada mecanismo de segurança funciona
 
@@ -241,8 +269,11 @@ inclusive revelar CPF.
 | Token que expira | `TOKEN.EXPIRA_EM`, `EXPIRA_ABSOLUTO_EM`, `REVOGADO_EM`, `MOTIVO_REVOGACAO` | 15 minutos deslizantes, teto de 8 horas, no máximo 3 sessões. |
 | Token nunca guardado em claro | `TOKEN.TOKEN_HASH` | Só o SHA-256. O token só existe no BFF e no cabeçalho entre o BFF e a API. |
 | Token fora do navegador | (BFF) | O navegador tem só o cookie de sessão `HttpOnly`. |
-| Quem pode o quê (proposta) | `PERFIL`, `PERMISSAO`, `PERFIL_PERMISSAO` | A API confere a permissão antes de cada operação. |
-| Multiempresa (proposta) | `USUARIO_EMPRESA`, `TOKEN.EMPRESA_ID` | O usuário só enxerga as empresas em que tem vínculo. |
+| Quem pode o quê | `PERFIL`, `PERMISSAO`, `PERFIL_PERMISSAO` | Toda rota tem uma regra (`@Exige`); rota sem regra é recusada. |
+| Multiempresa | `USUARIO_EMPRESA`, `TOKEN.EMPRESA_ID` | A sessão vive numa empresa; registro de outra empresa responde 404. |
+| Só o administrador dá cargo | `PERMISSAO.EXCLUSIVA_ADMIN`, `PERFIL.FIXO` | O banco recusa a permissão exclusiva em outro perfil. |
+| Empresa sempre com administrador | gatilho de `USUARIO_EMPRESA` | O banco recusa deixar a empresa sem administrador ativo. |
+| Rastro das trocas de cargo | `LOG_PERMISSAO` | Gatilho grava quem, quando, de quê para quê; encadeado por hash. |
 | Rastro de mudanças de segurança | `LOG_SEGURANCA` | Login, passkeys, códigos, convites, bloqueios e parâmetros. Encadeado por hash. |
 | Log à prova de adulteração | schema `LOG`, `HASH_ANTERIOR`, `HASH` | A API só insere; as linhas são encadeadas por hash. |
 | Consentimento (LGPD, proposta) | `ACEITE_TERMO` | Aceite por versão dos termos e da política de privacidade. |
@@ -299,7 +330,7 @@ Em nenhuma coluna fica token, convite ou código em texto puro, e não existe se
 | `CONTATO` (nome, e-mail e telefone de um cliente) | `CONTATO`, uma linha por meio, de uma filial ou de uma pessoa |
 | `ENDERECO` (só de cliente) | `ENDERECO` de uma filial ou de uma pessoa |
 | sem login na API | schemas `LOGIN` e `SESSAO`, login por passkey |
-| sem controle de quem pode o quê | `PERFIL`, `PERMISSAO`, `USUARIO_EMPRESA` (proposta) |
+| sem controle de quem pode o quê | `PERFIL`, `PERMISSAO`, `USUARIO_EMPRESA`, `ADMIN_PLATAFORMA` |
 | sem log na API | schema `LOG` |
 | `PESSOA.DOCUMENTO` e `CONTATO.VALOR` em texto puro (V5) | `DOCUMENTO_CIFRADO` + `DOCUMENTO_INDICE` e `VALOR_CIFRADO` + `VALOR_INDICE` (V6) |
 
@@ -322,14 +353,16 @@ Cada uma com migração, API, testes e esta documentação atualizados:
    códigos de recuperação, token opaco guardado no BFF, bloqueio por IP e toda a `/api` exigindo token.
    **A fazer:** confirmação de e-mail, aceite de termos, criação de usuário pela API, limite de pedidos
    por IP em toda a API e a âncora do `LOG_SEGURANCA`.
-4. **Autorização. A fazer.** Perfis, permissões e o vínculo do usuário com cada empresa, conferidos em
-   toda chamada.
+4. **Autorização. Feita** (23/11/2026): perfis por empresa, permissão conferida em toda rota, sessão
+   presa a uma empresa, isolamento entre empresas, administrador da plataforma, e as regras de cargo
+   garantidas pelo banco com log próprio (ver "Autorização").
 5. **Criptografia de dados pessoais. Feita** (antes do login, para o login já nascer com ela). Três
    camadas, descritas na seção abaixo.
 6. **Cadastro de contas do banco. Feito**, no repositório de regras. Ver "Contas do banco" abaixo.
 
-No diagrama, os quadros "Cadastros e logs", "Contas do banco" e "Login" mostram tabelas existentes,
-conferidas campo a campo contra o Oracle; o quadro de autorização continua marcado como proposta.
+No diagrama, os quadros "Cadastros e logs", "Contas do banco", "Login" e "Autorização" mostram
+tabelas existentes, conferidas campo a campo contra o Oracle; só o aceite de termos continua marcado
+como proposta.
 
 ## Contas do banco: quem é, o que pode e validade da senha
 
@@ -340,7 +373,7 @@ também se encaixa aos desenvolvedores". Há dois tipos de usuário, e cada um t
 | Quem | Onde mora | Painel | Estado |
 |---|---|---|---|
 | contas do **banco**: desenvolvedores, estagiários, infra, contas de API, o administrador | `SYS.KAWASHI_CONTA` (repositório de regras) | `SYS.V_KAWASHI_CONTAS` e `SYS.V_KAWASHI_CONTA_LIBERACOES`; no terminal, `infra/scripts/cadastro-de-contas.ps1` | **feito** |
-| usuários da **aplicação** (quem entra na API) | `USUARIO`, `PESSOA`, `USUARIO_EMPRESA` | `V_USUARIO_ACESSOS` | proposta, entra com o login |
+| usuários da **aplicação** (quem entra na API) | `USUARIO`, `PESSOA`, `USUARIO_EMPRESA` | `V_USUARIO_ACESSOS`; pela API, `GET /api/usuarios` (administrador da empresa) | **feito** (23/11/2026) |
 
 Regras de negócio do cadastro de contas do banco:
 

@@ -1,5 +1,7 @@
 package br.com.kawashi.banco.empresa;
 
+import br.com.kawashi.banco.autorizacao.Autorizacao;
+
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
@@ -35,11 +37,14 @@ public class EmpresaService {
     private final EmpresaRepository repositorio;
     private final JdbcTemplate jdbc;
     private final RegistroDeAlteracoes log;
+    private final br.com.kawashi.banco.login.SchemasDoLogin schemas;
 
-    public EmpresaService(EmpresaRepository repositorio, JdbcTemplate jdbc, RegistroDeAlteracoes log) {
+    public EmpresaService(EmpresaRepository repositorio, JdbcTemplate jdbc, RegistroDeAlteracoes log,
+            br.com.kawashi.banco.login.SchemasDoLogin schemas) {
         this.repositorio = repositorio;
         this.jdbc = jdbc;
         this.log = log;
+        this.schemas = schemas;
     }
 
     public Empresa criar(EmpresaRequest dados) {
@@ -57,14 +62,24 @@ public class EmpresaService {
         return criada;
     }
 
+    /** A empresa da sessao: outra empresa responde 404, como se nao existisse. */
     @Transactional(readOnly = true)
     public Empresa buscar(Long id) {
+        Autorizacao.conferirEmpresa(id, "Empresa", id);
+        return buscarSemEscopo(id);
+    }
+
+    /** Para o administrador da plataforma, que nao trabalha dentro de uma empresa. */
+    @Transactional(readOnly = true)
+    public Empresa buscarSemEscopo(Long id) {
         return repositorio.findById(id).orElseThrow(() -> new RecursoNaoEncontradoException("Empresa", id));
     }
 
     @Transactional(readOnly = true)
     public Page<Empresa> listar(String cnpj, String razaoSocial, Boolean ativa, Pageable paginacao) {
         List<Specification<Empresa>> filtros = new ArrayList<>();
+        // Dentro de uma sessao, so a empresa dela aparece.
+        Autorizacao.empresaDoPedido().ifPresent(id -> filtros.add((raiz, consulta, cb) -> cb.equal(raiz.get("id"), id)));
         if (cnpj != null && !cnpj.isBlank()) {
             String digitos = Documentos.somenteDigitos(cnpj);
             filtros.add((raiz, consulta, cb) -> cb.equal(raiz.get("cnpj"), digitos));
@@ -81,6 +96,17 @@ public class EmpresaService {
         return repositorio.findAll(Specification.allOf(filtros), paginacao);
     }
 
+    /** Todas as empresas, para o administrador da plataforma (que nao trabalha dentro de uma). */
+    @Transactional(readOnly = true)
+    public Page<Empresa> listarTodas(String razaoSocial, Pageable paginacao) {
+        if (razaoSocial == null || razaoSocial.isBlank()) {
+            return repositorio.findAll(paginacao);
+        }
+        String trecho = "%" + Textos.escaparCuringas(Textos.aparar(razaoSocial).toLowerCase(Locale.ROOT)) + "%";
+        return repositorio.findAll((Specification<Empresa>) (raiz, consulta, cb) -> cb.like(cb.lower(raiz.get("razaoSocial")), trecho, '\\'),
+                paginacao);
+    }
+
     public Empresa atualizar(Long id, EmpresaRequest dados) {
         Empresa empresa = buscar(id);
         if (!empresa.getCnpj().equals(Documentos.somenteDigitos(dados.cnpj()))) {
@@ -93,7 +119,7 @@ public class EmpresaService {
 
     /** Apenas troca a situacao: nao ha cascata para filiais nem pessoas. */
     public Empresa inativar(Long id) {
-        Empresa empresa = buscar(id);
+        Empresa empresa = buscarSemEscopo(id);
         if (empresa.isAtiva()) {
             empresa.inativar();
             log.alterou(TABELA, id, "inativada");
@@ -102,7 +128,7 @@ public class EmpresaService {
     }
 
     public Empresa reativar(Long id) {
-        Empresa empresa = buscar(id);
+        Empresa empresa = buscarSemEscopo(id);
         if (!empresa.isAtiva()) {
             empresa.reativar();
             log.alterou(TABELA, id, "reativada");
@@ -116,12 +142,15 @@ public class EmpresaService {
      * das outras: o banco ainda barraria pela chave estrangeira.
      */
     public void excluir(Long id) {
-        Empresa empresa = buscar(id);
+        Empresa empresa = buscarSemEscopo(id);
         long filiais = contar("FILIAL", id);
         long pessoas = contar("PESSOA", id);
-        if (filiais + pessoas > 0) {
+        // Perfis e acessos de usuarios nao se apagam (sao historia da autorizacao): empresa que ja
+        // os tem so pode ser inativada.
+        long perfis = contar(schemas.login("PERFIL"), id);
+        if (filiais + pessoas + perfis > 0) {
             throw new ConflitoException("A empresa possui vínculos (" + filiais + " filial(is), " + pessoas
-                    + " pessoa(s)) e não pode ser excluída. Inative-a em vez de excluir.");
+                    + " pessoa(s), " + perfis + " perfil(is) de acesso) e não pode ser excluída. Inative-a em vez de excluir.");
         }
         repositorio.delete(empresa);
         repositorio.flush();

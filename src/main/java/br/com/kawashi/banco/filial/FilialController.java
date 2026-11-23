@@ -1,5 +1,8 @@
 package br.com.kawashi.banco.filial;
 
+import br.com.kawashi.banco.autorizacao.Exige;
+import br.com.kawashi.banco.autorizacao.Permissoes;
+
 import java.net.URI;
 
 import org.springframework.data.domain.Pageable;
@@ -33,6 +36,7 @@ public class FilialController {
         this.servico = servico;
     }
 
+    @Exige({Permissoes.FILIAL_GERENCIAR})
     @PostMapping("/empresas/{empresaId}/filiais")
     public ResponseEntity<FilialResponse> criar(@PathVariable Long empresaId, @Valid @RequestBody FilialRequest dados,
             UriComponentsBuilder uri) {
@@ -41,32 +45,38 @@ public class FilialController {
         return ResponseEntity.created(local).body(FilialResponse.de(criada));
     }
 
+    @Exige({Permissoes.FILIAL_LER, Permissoes.FILIAL_GERENCIAR})
     @GetMapping("/empresas/{empresaId}/filiais")
     public Pagina<FilialResponse> listar(@PathVariable Long empresaId,
             @PageableDefault(size = 20, sort = "id") Pageable paginacao) {
         return Pagina.de(servico.listar(empresaId, Paginas.seguro(paginacao)), FilialResponse::de);
     }
 
+    @Exige({Permissoes.FILIAL_LER, Permissoes.FILIAL_GERENCIAR})
     @GetMapping("/filiais/{id}")
     public FilialResponse buscar(@PathVariable Long id) {
         return FilialResponse.de(servico.buscar(id));
     }
 
+    @Exige({Permissoes.FILIAL_GERENCIAR})
     @PutMapping("/filiais/{id}")
     public FilialResponse atualizar(@PathVariable Long id, @Valid @RequestBody FilialRequest dados) {
         return FilialResponse.de(servico.atualizar(id, dados));
     }
 
+    @Exige({Permissoes.FILIAL_GERENCIAR})
     @PostMapping("/filiais/{id}/inativar")
     public FilialResponse inativar(@PathVariable Long id) {
         return FilialResponse.de(servico.inativar(id));
     }
 
+    @Exige({Permissoes.FILIAL_GERENCIAR})
     @PostMapping("/filiais/{id}/reativar")
     public FilialResponse reativar(@PathVariable Long id) {
         return FilialResponse.de(servico.reativar(id));
     }
 
+    @Exige({Permissoes.FILIAL_GERENCIAR})
     @DeleteMapping("/filiais/{id}")
     public ResponseEntity<Void> excluir(@PathVariable Long id) {
         servico.excluir(id);

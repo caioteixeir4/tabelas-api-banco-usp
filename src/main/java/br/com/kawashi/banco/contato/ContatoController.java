@@ -1,5 +1,8 @@
 package br.com.kawashi.banco.contato;
 
+import br.com.kawashi.banco.autorizacao.Exige;
+import br.com.kawashi.banco.autorizacao.Permissoes;
+
 import java.net.URI;
 
 import org.springframework.data.domain.Pageable;
@@ -34,30 +37,35 @@ public class ContatoController {
         this.servico = servico;
     }
 
+    @Exige(value = {}, noServico = true)
     @PostMapping("/filiais/{filialId}/contatos")
     public ResponseEntity<ContatoResponse> criarNaFilial(@PathVariable Long filialId,
             @Valid @RequestBody ContatoRequest dados, UriComponentsBuilder uri) {
         return criado(servico.criar(Dono.filial(filialId), dados), uri);
     }
 
+    @Exige(value = {}, noServico = true)
     @PostMapping("/pessoas/{pessoaId}/contatos")
     public ResponseEntity<ContatoResponse> criarNaPessoa(@PathVariable Long pessoaId,
             @Valid @RequestBody ContatoRequest dados, UriComponentsBuilder uri) {
         return criado(servico.criar(Dono.pessoa(pessoaId), dados), uri);
     }
 
+    @Exige(value = {}, noServico = true)
     @GetMapping("/filiais/{filialId}/contatos")
     public Pagina<ContatoResponse> listarDaFilial(@PathVariable Long filialId,
             @PageableDefault(size = 20, sort = "id") Pageable paginacao) {
         return Pagina.de(servico.listar(Dono.filial(filialId), Paginas.seguro(paginacao)), ContatoResponse::de);
     }
 
+    @Exige(value = {}, noServico = true)
     @GetMapping("/pessoas/{pessoaId}/contatos")
     public Pagina<ContatoResponse> listarDaPessoa(@PathVariable Long pessoaId,
             @PageableDefault(size = 20, sort = "id") Pageable paginacao) {
         return Pagina.de(servico.listar(Dono.pessoa(pessoaId), Paginas.seguro(paginacao)), ContatoResponse::de);
     }
 
+    @Exige(value = {}, noServico = true)
     @GetMapping("/contatos/{id}")
     public ContatoResponse buscar(@PathVariable Long id) {
         return ContatoResponse.de(servico.buscar(id));
@@ -67,6 +75,7 @@ public class ContatoController {
      * Revela o valor completo do contato. Caminho separado de proposito: toda consulta fica no log
      * de acesso (LOG_ACESSO) com o caminho /api/contatos/{id}/valor.
      */
+    @Exige({Permissoes.DADO_PESSOAL_REVELAR})
     @GetMapping("/contatos/{id}/valor")
     public ValorRevelado revelarValor(@PathVariable Long id) {
         Contato contato = servico.buscar(id);
@@ -77,11 +86,13 @@ public class ContatoController {
     public record ValorRevelado(Long id, String tipo, String valor) {
     }
 
+    @Exige(value = {}, noServico = true)
     @PutMapping("/contatos/{id}")
     public ContatoResponse atualizar(@PathVariable Long id, @Valid @RequestBody ContatoRequest dados) {
         return ContatoResponse.de(servico.atualizar(id, dados));
     }
 
+    @Exige(value = {}, noServico = true)
     @DeleteMapping("/contatos/{id}")
     public ResponseEntity<Void> excluir(@PathVariable Long id) {
         servico.excluir(id);

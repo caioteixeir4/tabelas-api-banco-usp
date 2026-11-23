@@ -61,7 +61,10 @@ public class EnderecoService {
 
     @Transactional(readOnly = true)
     public Endereco buscar(Long id) {
-        return repositorio.findById(id).orElseThrow(() -> new RecursoNaoEncontradoException("Endereço", id));
+        Endereco endereco = repositorio.findById(id).orElseThrow(() -> new RecursoNaoEncontradoException("Endereço", id));
+        // O endereco e da empresa do dono, e quem le precisa poder ler o dono.
+        donos.exigirQueExiste(Dono.de(endereco.getFilialId(), endereco.getPessoaId()));
+        return endereco;
     }
 
     @Transactional(readOnly = true)

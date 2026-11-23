@@ -56,10 +56,12 @@ public class ServicoDeLogin {
     private final Passkeys passkeys;
     private final Usuarios usuarios;
     private final LogDeSeguranca log;
+    private final br.com.kawashi.banco.autorizacao.Autorizacao autorizacao;
 
     public ServicoDeLogin(JdbcTemplate jdbc, SchemasDoLogin schemas, CifraDeDados cifra, ParametrosDeSeguranca parametros,
             Tokens tokens, Desafios desafios, Convites convites, CodigosDeRecuperacao codigos, Passkeys passkeys,
-            Usuarios usuarios, LogDeSeguranca log) {
+            Usuarios usuarios, LogDeSeguranca log, br.com.kawashi.banco.autorizacao.Autorizacao autorizacao) {
+        this.autorizacao = autorizacao;
         this.jdbc = jdbc;
         this.schemas = schemas;
         this.cifra = cifra;
@@ -100,7 +102,9 @@ public class ServicoDeLogin {
             }
             Passkeys.Login login = passkeys.verificarLogin(respostaJson, desafio);
             passkeys.registrarUso(login);
-            Tokens.TokenEmitido token = tokens.emitir(login.usuarioId(), login.passkeyId(), "COMPLETO", ip, p);
+            // Quem entra em uma empresa so ja comeca nela; com mais de uma, escolhe depois.
+            Tokens.TokenEmitido token = tokens.emitir(login.usuarioId(), login.passkeyId(), "COMPLETO", ip, p,
+                    autorizacao.empresaUnica(login.usuarioId()).orElse(null));
             tentativa("PASSKEY", login.usuarioId(), ip, true, null);
             log.registrar("LOGIN", login.usuarioId(), "passkey " + login.passkeyId(), ip, LogDeSeguranca.quem(login.usuarioId()));
             return new Entrou(token, null);
@@ -161,7 +165,8 @@ public class ServicoDeLogin {
         }
         List<String> novos = codigos.gerar(usuarioId, p.codigosRecuperacao());
         log.registrar("CODIGOS_GERADOS", usuarioId, novos.size() + " codigos", ip, LogDeSeguranca.quem(usuarioId));
-        Tokens.TokenEmitido token = tokens.emitir(usuarioId, passkeyId, "COMPLETO", ip, p);
+        Tokens.TokenEmitido token = tokens.emitir(usuarioId, passkeyId, "COMPLETO", ip, p,
+                autorizacao.empresaUnica(usuarioId).orElse(null));
         tentativa("CONVITE", usuarioId, ip, true, null);
         log.registrar("LOGIN", usuarioId, "convite aceito; passkey " + passkeyId, ip, LogDeSeguranca.quem(usuarioId));
         return new Entrou(token, novos);
@@ -238,6 +243,26 @@ public class ServicoDeLogin {
         log.registrar("CODIGOS_GERADOS", sessao.usuarioId(), novos.size() + " codigos; os anteriores deixaram de valer", ip,
                 LogDeSeguranca.quem(sessao.usuarioId()));
         return novos;
+    }
+
+    // ---- empresa da sessao ---------------------------------------------------------------------
+
+    /**
+     * Prende a sessao a uma empresa em que o usuario tem vinculo ativo: emite um token NOVO (com a
+     * mesma passkey) e revoga o atual. Cada token vale para uma empresa so, e o log mostra onde
+     * cada acao aconteceu. Empresa sem vinculo: 404.
+     */
+    @Transactional
+    public Entrou escolherEmpresa(Tokens.Sessao sessao, long empresaId, String ip) {
+        boolean temVinculo = autorizacao.vinculosAtivos(sessao.usuarioId()).stream().anyMatch(v -> v.empresaId() == empresaId);
+        if (!temVinculo) {
+            throw new RecursoNaoEncontradoException("Empresa", empresaId);
+        }
+        // Revoga antes de emitir: o limite de sessoes nao derruba outra sessao por causa desta troca.
+        tokens.revogar(sessao.tokenId(), "TROCA_EMPRESA");
+        Tokens.TokenEmitido token = tokens.emitir(sessao.usuarioId(), sessao.passkeyId(), sessao.escopo(), ip, parametros.atuais(), empresaId);
+        log.registrar("EMPRESA_ESCOLHIDA", sessao.usuarioId(), "empresa " + empresaId, ip, LogDeSeguranca.quem(sessao.usuarioId()));
+        return new Entrou(token, null);
     }
 
     // ---- sair ---------------------------------------------------------------------------------

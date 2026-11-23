@@ -230,10 +230,10 @@
      ===================================================================================== -->
 <script id="modelo" type="application/json">
 {
-  "estado": "Cadastros, logs, cadastro de contas e o login por passkey (usuário, passkeys, convites, códigos de recuperação, token, desafios, bloqueios) existem no Oracle, conferidos campo a campo em 20/11/2026. Não há senha de usuário. CPF, e-mail e telefone são gravados cifrados. Aceite de termos e autorização ainda são proposta.",
+  "estado": "Cadastros, logs, cadastro de contas, o login por passkey e a autorização multiempresa (perfis, permissões, vínculos, administrador da plataforma) existem no Oracle, conferidos campo a campo em 23/11/2026. Não há senha de usuário. CPF, e-mail e telefone são gravados cifrados. Só o aceite de termos ainda é proposta.",
   "esquemas": {
     "padrao": { "rotulo": "KAWASHI_ENV_<AMB>", "nome": "cadastros" },
-    "login": { "rotulo": "KAWASHI_ENV_<AMB>_LOGIN", "nome": "login: usuário, passkeys, convites, códigos" },
+    "login": { "rotulo": "KAWASHI_ENV_<AMB>_LOGIN", "nome": "login e autorização: usuário, passkeys, perfis, vínculos" },
     "sessao": { "rotulo": "KAWASHI_ENV_<AMB>_SESSAO", "nome": "o que expira: tokens, desafios, bloqueios" },
     "log": { "rotulo": "KAWASHI_ENV_<AMB>_LOG", "nome": "logs: só recebem linhas novas" },
     "adm": { "rotulo": "SYS (repositório de regras)", "nome": "contas do banco: quem é, o que pode, validade da senha" }
@@ -535,11 +535,18 @@
       "colunas": [
         { "v": "centro", "tabelas": ["CONVITE", "CODIGO_RECUPERACAO", "DESAFIO", "PARAMETRO_SEGURANCA"] },
         { "v": "centro", "tabelas": ["PESSOA_REF", "USUARIO", "PASSKEY"] },
-        { "v": "centro", "tabelas": ["TOKEN", "BLOQUEIO_IP", "TENTATIVA_LOGIN", "LOG_SEGURANCA"] }
+        { "v": "centro", "tabelas": ["EMPRESA_REF", "TOKEN", "BLOQUEIO_IP", "TENTATIVA_LOGIN", "LOG_SEGURANCA"] }
       ],
       "tabelas": [
         {
           "id": "PESSOA_REF", "nome": "PESSOA", "schema": "padrao", "fantasma": true,
+          "desc": "só a chave aparece aqui; os campos estão no quadro de cadastros",
+          "ponte": "repetida: esta tabela é do quadro de cadastros",
+          "campos": [ { "n": "ID", "t": "NUMBER", "pk": true, "ident": true } ],
+          "restricoes": []
+        },
+        {
+          "id": "EMPRESA_REF", "nome": "EMPRESA", "schema": "padrao", "fantasma": true,
           "desc": "só a chave aparece aqui; os campos estão no quadro de cadastros",
           "ponte": "repetida: esta tabela é do quadro de cadastros",
           "campos": [ { "n": "ID", "t": "NUMBER", "pk": true, "ident": true } ],
@@ -667,8 +674,9 @@
             { "n": "EXPIRA_EM", "t": "TIMESTAMP(6)", "nota": "Deslizante: cada uso empurra para 15 minutos à frente, nunca além do teto." },
             { "n": "EXPIRA_ABSOLUTO_EM", "t": "TIMESTAMP(6)", "nota": "Teto: 8 horas depois do login. Passado, só com novo login." },
             { "n": "REVOGADO_EM", "t": "TIMESTAMP(6)", "nulo": true },
-            { "n": "MOTIVO_REVOGACAO", "t": "VARCHAR2(20)", "nulo": true, "nota": "LOGOUT, SAIR_DE_TODOS, PASSKEY_REMOVIDA, LIMITE_SESSOES (a quarta sessão derruba a mais antiga), USUARIO_DESLIGADO, RECUPERACAO (código ou convite de recuperação: cai tudo) ou SUSPEITA." },
-            { "n": "IP_ORIGEM", "t": "VARCHAR2(45)", "nulo": true, "nota": "IP do navegador (o BFF informa). Só registro: o token não é preso ao IP." }
+            { "n": "MOTIVO_REVOGACAO", "t": "VARCHAR2(20)", "nulo": true, "nota": "LOGOUT, SAIR_DE_TODOS, PASSKEY_REMOVIDA, LIMITE_SESSOES (a quarta sessão derruba a mais antiga), USUARIO_DESLIGADO, RECUPERACAO (código ou convite de recuperação: cai tudo), SUSPEITA, TROCA_EMPRESA (a pessoa trocou de empresa: token novo) ou VINCULO_DESATIVADO (o acesso à empresa foi tirado)." },
+            { "n": "IP_ORIGEM", "t": "VARCHAR2(45)", "nulo": true, "nota": "IP do navegador (o BFF informa). Só registro: o token não é preso ao IP." },
+            { "n": "EMPRESA_ID", "t": "NUMBER", "nulo": true, "fk": { "t": "EMPRESA_REF", "c": "ID", "esquema": "padrão" }, "nota": "Em qual empresa a sessão trabalha (ver o quadro da autorização). Vazio logo depois de entrar, se a pessoa tem acesso a mais de uma: ela escolhe, e a troca emite um token novo. O token só vale enquanto o vínculo com a empresa estiver ativo." }
           ],
           "restricoes": [
             { "tipo": "PK", "nome": "PK_TOKEN", "regra": "ID" },
@@ -678,7 +686,9 @@
             { "tipo": "CHECK", "nome": "CK_TOKEN_HASH", "regra": "REGEXP_LIKE(TOKEN_HASH, '^[0-9a-f]{64}$')" },
             { "tipo": "CHECK", "nome": "CK_TOKEN_ESCOPO", "regra": "ESCOPO IN ('COMPLETO', 'CADASTRAR_PASSKEY')" },
             { "tipo": "CHECK", "nome": "CK_TOKEN_VALIDADE", "regra": "EXPIRA_EM > CRIADO_EM AND EXPIRA_EM <= EXPIRA_ABSOLUTO_EM" },
-            { "tipo": "CHECK", "nome": "CK_TOKEN_REVOGACAO", "regra": "(REVOGADO_EM IS NULL AND MOTIVO_REVOGACAO IS NULL) OR (REVOGADO_EM IS NOT NULL AND MOTIVO_REVOGACAO IN ('LOGOUT', 'SAIR_DE_TODOS', 'PASSKEY_REMOVIDA', 'LIMITE_SESSOES', 'USUARIO_DESLIGADO', 'RECUPERACAO', 'SUSPEITA'))" },
+            { "tipo": "CHECK", "nome": "CK_TOKEN_REVOGACAO", "regra": "(REVOGADO_EM IS NULL AND MOTIVO_REVOGACAO IS NULL) OR (REVOGADO_EM IS NOT NULL AND MOTIVO_REVOGACAO IN ('LOGOUT', 'SAIR_DE_TODOS', 'PASSKEY_REMOVIDA', 'LIMITE_SESSOES', 'USUARIO_DESLIGADO', 'RECUPERACAO', 'SUSPEITA', 'TROCA_EMPRESA', 'VINCULO_DESATIVADO'))" },
+            { "tipo": "FK", "nome": "FK_TOKEN_EMPRESA", "regra": "EMPRESA_ID → KAWASHI_ENV_<AMB>.EMPRESA (ID), entre schemas, sem cascade" },
+            { "tipo": "INDEX", "nome": "IX_TOKEN_EMPRESA", "regra": "(USUARIO_ID, EMPRESA_ID)" },
             { "tipo": "INDEX", "nome": "IX_TOKEN_USUARIO", "regra": "(USUARIO_ID, REVOGADO_EM)" },
             { "tipo": "INDEX", "nome": "IX_TOKEN_PASSKEY", "regra": "PASSKEY_ID" },
             { "tipo": "INDEX", "nome": "IX_TOKEN_EXPIRA", "regra": "EXPIRA_ABSOLUTO_EM: o job de limpeza apaga o que venceu há mais de 7 dias" }
@@ -745,7 +755,7 @@
           "campos": [
             { "n": "ID", "t": "NUMBER", "pk": true, "ident": true },
             { "n": "ORDEM", "t": "NUMBER", "uq": true, "nota": "Numeração sem buraco, dada pelo gatilho, como no LOG_ALTERACAO." },
-            { "n": "EVENTO", "t": "VARCHAR2(40)", "nota": "LOGIN, LOGOUT, SAIR_DE_TODOS, PASSKEY_CADASTRADA, PASSKEY_REMOVIDA, CODIGOS_GERADOS, CODIGO_USADO, CONVITE_CRIADO, CONVITE_USADO, IP_BLOQUEADO, SESSAO_ENCERRADA, USUARIO_CRIADO, PARAMETRO_ALTERADO ou CONTADOR_SUSPEITO." },
+            { "n": "EVENTO", "t": "VARCHAR2(40)", "nota": "LOGIN, LOGOUT, SAIR_DE_TODOS, PASSKEY_CADASTRADA, PASSKEY_REMOVIDA, CODIGOS_GERADOS, CODIGO_USADO, CONVITE_CRIADO, CONVITE_USADO, IP_BLOQUEADO, SESSAO_ENCERRADA, USUARIO_CRIADO, PARAMETRO_ALTERADO, CONTADOR_SUSPEITO, EMPRESA_ESCOLHIDA, EMPRESA_CRIADA, ADMIN_PLATAFORMA_CONCEDIDO ou ADMIN_PLATAFORMA_REVOGADO." },
             { "n": "USUARIO_ID", "t": "NUMBER", "nulo": true },
             { "n": "DETALHE", "t": "VARCHAR2(500 CHAR)", "nulo": true },
             { "n": "IP_ORIGEM", "t": "VARCHAR2(45)", "nulo": true },
@@ -757,7 +767,7 @@
           "restricoes": [
             { "tipo": "PK", "nome": "PK_LOG_SEGURANCA", "regra": "ID" },
             { "tipo": "UNIQUE", "nome": "UK_LOG_SEGURANCA_ORDEM", "regra": "ORDEM" },
-            { "tipo": "CHECK", "nome": "CK_LOG_SEGURANCA_EVENTO", "regra": "EVENTO IN ('LOGIN', 'LOGOUT', 'SAIR_DE_TODOS', 'PASSKEY_CADASTRADA', 'PASSKEY_REMOVIDA', 'CODIGOS_GERADOS', 'CODIGO_USADO', 'CONVITE_CRIADO', 'CONVITE_USADO', 'IP_BLOQUEADO', 'SESSAO_ENCERRADA', 'USUARIO_CRIADO', 'PARAMETRO_ALTERADO', 'CONTADOR_SUSPEITO')" },
+            { "tipo": "CHECK", "nome": "CK_LOG_SEGURANCA_EVENTO", "regra": "EVENTO IN ('LOGIN', 'LOGOUT', 'SAIR_DE_TODOS', 'PASSKEY_CADASTRADA', 'PASSKEY_REMOVIDA', 'CODIGOS_GERADOS', 'CODIGO_USADO', 'CONVITE_CRIADO', 'CONVITE_USADO', 'IP_BLOQUEADO', 'SESSAO_ENCERRADA', 'USUARIO_CRIADO', 'PARAMETRO_ALTERADO', 'CONTADOR_SUSPEITO', 'EMPRESA_ESCOLHIDA', 'EMPRESA_CRIADA', 'ADMIN_PLATAFORMA_CONCEDIDO', 'ADMIN_PLATAFORMA_REVOGADO')" },
             { "tipo": "INDEX", "nome": "IX_LOG_SEGURANCA_USUARIO", "regra": "(USUARIO_ID, DATA_HORA)" }
           ]
         }
@@ -769,7 +779,8 @@
         { "pai": "USUARIO", "filho": "CODIGO_RECUPERACAO", "fk": "USUARIO_ID", "pk": "ID", "card": "1:N", "nome": "FK_CODIGO_RECUPERACAO_USUARIO", "lado": "esq" },
         { "pai": "USUARIO", "filho": "DESAFIO", "fk": "USUARIO_ID", "pk": "ID", "card": "1:N", "nome": "FK_DESAFIO_USUARIO", "lado": "esq" },
         { "pai": "USUARIO", "filho": "TOKEN", "fk": "USUARIO_ID", "pk": "ID", "card": "1:N", "nome": "FK_TOKEN_USUARIO", "obs": "Um usuário tem até 3 sessões ativas." },
-        { "pai": "PASSKEY", "filho": "TOKEN", "fk": "PASSKEY_ID", "pk": "ID", "card": "1:N", "nome": "FK_TOKEN_PASSKEY", "obs": "Remover a passkey derruba as sessões dela." }
+        { "pai": "PASSKEY", "filho": "TOKEN", "fk": "PASSKEY_ID", "pk": "ID", "card": "1:N", "nome": "FK_TOKEN_PASSKEY", "obs": "Remover a passkey derruba as sessões dela." },
+        { "pai": "EMPRESA_REF", "filho": "TOKEN", "fk": "EMPRESA_ID", "pk": "ID", "card": "1:N", "nome": "FK_TOKEN_EMPRESA", "obs": "A sessão trabalha numa empresa só." }
       ],
       "extras": []
     },    {
@@ -814,20 +825,20 @@
       "extras": []
     },    {
       "id": "autorizacao",
-      "titulo": "Proposta: autorização e parâmetros",
-      "selo": "prop",
-      "seloTexto": "proposta, ainda não existe no banco",
-      "subtitulo": "O login diz quem é o usuário; aqui fica o que ele pode fazer e em quais empresas. Tudo no schema LOGIN. USUARIO e EMPRESA aparecem repetidas, em cinza, só para mostrar as ligações.",
+      "titulo": "Autorização multiempresa: perfis, permissões e vínculos",
+      "selo": "real",
+      "seloTexto": "no Oracle hoje",
+      "subtitulo": "O login diz quem é o usuário; aqui fica o que ele pode fazer e em quais empresas. Cada empresa tem os seus perfis; o ADMINISTRADOR é fixo (tem todas as permissões, implicitamente) e só ele dá cargo aos outros. O banco garante: toda empresa tem pelo menos um administrador ativo, o perfil do vínculo é da mesma empresa, permissão exclusiva do administrador não vai para outro perfil, e quem faz cada mudança fica registrado. Cada troca de cargo e de permissão vai sozinha, por gatilho, para o LOG_PERMISSAO (a API nem tem INSERT nele). A API não apaga nada aqui: tirar permissão ou acesso é desativar. Empresa nova só pelo administrador da plataforma. USUARIO, EMPRESA e TOKEN aparecem repetidas, em cinza.",
       "colunas": [
-        { "v": "centro", "tabelas": ["PERMISSAO", "USUARIO_REF", "V_USUARIO_ACESSOS"] },
-        { "v": "centro", "tabelas": ["PERFIL_PERMISSAO", "USUARIO_EMPRESA"] },
-        { "v": "centro", "tabelas": ["PERFIL", "EMPRESA_REF"] }
+        { "v": "centro", "tabelas": ["ADMIN_PLATAFORMA", "USUARIO_REF", "V_USUARIO_ACESSOS"] },
+        { "v": "centro", "tabelas": ["USUARIO_EMPRESA", "PERFIL", "PERFIL_PERMISSAO"] },
+        { "v": "centro", "tabelas": ["EMPRESA_REF", "TOKEN_REF", "PERMISSAO", "LOG_PERMISSAO"] }
       ],
       "tabelas": [
         {
           "id": "USUARIO_REF", "nome": "USUARIO", "schema": "login", "fantasma": true,
-          "desc": "só a chave aparece aqui; os campos estão no quadro de login",
-          "ponte": "repetida: esta tabela é do quadro de login",
+          "desc": "só a chave aparece aqui; os campos estão no quadro do login",
+          "ponte": "repetida: esta tabela é do quadro do login",
           "campos": [ { "n": "ID", "t": "NUMBER", "pk": true, "ident": true } ],
           "restricoes": []
         },
@@ -839,42 +850,77 @@
           "restricoes": []
         },
         {
-          "id": "PERMISSAO", "nome": "PERMISSAO", "schema": "login",
-          "desc": "cada ação que a API protege",
+          "id": "TOKEN_REF", "nome": "TOKEN", "schema": "sessao", "fantasma": true,
+          "desc": "a coluna que liga a sessão à empresa; o resto está no quadro do login",
+          "ponte": "repetida: esta tabela é do quadro do login",
           "campos": [
             { "n": "ID", "t": "NUMBER", "pk": true, "ident": true },
-            { "n": "CODIGO", "t": "VARCHAR2(60)", "uq": "UK_PERMISSAO_CODIGO", "nota": "Por exemplo PESSOA_LER, PESSOA_ALTERAR, USUARIO_GERENCIAR. A API confere o código antes de cada operação." },
-            { "n": "DESCRICAO", "t": "VARCHAR2(200 CHAR)" }
+            { "n": "EMPRESA_ID", "t": "NUMBER", "nulo": true, "fk": { "t": "EMPRESA_REF", "c": "ID", "esquema": "padrão" }, "nota": "Em qual empresa esta sessão trabalha. Todo pedido só alcança dados dela: registro de outra empresa responde 404, como se não existisse." }
+          ],
+          "restricoes": []
+        },
+        {
+          "id": "ADMIN_PLATAFORMA", "nome": "ADMIN_PLATAFORMA", "schema": "login",
+          "desc": "a equipe da Kawashi, que cria empresas novas",
+          "campos": [
+            { "n": "USUARIO_ID", "t": "NUMBER", "pk": true, "fk": { "t": "USUARIO_REF", "c": "ID" }, "nota": "Papel global, fora de qualquer empresa: cria empresa nova e o primeiro administrador dela. NÃO dá acesso aos dados das empresas (para isso precisa de vínculo, como qualquer um)." },
+            { "n": "CONCEDIDO_POR", "t": "VARCHAR2(128)", "nota": "Posto pelo gatilho com a conta de quem concedeu (o valor informado é ignorado). Só pelo script conceder-admin-plataforma.ps1, com a conta do engenheiro: a API só lê esta tabela." },
+            { "n": "MOTIVO", "t": "VARCHAR2(200 CHAR)" },
+            { "n": "CONCEDIDO_EM", "t": "TIMESTAMP(6)", "pad": "SYS_EXTRACT_UTC(SYSTIMESTAMP)", "nota": "Conceder e revogar vão para o LOG_SEGURANCA (ADMIN_PLATAFORMA_CONCEDIDO / _REVOGADO)." }
+          ],
+          "restricoes": [
+            { "tipo": "PK", "nome": "PK_ADMIN_PLATAFORMA", "regra": "USUARIO_ID" },
+            { "tipo": "FK", "nome": "FK_ADMIN_PLATAFORMA_USUARIO", "regra": "USUARIO_ID → USUARIO (ID), sem cascade" }
+          ]
+        },
+        {
+          "id": "PERMISSAO", "nome": "PERMISSAO", "schema": "login",
+          "desc": "cada ação que a API protege (lista fixa; a API só lê)",
+          "campos": [
+            { "n": "ID", "t": "NUMBER", "pk": true, "ident": true },
+            { "n": "CODIGO", "t": "VARCHAR2(60)", "uq": true, "nota": "EMPRESA_LER, EMPRESA_ALTERAR, FILIAL_LER, FILIAL_GERENCIAR, PESSOA_LER, PESSOA_GERENCIAR, DADO_PESSOAL_REVELAR, USUARIO_GERENCIAR, PERFIL_GERENCIAR. A lista nasce com o código da API." },
+            { "n": "DESCRICAO", "t": "VARCHAR2(200 CHAR)" },
+            { "n": "EXCLUSIVA_ADMIN", "t": "BOOLEAN", "pad": "FALSE", "nota": "TRUE em USUARIO_GERENCIAR e PERFIL_GERENCIAR: o banco recusa colocá-las em outro perfil. É o que garante que só o administrador dá cargo." }
           ],
           "restricoes": [
             { "tipo": "PK", "nome": "PK_PERMISSAO", "regra": "ID" },
-            { "tipo": "UNIQUE", "nome": "UK_PERMISSAO_CODIGO", "regra": "CODIGO" }
+            { "tipo": "UNIQUE", "nome": "UK_PERMISSAO_CODIGO", "regra": "CODIGO" },
+            { "tipo": "CHECK", "nome": "CK_PERMISSAO_CODIGO", "regra": "REGEXP_LIKE(CODIGO, '^[A-Z_]{3,60}$')" }
           ]
         },
         {
           "id": "PERFIL", "nome": "PERFIL", "schema": "login",
-          "desc": "um conjunto de permissões com nome",
+          "desc": "os cargos de cada empresa",
           "campos": [
-            { "n": "ID", "t": "NUMBER", "pk": true, "ident": true },
-            { "n": "NOME", "t": "VARCHAR2(50)", "uq": "UK_PERFIL_NOME", "nota": "Por exemplo ADMINISTRADOR, OPERADOR, CONSULTA." },
+            { "n": "ID", "t": "NUMBER", "pk": true, "ident": true, "uq": "UK_PERFIL_ID_EMPRESA", "uqCom": ["ID", "EMPRESA_ID"], "nota": "O par (ID, EMPRESA_ID) é único só para a chave composta do vínculo poder exigir perfil da mesma empresa." },
+            { "n": "EMPRESA_ID", "t": "NUMBER", "fk": { "t": "EMPRESA_REF", "c": "ID", "esquema": "padrão" }, "uq": "UK_PERFIL", "uqCom": ["EMPRESA_ID", "NOME"], "nota": "Cada empresa tem os seus perfis: editar um perfil numa empresa não muda nada nas outras." },
+            { "n": "NOME", "t": "VARCHAR2(50 CHAR)", "uq": "UK_PERFIL", "uqCom": ["EMPRESA_ID", "NOME"], "nota": "Toda empresa nasce com ADMINISTRADOR, OPERADOR e CONSULTA; o administrador da empresa pode criar outros." },
             { "n": "DESCRICAO", "t": "VARCHAR2(200 CHAR)", "nulo": true },
-            { "n": "ATIVO", "t": "BOOLEAN", "pad": "TRUE" },
-            { "n": "CRIADO_EM", "t": "TIMESTAMP(6)", "pad": "SYSTIMESTAMP" }
+            { "n": "FIXO", "t": "BOOLEAN", "pad": "FALSE", "nota": "TRUE só no ADMINISTRADOR (um por empresa): tem todas as permissões sem precisar de linhas, e o gatilho recusa renomeá-lo, desativá-lo ou dar e tirar permissão dele." },
+            { "n": "ATIVO", "t": "BOOLEAN", "pad": "TRUE", "nota": "Perfil com usuários ativos não é desativado (troque o cargo deles antes)." },
+            { "n": "ATUALIZADO_POR", "t": "VARCHAR2(128)", "nota": "\"USUARIO:<id>\" ou \"SCRIPT:<nome>\" (a API é obrigada a informar); direto no banco, a conta de quem mudou." },
+            { "n": "CRIADO_EM", "t": "TIMESTAMP(6)", "pad": "SYS_EXTRACT_UTC(SYSTIMESTAMP)" },
+            { "n": "ATUALIZADO_EM", "t": "TIMESTAMP(6)", "pad": "SYS_EXTRACT_UTC(SYSTIMESTAMP)" }
           ],
           "restricoes": [
             { "tipo": "PK", "nome": "PK_PERFIL", "regra": "ID" },
-            { "tipo": "UNIQUE", "nome": "UK_PERFIL_NOME", "regra": "NOME" }
+            { "tipo": "UNIQUE", "nome": "UK_PERFIL", "regra": "(EMPRESA_ID, NOME)" },
+            { "tipo": "UNIQUE", "nome": "UK_PERFIL_ID_EMPRESA", "regra": "(ID, EMPRESA_ID): alvo da chave composta do vínculo" },
+            { "tipo": "FK", "nome": "FK_PERFIL_EMPRESA", "regra": "EMPRESA_ID → KAWASHI_ENV_<AMB>.EMPRESA (ID), entre schemas, sem cascade" },
+            { "tipo": "INDEX", "nome": "UX_PERFIL_FIXO", "regra": "único: no máximo um perfil FIXO por empresa (CASE WHEN FIXO THEN EMPRESA_ID END)" }
           ]
         },
         {
           "id": "PERFIL_PERMISSAO", "nome": "PERFIL_PERMISSAO", "schema": "login",
-          "desc": "quais permissões cada perfil tem",
-          "ponte": "tabela de junção: PERFIL × PERMISSAO (N:N)",
+          "desc": "quais permissões cada perfil (menos o ADMINISTRADOR) tem",
           "campos": [
             { "n": "ID", "t": "NUMBER", "pk": true, "ident": true },
             { "n": "PERFIL_ID", "t": "NUMBER", "fk": { "t": "PERFIL", "c": "ID" }, "uq": "UK_PERFIL_PERMISSAO", "uqCom": ["PERFIL_ID", "PERMISSAO_ID"] },
             { "n": "PERMISSAO_ID", "t": "NUMBER", "fk": { "t": "PERMISSAO", "c": "ID" }, "uq": "UK_PERFIL_PERMISSAO", "uqCom": ["PERFIL_ID", "PERMISSAO_ID"] },
-            { "n": "CRIADO_EM", "t": "TIMESTAMP(6)", "pad": "SYSTIMESTAMP" }
+            { "n": "ATIVO", "t": "BOOLEAN", "pad": "TRUE", "nota": "Tirar uma permissão é desativar a linha (a API não tem DELETE). Cada mudança vai para o LOG_PERMISSAO (PERMISSAO_ADICIONADA / _REMOVIDA)." },
+            { "n": "ATUALIZADO_POR", "t": "VARCHAR2(128)" },
+            { "n": "CRIADO_EM", "t": "TIMESTAMP(6)", "pad": "SYS_EXTRACT_UTC(SYSTIMESTAMP)" },
+            { "n": "ATUALIZADO_EM", "t": "TIMESTAMP(6)", "pad": "SYS_EXTRACT_UTC(SYSTIMESTAMP)" }
           ],
           "restricoes": [
             { "tipo": "PK", "nome": "PK_PERFIL_PERMISSAO", "regra": "ID" },
@@ -885,54 +931,80 @@
         },
         {
           "id": "USUARIO_EMPRESA", "nome": "USUARIO_EMPRESA", "schema": "login",
-          "desc": "em quais empresas o usuário entra, e com qual perfil em cada uma",
-          "ponte": "tabela de junção: USUARIO × EMPRESA (N:N), o multiempresa",
+          "desc": "em quais empresas o usuário entra, e com qual cargo",
           "campos": [
             { "n": "ID", "t": "NUMBER", "pk": true, "ident": true },
             { "n": "USUARIO_ID", "t": "NUMBER", "fk": { "t": "USUARIO_REF", "c": "ID" }, "uq": "UK_USUARIO_EMPRESA", "uqCom": ["USUARIO_ID", "EMPRESA_ID"] },
-            { "n": "EMPRESA_ID", "t": "NUMBER", "fk": { "t": "EMPRESA_REF", "c": "ID", "esquema": "padrão" }, "uq": "UK_USUARIO_EMPRESA", "uqCom": ["USUARIO_ID", "EMPRESA_ID"], "nota": "Sem uma linha aqui, o usuário não enxerga nada daquela empresa." },
-            { "n": "PERFIL_ID", "t": "NUMBER", "fk": { "t": "PERFIL", "c": "ID" }, "nota": "O mesmo usuário pode ser administrador numa empresa e só consulta em outra." },
-            { "n": "ATIVO", "t": "BOOLEAN", "pad": "TRUE" },
-            { "n": "CRIADO_EM", "t": "TIMESTAMP(6)", "pad": "SYSTIMESTAMP" }
+            { "n": "EMPRESA_ID", "t": "NUMBER", "fk": { "t": "EMPRESA_REF", "c": "ID", "esquema": "padrão" }, "uq": "UK_USUARIO_EMPRESA", "uqCom": ["USUARIO_ID", "EMPRESA_ID"], "nota": "Sem uma linha ativa aqui, o usuário não enxerga nada desta empresa." },
+            { "n": "PERFIL_ID", "t": "NUMBER", "fk": { "t": "PERFIL", "c": "ID" }, "nota": "O cargo nesta empresa. Chave composta (PERFIL_ID, EMPRESA_ID) → PERFIL (ID, EMPRESA_ID): o perfil tem de ser da mesma empresa. O banco recusa a troca ou desativação que deixaria a empresa sem nenhum administrador ativo." },
+            { "n": "ATIVO", "t": "BOOLEAN", "pad": "TRUE", "nota": "Desativar tira o acesso na hora (as sessões desta empresa caem). Nada é apagado." },
+            { "n": "ATUALIZADO_POR", "t": "VARCHAR2(128)", "nota": "Quem fez a última mudança; o gatilho copia para o LOG_PERMISSAO." },
+            { "n": "CRIADO_EM", "t": "TIMESTAMP(6)", "pad": "SYS_EXTRACT_UTC(SYSTIMESTAMP)" },
+            { "n": "ATUALIZADO_EM", "t": "TIMESTAMP(6)", "pad": "SYS_EXTRACT_UTC(SYSTIMESTAMP)" }
           ],
           "restricoes": [
             { "tipo": "PK", "nome": "PK_USUARIO_EMPRESA", "regra": "ID" },
             { "tipo": "UNIQUE", "nome": "UK_USUARIO_EMPRESA", "regra": "(USUARIO_ID, EMPRESA_ID)" },
             { "tipo": "FK", "nome": "FK_USUARIO_EMPRESA_USUARIO", "regra": "USUARIO_ID → USUARIO (ID), sem cascade" },
+            { "tipo": "FK", "nome": "FK_USUARIO_EMPRESA_PERFIL", "regra": "(PERFIL_ID, EMPRESA_ID) → PERFIL (ID, EMPRESA_ID), sem cascade" },
             { "tipo": "FK", "nome": "FK_USUARIO_EMPRESA_EMPRESA", "regra": "EMPRESA_ID → KAWASHI_ENV_<AMB>.EMPRESA (ID), entre schemas, sem cascade" },
-            { "tipo": "FK", "nome": "FK_USUARIO_EMPRESA_PERFIL", "regra": "PERFIL_ID → PERFIL (ID), sem cascade" }
+            { "tipo": "INDEX", "nome": "IX_USUARIO_EMPRESA_EMPRESA", "regra": "(EMPRESA_ID, ATIVO)" },
+            { "tipo": "INDEX", "nome": "IX_USUARIO_EMPRESA_PERFIL", "regra": "(PERFIL_ID, EMPRESA_ID)" }
+          ]
+        },
+        {
+          "id": "LOG_PERMISSAO", "nome": "LOG_PERMISSAO", "schema": "log",
+          "desc": "quem mudou o cargo de quem, quando, de quê para quê",
+          "campos": [
+            { "n": "ID", "t": "NUMBER", "pk": true, "ident": true },
+            { "n": "ORDEM", "t": "NUMBER", "uq": true, "nota": "Numeração sem buraco, dada pelo gatilho, como nos outros logs." },
+            { "n": "EVENTO", "t": "VARCHAR2(30)", "nota": "VINCULO_CRIADO, PERFIL_TROCADO, VINCULO_DESATIVADO, VINCULO_REATIVADO, PERMISSAO_ADICIONADA, PERMISSAO_REMOVIDA ou PERFIL_CRIADO." },
+            { "n": "EMPRESA_ID", "t": "NUMBER" },
+            { "n": "USUARIO_ID", "t": "NUMBER", "nulo": true, "nota": "De quem é o cargo que mudou (vazio quando o que mudou foi um perfil)." },
+            { "n": "PERFIL_ANTERIOR", "t": "VARCHAR2(50 CHAR)", "nulo": true, "nota": "\"De\": o perfil antes." },
+            { "n": "PERFIL_NOVO", "t": "VARCHAR2(50 CHAR)", "nulo": true, "nota": "\"Para\": o perfil depois." },
+            { "n": "PERMISSAO", "t": "VARCHAR2(60)", "nulo": true, "nota": "Código da permissão posta ou tirada de um perfil." },
+            { "n": "FEITO_POR", "t": "VARCHAR2(128)", "nota": "\"USUARIO:<id>\" de quem mudou pela API, ou a conta do banco de quem mudou direto (o DBA também aparece)." },
+            { "n": "DATA_HORA", "t": "TIMESTAMP(6)", "pad": "SYS_EXTRACT_UTC(SYSTIMESTAMP)" },
+            { "n": "HASH_ANTERIOR", "t": "VARCHAR2(64)", "nulo": true },
+            { "n": "HASH", "t": "VARCHAR2(64)", "nota": "Encadeado como o LOG_SEGURANCA: alterar ou apagar uma linha aparece na view V_LOG_PERMISSAO_QUEBRAS. Quem grava são os gatilhos do _LOGIN; a API só lê." }
+          ],
+          "restricoes": [
+            { "tipo": "PK", "nome": "PK_LOG_PERMISSAO", "regra": "ID" },
+            { "tipo": "UNIQUE", "nome": "UK_LOG_PERMISSAO_ORDEM", "regra": "ORDEM" },
+            { "tipo": "CHECK", "nome": "CK_LOG_PERMISSAO_EVENTO", "regra": "EVENTO IN ('VINCULO_CRIADO', 'PERFIL_TROCADO', 'VINCULO_DESATIVADO', 'VINCULO_REATIVADO', 'PERMISSAO_ADICIONADA', 'PERMISSAO_REMOVIDA', 'PERFIL_CRIADO')" },
+            { "tipo": "INDEX", "nome": "IX_LOG_PERMISSAO_EMPRESA", "regra": "(EMPRESA_ID, DATA_HORA)" }
           ]
         },
         {
           "id": "V_USUARIO_ACESSOS", "nome": "V_USUARIO_ACESSOS", "schema": "login",
-          "desc": "o mesmo painel das contas do banco, para os usuários da aplicação",
+          "desc": "o painel dos usuários, como o das contas do banco",
           "ponte": "visão: uma linha por usuário e empresa",
           "campos": [
-            { "n": "USUARIO_ID", "t": "NUMBER", "fk": { "t": "USUARIO_REF", "c": "ID" }, "nota": "Todo usuário criado aparece aqui sem ninguém precisar lembrar de cadastrar: a visão lê USUARIO, PESSOA e USUARIO_EMPRESA." },
+            { "n": "USUARIO_ID", "t": "NUMBER", "fk": { "t": "USUARIO_REF", "c": "ID" }, "nota": "Todo usuário aparece aqui sem cadastro à parte: a visão lê USUARIO, PESSOA, USUARIO_EMPRESA, PERFIL e PASSKEY. É o GET /api/usuarios do administrador." },
             { "n": "NOME", "t": "VARCHAR2(200 CHAR)", "nota": "Da PESSOA ligada ao usuário." },
             { "n": "CARGO", "t": "VARCHAR2(100 CHAR)", "nulo": true, "nota": "PESSOA.CARGO (colaborador)." },
-            { "n": "EMPRESA_ID", "t": "NUMBER", "nota": "Qual empresa o usuário enxerga (uma linha por empresa liberada)." },
-            { "n": "PERFIL", "t": "VARCHAR2(50)", "nota": "A liberação: o perfil que o usuário tem naquela empresa." },
-            { "n": "SENHA_ALTERADA_EM", "t": "TIMESTAMP(6)" },
-            { "n": "SENHA_VENCE_EM", "t": "DATE", "nota": "SENHA_ALTERADA_EM + SENHA_VALIDADE_DIAS (parâmetro, 90). Passada a data, o login só deixa trocar a senha." },
-            { "n": "DIAS_PARA_VENCER", "t": "NUMBER" },
-            { "n": "SITUACAO_DA_SENHA", "t": "VARCHAR2(15)", "nota": "EM DIA, VENCE EM BREVE ou VENCIDA: a mesma regra do painel das contas do banco." }
+            { "n": "EMPRESA_ID", "t": "NUMBER" },
+            { "n": "PERFIL", "t": "VARCHAR2(50 CHAR)", "nota": "O cargo naquela empresa." },
+            { "n": "ATIVO", "t": "BOOLEAN", "nota": "Usuário e vínculo ativos." },
+            { "n": "PASSKEYS_ATIVAS", "t": "NUMBER" },
+            { "n": "ULTIMO_LOGIN_EM", "t": "TIMESTAMP(6)", "nulo": true }
           ],
           "restricoes": []
         }
       ],
       "relacoes": [
-        { "pai": "PERMISSAO", "filho": "PERFIL_PERMISSAO", "fk": "PERMISSAO_ID", "pk": "ID", "card": "1:N", "nome": "FK_PERFIL_PERMISSAO_PERMISSAO" },
+        { "pai": "USUARIO_REF", "filho": "ADMIN_PLATAFORMA", "fk": "USUARIO_ID", "pk": "ID", "card": "1:1", "nome": "FK_ADMIN_PLATAFORMA_USUARIO", "lado": "esq" },
+        { "pai": "USUARIO_REF", "filho": "USUARIO_EMPRESA", "fk": "USUARIO_ID", "pk": "ID", "card": "1:N", "nome": "FK_USUARIO_EMPRESA_USUARIO", "obs": "Um usuário pode ter acesso a várias empresas, com um cargo em cada." },
+        { "pai": "EMPRESA_REF", "filho": "USUARIO_EMPRESA", "fk": "EMPRESA_ID", "pk": "ID", "card": "1:N", "nome": "FK_USUARIO_EMPRESA_EMPRESA", "obs": "FK entre schemas: LOGIN aponta para o padrão." },
+        { "pai": "EMPRESA_REF", "filho": "PERFIL", "fk": "EMPRESA_ID", "pk": "ID", "card": "1:N", "nome": "FK_PERFIL_EMPRESA" },
+        { "pai": "EMPRESA_REF", "filho": "TOKEN_REF", "fk": "EMPRESA_ID", "pk": "ID", "card": "1:N", "nome": "FK_TOKEN_EMPRESA", "lado": "dir" },
+        { "pai": "PERFIL", "filho": "USUARIO_EMPRESA", "fk": "PERFIL_ID", "pk": "ID", "card": "1:N", "nome": "FK_USUARIO_EMPRESA_PERFIL", "obs": "Chave composta (PERFIL_ID, EMPRESA_ID): o perfil é sempre da mesma empresa do vínculo." },
         { "pai": "PERFIL", "filho": "PERFIL_PERMISSAO", "fk": "PERFIL_ID", "pk": "ID", "card": "1:N", "nome": "FK_PERFIL_PERMISSAO_PERFIL" },
-        { "pai": "PERFIL", "filho": "USUARIO_EMPRESA", "fk": "PERFIL_ID", "pk": "ID", "card": "1:N", "nome": "FK_USUARIO_EMPRESA_PERFIL" },
-        { "pai": "USUARIO_REF", "filho": "USUARIO_EMPRESA", "fk": "USUARIO_ID", "pk": "ID", "card": "1:N", "nome": "FK_USUARIO_EMPRESA_USUARIO", "obs": "Um usuário tem acesso a várias empresas." },
-        { "pai": "USUARIO_REF", "filho": "V_USUARIO_ACESSOS", "fk": "USUARIO_ID", "pk": "ID", "card": "1:N", "nome": "(junção da visão)", "apagar": "Não se aplica: é uma visão, sem dado próprio.", "obs": "O painel tem uma linha por usuário e empresa liberada." },
-        { "pai": "EMPRESA_REF", "filho": "USUARIO_EMPRESA", "fk": "EMPRESA_ID", "pk": "ID", "card": "1:N", "nome": "FK_USUARIO_EMPRESA_EMPRESA", "obs": "Uma empresa tem vários usuários. FK entre schemas: LOGIN aponta para o padrão." }
+        { "pai": "PERMISSAO", "filho": "PERFIL_PERMISSAO", "fk": "PERMISSAO_ID", "pk": "ID", "card": "1:N", "nome": "FK_PERFIL_PERMISSAO_PERMISSAO" },
+        { "pai": "USUARIO_REF", "filho": "V_USUARIO_ACESSOS", "fk": "USUARIO_ID", "pk": "ID", "card": "1:N", "nome": "(junção da visão)", "apagar": "Não se aplica: é uma visão, sem dado próprio.", "lado": "esq" }
       ],
-      "extras": [
-        { "card": "N:N", "a": "USUARIO", "b": "EMPRESA", "via": "USUARIO_EMPRESA", "obs": "Não é uma ligação a mais: é o efeito das duas ligações 1:N acima. No banco, usuário e empresa nunca se ligam direto; a tabela do meio USUARIO_EMPRESA resolve o N para N." },
-        { "card": "N:N", "a": "PERFIL", "b": "PERMISSAO", "via": "PERFIL_PERMISSAO", "obs": "Resolvido pela tabela do meio PERFIL_PERMISSAO, com duas ligações 1:N. Não existe N para N direto no banco." }
-      ]
+      "extras": []
     }
   ],
   "dePara": [

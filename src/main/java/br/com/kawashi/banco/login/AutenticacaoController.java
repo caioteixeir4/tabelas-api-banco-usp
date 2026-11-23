@@ -69,13 +69,19 @@ public class AutenticacaoController {
             List<String> codigosDeRecuperacao) {
     }
 
-    public record Eu(long usuarioId, long pessoaId, String escopo, OffsetDateTime expiraEm, OffsetDateTime expiraAbsolutoEm) {
+    public record Eu(long usuarioId, long pessoaId, String escopo, OffsetDateTime expiraEm, OffsetDateTime expiraAbsolutoEm,
+            Long empresaId, java.util.Set<String> permissoes, boolean adminPlataforma) {
+    }
+
+    public record EscolhaDeEmpresa(@NotNull(message = "Informe a empresa") Long empresaId) {
     }
 
     private final ServicoDeLogin servico;
+    private final br.com.kawashi.banco.autorizacao.Autorizacao autorizacao;
 
-    public AutenticacaoController(ServicoDeLogin servico) {
+    public AutenticacaoController(ServicoDeLogin servico, br.com.kawashi.banco.autorizacao.Autorizacao autorizacao) {
         this.servico = servico;
+        this.autorizacao = autorizacao;
     }
 
     // ---- sem token ---------------------------------------------------------------------------
@@ -151,10 +157,24 @@ public class AutenticacaoController {
         return ResponseEntity.noContent().build();
     }
 
+    /** Quem esta logado, em qual empresa, com quais permissoes nela, e se e administrador da plataforma. */
     @GetMapping("/eu")
     public Eu eu(HttpServletRequest requisicao) {
         Tokens.Sessao s = sessao(requisicao);
-        return new Eu(s.usuarioId(), s.pessoaId(), s.escopo(), utc(s.expiraEm()), utc(s.expiraAbsolutoEm()));
+        return new Eu(s.usuarioId(), s.pessoaId(), s.escopo(), utc(s.expiraEm()), utc(s.expiraAbsolutoEm()), s.empresaId(),
+                autorizacao.permissoesDoPedido(), autorizacao.ehAdminPlataforma(s.usuarioId()));
+    }
+
+    /** As empresas em que o usuario entra, com o cargo em cada uma. */
+    @GetMapping("/empresas")
+    public java.util.List<br.com.kawashi.banco.autorizacao.Autorizacao.Vinculo> empresas(HttpServletRequest requisicao) {
+        return autorizacao.vinculosAtivos(sessao(requisicao).usuarioId());
+    }
+
+    /** Prende a sessao a uma empresa: devolve um token NOVO (o atual deixa de valer). */
+    @PostMapping("/empresa")
+    public ResponseEntity<?> escolherEmpresa(@Valid @RequestBody EscolhaDeEmpresa pedido, HttpServletRequest requisicao) {
+        return responder(servico.escolherEmpresa(sessao(requisicao), pedido.empresaId(), FiltroDoBff.ipDoCliente(requisicao)), "");
     }
 
     // ---- apoio ---------------------------------------------------------------------------------

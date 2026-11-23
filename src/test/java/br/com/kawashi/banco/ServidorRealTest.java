@@ -69,9 +69,11 @@ class ServidorRealTest {
 
     @BeforeEach
     void criarEmpresaEPessoa() throws Exception {
-        token = usuarios.tokenPersistente();
-        empresaId = id(enviar("POST", "/api/empresas",
-                "{\"cnpj\":\"" + GeradorDeDocumentos.cnpj() + "\",\"razaoSocial\":\"Concorrencia LTDA\"}", 201));
+        // Usuario e empresa FIXOS, gravados de verdade: perfis e vinculos nao se apagam (a API nao
+        // tem DELETE neles), entao a empresa e reaproveitada e so os cadastros de dentro saem no fim.
+        var sessao = usuarios.sessaoPersistente();
+        token = sessao.token();
+        empresaId = sessao.empresaId();
         pessoaId = id(enviar("POST", "/api/empresas/" + empresaId + "/pessoas",
                 Api.pessoaJson("CLIENTE", GeradorDeDocumentos.cpf(), null, null), 201));
     }
@@ -86,7 +88,6 @@ class ServidorRealTest {
         jdbc.update("DELETE FROM ENDERECO WHERE PESSOA_ID IN (SELECT ID FROM PESSOA WHERE EMPRESA_ID = ?)", empresaId);
         jdbc.update("DELETE FROM PESSOA WHERE EMPRESA_ID = ?", empresaId);
         jdbc.update("DELETE FROM FILIAL WHERE EMPRESA_ID = ?", empresaId);
-        jdbc.update("DELETE FROM EMPRESA WHERE ID = ?", empresaId);
     }
 
     @Test
@@ -145,7 +146,8 @@ class ServidorRealTest {
         // ofInputStream nao declara tamanho: o corpo vai em transferencia fragmentada (chunked) e o
         // limite so pode ser aplicado durante a leitura.
         String corpo = "{\"cnpj\":\"" + GeradorDeDocumentos.cnpj() + "\",\"razaoSocial\":\"" + "a".repeat(70_000) + "\"}";
-        HttpResponse<String> resposta = http.send(fragmentado("/api/empresas", corpo), HttpResponse.BodyHandlers.ofString());
+        HttpResponse<String> resposta = http.send(fragmentado("/api/empresas/" + empresaId + "/filiais", corpo),
+                HttpResponse.BodyHandlers.ofString());
 
         assertThat(resposta.statusCode()).isEqualTo(413);
         assertThat(resposta.headers().firstValue("Content-Type").orElse("")).startsWith("application/problem+json");
@@ -161,22 +163,18 @@ class ServidorRealTest {
 
     @Test
     void corpoDeclaradoGrandeDemaisEhRecusadoCom413SemSerLido() throws Exception {
-        HttpResponse<String> resposta = enviar("POST", "/api/empresas", "{\"razaoSocial\":\"" + "a".repeat(70_000) + "\"}");
+        HttpResponse<String> resposta = enviar("POST", "/api/empresas/" + empresaId + "/filiais", "{\"nome\":\"" + "a".repeat(70_000) + "\"}");
         assertThat(resposta.statusCode()).isEqualTo(413);
     }
 
     @Test
     void carimbosDeTempoSaoIguaisNoPostENoGetSeguinte() throws Exception {
-        String criado = enviar("POST", "/api/empresas",
-                "{\"cnpj\":\"" + GeradorDeDocumentos.cnpj() + "\",\"razaoSocial\":\"Carimbo LTDA\"}", 201).body();
+        String criado = enviar("POST", "/api/empresas/" + empresaId + "/pessoas",
+                Api.pessoaJson("CLIENTE", GeradorDeDocumentos.cpf(), null, null), 201).body();
         long id = ((Number) JsonPath.read(criado, "$.id")).longValue();
-        try {
-            String lido = enviar("GET", "/api/empresas/" + id, null, 200).body();
-            assertThat((String) JsonPath.read(lido, "$.criadoEm")).isEqualTo(JsonPath.read(criado, "$.criadoEm"));
-            assertThat((String) JsonPath.read(lido, "$.atualizadoEm")).isEqualTo(JsonPath.read(criado, "$.atualizadoEm"));
-        } finally {
-            jdbc.update("DELETE FROM EMPRESA WHERE ID = ?", id);
-        }
+        String lido = enviar("GET", "/api/pessoas/" + id, null, 200).body();
+        assertThat((String) JsonPath.read(lido, "$.criadoEm")).isEqualTo(JsonPath.read(criado, "$.criadoEm"));
+        assertThat((String) JsonPath.read(lido, "$.atualizadoEm")).isEqualTo(JsonPath.read(criado, "$.atualizadoEm"));
     }
 
     // ---- apoio ---------------------------------------------------------------------------

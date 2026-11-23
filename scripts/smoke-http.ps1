@@ -6,8 +6,10 @@
   Os testes de integracao rodam dentro de uma transacao que e desfeita, e isso esconde erros que so
   aparecem em producao (como LazyInitializationException fora da transacao). Este roteiro chama a
   API de verdade: cria empresa, filial, pessoas de cada tipo, contatos e enderecos, viola as
-  regras de proposito e confere o status de cada resposta. No fim apaga os cadastros que criou (toda
-  empresa criada tem a marca da rodada na razao social) e confere que nada sobrou.
+  regras de proposito e confere o status de cada resposta. Trabalha DENTRO da empresa da sessao da
+  conta de teste (a autorizacao prende cada sessao a uma empresa) e, se a conta for administradora da
+  plataforma, cria empresas com a marca da rodada. No fim apaga os cadastros que criou e inativa as
+  empresas criadas (empresa com perfis de acesso nao se apaga).
 
   A API precisa estar no ar (mvn spring-boot:run). Sai com codigo 1 se alguma verificacao falhar.
 
@@ -213,29 +215,53 @@ try {
         $script:token = $tokenDoConvite; [void](Chamar POST '/api/auth/logout'); $script:token = $r.Json.token
     }
 
-    Write-Host '== empresa e filial'
-    $raiz = NovaRaiz
-    $cnpjMatriz = NovoCnpj $raiz '0001'
-    $r = Chamar POST '/api/empresas' (Corpo @{ cnpj = $cnpjMatriz; razaoSocial = "  $marca Ltda  " })
-    Confere 'POST empresa 201' ($r.Status -eq 201) "status=$($r.Status) $($r.Texto)"
-    $emp = $r.Json
-    Confere 'razaoSocial aparada e Location da empresa' ($emp.razaoSocial -eq "$marca Ltda" -and $r.Location -like "*/api/empresas/$($emp.id)")
-    $c = Chamar GET "/api/empresas/$($emp.id)"
-    Confere 'criadoEm do GET igual ao do POST' ($c.Status -eq 200 -and $c.Json.criadoEm -eq $emp.criadoEm)
-    $r = Chamar POST '/api/empresas' (Corpo @{ cnpj = $cnpjMatriz; razaoSocial = "$marca outra" })
-    Confere 'CNPJ duplicado 409' ($r.Status -eq 409)
-    $r = Chamar POST '/api/empresas' (Corpo @{ cnpj = (NovoCnpj (NovaRaiz) '0002'); razaoSocial = "$marca filial" })
-    Confere 'empresa que nao e matriz 422' ($r.Status -eq 422)
-    $r = Chamar POST '/api/empresas' (Corpo @{ cnpj = (NovoCnpj (NovaRaiz) '0001'); razaoSocial = ($marca + ($aTil * (200 - $marca.Length))) })
-    Confere '200 caracteres acentuados cabem' ($r.Status -eq 201) "status=$($r.Status)"
-    $r = Chamar POST "/api/empresas/$($emp.id)/filiais" (Corpo @{ cnpj = (NovoCnpj $raiz '0002'); nome = 'Filial Centro' })
+    Write-Host '== empresa da sessao (a conta de teste trabalha so nela)'
+    $eu = Chamar GET '/api/auth/eu'
+    Confere 'a sessao ja nasce presa a empresa (a conta tem acesso a uma so)' ($eu.Status -eq 200 -and $eu.Json.empresaId) "status=$($eu.Status) $($eu.Texto)"
+    if (-not $eu.Json.empresaId) { throw 'A conta de teste precisa de acesso a uma empresa (criar-usuario.ps1 -UsuarioId ... modo vincular, ou rode o ServidorRealTest uma vez).' }
+    $empresaId = $eu.Json.empresaId
+    $emp = (Chamar GET "/api/empresas/$empresaId").Json
+    $raiz = $emp.cnpj.Substring(0, 8)
+    $r = Chamar GET '/api/empresas'
+    Confere 'a lista de empresas mostra so a da sessao' ($r.Status -eq 200 -and $r.Json.total -eq 1 -and $r.Json.itens[0].id -eq $empresaId)
+
+    Write-Host '== plataforma (empresa nova com o primeiro administrador)'
+    $novaEmpresa = { param($cnpj, $razao) Corpo @{ cnpj = $cnpj; razaoSocial = $razao; administrador = @{ cpf = (NovoCpf); nome = 'Admin Smoke'; email = "adm$(Get-Random)@teste.kawashi.invalid" } } }
+    if ($eu.Json.adminPlataforma) {
+        $cnpjNova = NovoCnpj (NovaRaiz) '0001'
+        $r = Chamar POST '/api/plataforma/empresas' (& $novaEmpresa $cnpjNova "  $marca Ltda  ")
+        Confere 'plataforma cria empresa (201) e o convite do administrador vem uma vez' ($r.Status -eq 201 -and $r.Json.convite -match '^kwc_') "status=$($r.Status) $($r.Texto)"
+        $nova = $r.Json.empresaId
+        $r = Chamar GET "/api/plataforma/empresas?razaoSocial=$marca"
+        Confere 'razaoSocial aparada' ($r.Status -eq 200 -and @($r.Json.itens | Where-Object { $_.razaoSocial -eq "$marca Ltda" }).Count -eq 1)
+        $r = Chamar GET "/api/empresas/$nova"
+        Confere 'a plataforma nao enxerga os dados da empresa que criou (404 na sessao de outra empresa)' ($r.Status -eq 404) "status=$($r.Status)"
+        $r = Chamar POST '/api/plataforma/empresas' (& $novaEmpresa $cnpjNova "$marca outra")
+        Confere 'CNPJ duplicado 409' ($r.Status -eq 409)
+        $r = Chamar POST '/api/plataforma/empresas' (& $novaEmpresa (NovoCnpj (NovaRaiz) '0002') "$marca filial")
+        Confere 'empresa que nao e matriz 422' ($r.Status -eq 422)
+        $r = Chamar POST '/api/plataforma/empresas' (& $novaEmpresa (NovoCnpj (NovaRaiz) '0001') ($marca + ($aTil * (200 - $marca.Length))))
+        Confere '200 caracteres acentuados cabem' ($r.Status -eq 201) "status=$($r.Status)"
+        $r = Chamar POST "/api/plataforma/empresas/$nova/inativar"
+        Confere 'plataforma inativa empresa 200' ($r.Status -eq 200 -and $r.Json.ativa -eq $false)
+        $r = Chamar DELETE "/api/plataforma/empresas/$nova"
+        Confere 'empresa com perfis de acesso nao se exclui (409): se inativa' ($r.Status -eq 409)
+    } else {
+        $r = Chamar POST '/api/plataforma/empresas' (& $novaEmpresa (NovoCnpj (NovaRaiz) '0001') "$marca Ltda")
+        Confere 'sem ser administrador da plataforma, criar empresa da 403' ($r.Status -eq 403)
+    }
+
+    Write-Host '== filial'
+    $ordem = '{0:D4}' -f (Get-Random -Minimum 100 -Maximum 9999)
+    $r = Chamar POST "/api/empresas/$empresaId/filiais" (Corpo @{ cnpj = (NovoCnpj $raiz $ordem); nome = "Filial $marca" })
     Confere 'POST filial 201' ($r.Status -eq 201) "status=$($r.Status) $($r.Texto)"
     $filialId = $r.Json.id
-    $r = Chamar POST "/api/empresas/$($emp.id)/filiais" (Corpo @{ cnpj = (NovoCnpj (NovaRaiz) '0002'); nome = 'Raiz diferente' })
+    $c = Chamar GET "/api/filiais/$filialId"
+    Confere 'criadoEm do GET igual ao do POST' ($c.Status -eq 200 -and $c.Json.criadoEm -eq $r.Json.criadoEm)
+    $r = Chamar POST "/api/empresas/$empresaId/filiais" (Corpo @{ cnpj = (NovoCnpj (NovaRaiz) '0002'); nome = 'Raiz diferente' })
     Confere 'filial com raiz diferente 422' ($r.Status -eq 422)
-
     Write-Host '== pessoa (o tipo e a separacao)'
-    $pes = "/api/empresas/$($emp.id)/pessoas"
+    $pes = "/api/empresas/$empresaId/pessoas"
     $cpfCliente = NovoCpf
     $r = Chamar POST $pes (Corpo @{ tipo = 'cliente'; natureza = 'f'; documento = $cpfCliente; nome = 'Cliente Um' })
     Confere 'POST pessoa CLIENTE 201 (tipo e natureza normalizados)' ($r.Status -eq 201 -and $r.Json.tipo -eq 'CLIENTE' -and $r.Json.natureza -eq 'F') "status=$($r.Status) $($r.Texto)"
@@ -295,36 +321,39 @@ try {
     Confere 'pessoa inexistente 404 problem+json' ($r.Status -eq 404 -and $r.Tipo -like 'application/problem+json*')
     $r = Chamar DELETE "/api/pessoas/$clienteId"
     Confere 'excluir pessoa com contato e endereco 409' ($r.Status -eq 409)
-    $r = Chamar DELETE "/api/empresas/$($emp.id)"
-    Confere 'excluir empresa com filial e pessoas 409' ($r.Status -eq 409)
-    $r = Chamar POST "/api/empresas/$($emp.id)/inativar"
-    Confere 'inativar empresa 200' ($r.Status -eq 200 -and $r.Json.ativa -eq $false)
-    $r = Chamar POST $pes (Corpo @{ tipo = 'CLIENTE'; natureza = 'F'; documento = (NovoCpf); nome = 'Tarde demais' })
-    Confere 'pessoa nova em empresa inativa 422' ($r.Status -eq 422)
+    $r = Chamar GET '/api/perfis'
+    Confere 'o administrador ve os perfis da empresa (ADMINISTRADOR, OPERADOR, CONSULTA)' ($r.Status -eq 200 -and @($r.Json | Where-Object { $_.nome -in 'ADMINISTRADOR', 'OPERADOR', 'CONSULTA' }).Count -eq 3)
+    $r = Chamar GET '/api/usuarios/historico'
+    Confere 'o historico de cargos da empresa responde (LOG_PERMISSAO)' ($r.Status -eq 200)
 }
 finally {
-    Write-Host '== limpeza (tudo que tem a marca da rodada)'
-    $apagadas = 0
-    $lista = Chamar GET "/api/empresas?razaoSocial=$marca&size=100"
-    foreach ($e in @($lista.Json.itens)) {
-        $donos = @()
-        foreach ($f in @((Chamar GET "/api/empresas/$($e.id)/filiais?size=100").Json.itens)) { $donos += [pscustomobject]@{ base = "/api/filiais/$($f.id)" } }
-        foreach ($p in @((Chamar GET "/api/empresas/$($e.id)/pessoas?size=100").Json.itens)) { $donos += [pscustomobject]@{ base = "/api/pessoas/$($p.id)" } }
-        foreach ($d in $donos) {
-            foreach ($tipo in @('contatos', 'enderecos')) {
-                $itens = @((Chamar GET "$($d.base)/$tipo`?size=100").Json.itens)
-                # o principal so sai por ultimo: primeiro os demais
-                foreach ($i in ($itens | Where-Object { -not $_.principal })) { [void](Chamar DELETE "/api/$tipo/$($i.id)") }
-                foreach ($i in ($itens | Where-Object { $_.principal })) { [void](Chamar DELETE "/api/$tipo/$($i.id)") }
-            }
-            [void](Chamar DELETE $d.base)
-        }
-        $x = Chamar DELETE "/api/empresas/$($e.id)"
-        if ($x.Status -eq 204) { $apagadas++ }
+    Write-Host '== limpeza (o que esta rodada criou)'
+    # Na empresa da sessao: filiais com a marca e as pessoas criadas agora (com contatos e enderecos).
+    $donos = @()
+    if ($empresaId) {
+        foreach ($f in @((Chamar GET "/api/empresas/$empresaId/filiais?size=100").Json.itens | Where-Object { $_.nome -eq "Filial $marca" })) { $donos += "/api/filiais/$($f.id)" }
+        foreach ($p in @((Chamar GET "/api/empresas/$empresaId/pessoas?size=100").Json.itens | Where-Object { $_.nome -in 'Cliente Um', 'Fornecedor Ltda', 'Socio A' })) { $donos += "/api/pessoas/$($p.id)" }
     }
-    $resto = Chamar GET "/api/empresas?razaoSocial=$marca&size=100"
-    Confere "limpeza: $apagadas empresa(s) apagada(s), nada sobrou com a marca" ($resto.Json.total -eq 0) "sobraram=$($resto.Json.total)"
-    if ($script:token) {
+    foreach ($d in $donos) {
+        foreach ($tipo in @('contatos', 'enderecos')) {
+            $itens = @((Chamar GET "$d/$tipo`?size=100").Json.itens)
+            # o principal so sai por ultimo: primeiro os demais
+            foreach ($i in ($itens | Where-Object { -not $_.principal })) { [void](Chamar DELETE "/api/$tipo/$($i.id)") }
+            foreach ($i in ($itens | Where-Object { $_.principal })) { [void](Chamar DELETE "/api/$tipo/$($i.id)") }
+        }
+        [void](Chamar DELETE $d)
+    }
+    $sobra = 0
+    if ($empresaId) {
+        $sobra += @((Chamar GET "/api/empresas/$empresaId/filiais?size=100").Json.itens | Where-Object { $_.nome -eq "Filial $marca" }).Count
+        $sobra += @((Chamar GET "/api/empresas/$empresaId/pessoas?size=100").Json.itens | Where-Object { $_.nome -in 'Cliente Um', 'Fornecedor Ltda', 'Socio A' }).Count
+    }
+    Confere "limpeza: $($donos.Count) cadastro(s) apagado(s), nada sobrou na empresa da sessao" ($sobra -eq 0) "sobraram=$sobra"
+    # Empresas da plataforma nao se apagam (tem perfis de acesso): ficam inativas.
+    $criadas = @((Chamar GET "/api/plataforma/empresas?razaoSocial=$marca&size=100").Json.itens)
+    foreach ($e in ($criadas | Where-Object { $_.ativa })) { [void](Chamar POST "/api/plataforma/empresas/$($e.id)/inativar") }
+    $ativas = @((Chamar GET "/api/plataforma/empresas?razaoSocial=$marca&size=100").Json.itens | Where-Object { $_.ativa }).Count
+    Confere "as $($criadas.Count) empresa(s) criada(s) pela plataforma ficaram inativas" ($ativas -eq 0) "ativas=$ativas"    if ($script:token) {
         $x = Chamar POST '/api/auth/logout'
         $y = Chamar GET '/api/auth/eu'
         Confere 'logout 204 e o token para de valer na hora (401)' ($x.Status -eq 204 -and $y.Status -eq 401) "logout=$($x.Status) depois=$($y.Status)"

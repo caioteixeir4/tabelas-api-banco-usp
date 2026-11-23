@@ -39,7 +39,7 @@ class LogDaAplicacaoTest {
 
     @BeforeEach
     void preparar() {
-        api = new Api(mvc, usuarios.token());
+        api = usuarios.api(mvc);
     }
 
     private List<Map<String, Object>> alteracoes(String tabela, long id) {
@@ -55,14 +55,17 @@ class LogDaAplicacaoTest {
 
     @Test
     void criarAlterarEExcluirDeixamRastroEncadeado() throws Exception {
-        String cnpj = GeradorDeDocumentos.cnpj();
-        long id = api.empresa(cnpj);
-        api.put("/api/empresas/" + id, "{\"cnpj\":\"" + cnpj + "\",\"razaoSocial\":\"Outro Nome\"}").andExpect(status().isOk());
-        api.post("/api/empresas/" + id + "/inativar").andExpect(status().isOk());
-        api.post("/api/empresas/" + id + "/inativar").andExpect(status().isOk()); // repetir nao muda nada: sem rastro novo
-        api.delete("/api/empresas/" + id).andExpect(status().isNoContent());
+        // Numa filial: criar, alterar, inativar e excluir sao todos do administrador da empresa.
+        String raiz = GeradorDeDocumentos.raizDeCnpj();
+        long empresa = api.empresa(GeradorDeDocumentos.cnpj(raiz, "0001"));
+        long id = api.filial(empresa, raiz);
+        String cnpj = GeradorDeDocumentos.cnpj(raiz, "0002");
+        api.put("/api/filiais/" + id, "{\"cnpj\":\"" + cnpj + "\",\"nome\":\"Outro Nome\"}").andExpect(status().isOk());
+        api.post("/api/filiais/" + id + "/inativar").andExpect(status().isOk());
+        api.post("/api/filiais/" + id + "/inativar").andExpect(status().isOk()); // repetir nao muda nada: sem rastro novo
+        api.delete("/api/filiais/" + id).andExpect(status().isNoContent());
 
-        List<Map<String, Object>> linhas = alteracoes("EMPRESA", id);
+        List<Map<String, Object>> linhas = alteracoes("FILIAL", id);
         assertThat(linhas).extracting(l -> l.get("ACAO")).containsExactly("INSERT", "UPDATE", "UPDATE", "DELETE");
         assertThat(linhas).extracting(l -> l.get("DETALHE")).containsExactly(null, "dados cadastrais", "inativada", null);
         assertThat(linhas).allSatisfy(l -> assertThat((String) l.get("HASH")).matches("[0-9a-f]{64}"));
@@ -92,8 +95,9 @@ class LogDaAplicacaoTest {
     @Test
     void pedidoRecusadoNaoDeixaRastroDeAlteracao() throws Exception {
         long antes = jdbc.queryForObject("SELECT COUNT(*) FROM " + schema.tabela("LOG_ALTERACAO"), Long.class);
-        api.post("/api/empresas", "{\"cnpj\":\"123\",\"razaoSocial\":\"X\"}").andExpect(status().isBadRequest());
-        api.delete("/api/empresas/999999999").andExpect(status().isNotFound());
+        api.post("/api/empresas/" + api.empresaAtual() + "/pessoas", Api.pessoaJson("CLIENTE", "123", null, null))
+                .andExpect(status().isBadRequest());
+        api.delete("/api/pessoas/999999999").andExpect(status().isNotFound());
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM " + schema.tabela("LOG_ALTERACAO"), Long.class)).isEqualTo(antes);
     }
 

@@ -31,10 +31,13 @@ public class CriarUsuarioNaSubida implements ApplicationRunner {
     private static final Logger LOG = LoggerFactory.getLogger(CriarUsuarioNaSubida.class);
 
     private final Usuarios usuarios;
+    private final br.com.kawashi.banco.autorizacao.Autorizacao autorizacao;
     private final ConfigurableApplicationContext contexto;
 
-    public CriarUsuarioNaSubida(Usuarios usuarios, ConfigurableApplicationContext contexto) {
+    public CriarUsuarioNaSubida(Usuarios usuarios, br.com.kawashi.banco.autorizacao.Autorizacao autorizacao,
+            ConfigurableApplicationContext contexto) {
         this.usuarios = usuarios;
+        this.autorizacao = autorizacao;
         this.contexto = contexto;
     }
 
@@ -59,8 +62,23 @@ public class CriarUsuarioNaSubida implements ApplicationRunner {
                 long usuarioId = Long.parseLong(env.getRequiredProperty("app.criar-usuario.usuario-id").strip());
                 convite = usuarios.novoConvite(usuarioId, "SCRIPT");
                 LOG.info("USUARIO_CRIADO id={}: convite novo gravado no arquivo indicado.", usuarioId);
+            } else if ("vincular".equals(modo)) {
+                // Da a um usuario que ja existe o acesso a uma empresa, com um perfil. Se a empresa
+                // ainda nao tem perfis (empresa anterior a autorizacao), cria os padrao.
+                long usuarioId = Long.parseLong(env.getRequiredProperty("app.criar-usuario.usuario-id").strip());
+                long empresaId = Long.parseLong(env.getRequiredProperty("app.criar-usuario.empresa-id").strip());
+                String perfil = env.getRequiredProperty("app.criar-usuario.perfil").strip().toUpperCase(java.util.Locale.ROOT);
+                String quem = "SCRIPT:CRIAR_USUARIO";
+                if (autorizacao.perfilPorNome(empresaId, "ADMINISTRADOR").isEmpty()) {
+                    autorizacao.criarPerfisPadrao(empresaId, quem);
+                }
+                long perfilId = autorizacao.perfilPorNome(empresaId, perfil)
+                        .orElseThrow(() -> new IllegalStateException("A empresa " + empresaId + " nao tem o perfil " + perfil + "."));
+                autorizacao.vincular(usuarioId, empresaId, perfilId, quem);
+                LOG.info("USUARIO_CRIADO id={}: vinculado a empresa {} como {}.", usuarioId, empresaId, perfil);
+                convite = "";
             } else {
-                throw new IllegalStateException("app.criar-usuario.modo deve ser 'novo' ou 'convite'.");
+                throw new IllegalStateException("app.criar-usuario.modo deve ser 'novo', 'convite' ou 'vincular'.");
             }
             Files.writeString(Path.of(arquivo), convite, StandardCharsets.US_ASCII);
         } catch (Exception ex) {

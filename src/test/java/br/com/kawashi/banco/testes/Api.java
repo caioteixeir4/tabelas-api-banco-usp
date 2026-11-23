@@ -20,17 +20,51 @@ import com.jayway.jsonpath.JsonPath;
 public class Api {
 
     private final MockMvc mvc;
-    private final String token;
+    private String token;
+    private final java.util.function.Function<String, Long> criadorDeEmpresa;
+    private long empresaAtual;
+    /** Raiz do CNPJ da empresa atual (as filiais dela usam a mesma raiz) e a proxima ordem livre. */
+    private String raizAtual;
+    private int proximaOrdem = 2;
 
     /** Sem token: so serve para o login e para conferir que o resto da API recusa (401). */
     public Api(MockMvc mvc) {
         this(mvc, null);
     }
 
-    /** Com token: toda chamada leva o cabecalho Authorization: Bearer. */
+    /** Com token: toda chamada leva o cabecalho Authorization: Bearer. Nao cria empresas. */
     public Api(MockMvc mvc, String token) {
+        this(mvc, token, null, 0, null);
+    }
+
+    /**
+     * Cliente que tambem cria empresas (feito por UsuarioDeTeste.api): cada empresa nova e do mesmo
+     * usuario, como ADMINISTRADOR, e a sessao passa para ela pela rota real /api/auth/empresa.
+     */
+    public Api(MockMvc mvc, String token, java.util.function.Function<String, Long> criadorDeEmpresa, long empresaAtual,
+            String cnpjDaEmpresaAtual) {
         this.mvc = mvc;
         this.token = token;
+        this.criadorDeEmpresa = criadorDeEmpresa;
+        this.empresaAtual = empresaAtual;
+        this.raizAtual = cnpjDaEmpresaAtual == null ? null : cnpjDaEmpresaAtual.substring(0, 8);
+    }
+
+    /** O token atual (muda a cada troca de empresa). */
+    public String token() {
+        return token;
+    }
+
+    /** A empresa em que a sessao esta. */
+    public long empresaAtual() {
+        return empresaAtual;
+    }
+
+    /** Troca a sessao para outra empresa do usuario (token novo; o anterior deixa de valer). */
+    public void entrarNa(long empresaId) throws Exception {
+        String resposta = corpo(post("/api/auth/empresa", "{\"empresaId\":" + empresaId + "}").andExpect(status().isOk()));
+        token = JsonPath.read(resposta, "$.token");
+        empresaAtual = empresaId;
     }
 
     public ResultActions post(String caminho, String json) throws Exception {
@@ -87,25 +121,33 @@ public class Api {
         return empresa(GeradorDeDocumentos.cnpj());
     }
 
+    /** Empresa nova do mesmo usuario; a sessao passa para ela. */
     public long empresa(String cnpj) throws Exception {
-        return criar("/api/empresas", "{\"cnpj\":\"" + cnpj + "\",\"razaoSocial\":\"Empresa de Teste LTDA\"}");
+        if (criadorDeEmpresa == null) {
+            throw new IllegalStateException("Este cliente nao cria empresas: use UsuarioDeTeste.api(mvc).");
+        }
+        long id = criadorDeEmpresa.apply(cnpj);
+        entrarNa(id);
+        raizAtual = cnpj.substring(0, 8);
+        proximaOrdem = 2;
+        return id;
     }
 
-    /** Filial de uma empresa nova; devolve o id da filial. */
+    /** Filial nova NA EMPRESA ATUAL da sessao; devolve o id da filial. */
     public long filial() throws Exception {
-        String raiz = GeradorDeDocumentos.raizDeCnpj();
-        long empresaId = empresa(GeradorDeDocumentos.cnpj(raiz, "0001"));
-        return filial(empresaId, raiz);
+        return filial(empresaAtual, raizAtual);
     }
 
+    /** Filial da empresa (CNPJ com a raiz dela e a proxima ordem livre: 0002, 0003...). */
     public long filial(long empresaId, String raiz) throws Exception {
+        String ordem = String.format("%04d", raiz.equals(raizAtual) ? proximaOrdem++ : 2);
         return criar("/api/empresas/" + empresaId + "/filiais",
-                "{\"cnpj\":\"" + GeradorDeDocumentos.cnpj(raiz, "0002") + "\",\"nome\":\"Filial Centro\"}");
+                "{\"cnpj\":\"" + GeradorDeDocumentos.cnpj(raiz, ordem) + "\",\"nome\":\"Filial Centro\"}");
     }
 
-    /** Pessoa fisica do tipo CLIENTE numa empresa nova; devolve o id da pessoa. */
+    /** Pessoa fisica do tipo CLIENTE NA EMPRESA ATUAL da sessao; devolve o id da pessoa. */
     public long pessoa() throws Exception {
-        return pessoa(empresa(), "CLIENTE");
+        return pessoa(empresaAtual, "CLIENTE");
     }
 
     public long pessoa(long empresaId, String tipo) throws Exception {

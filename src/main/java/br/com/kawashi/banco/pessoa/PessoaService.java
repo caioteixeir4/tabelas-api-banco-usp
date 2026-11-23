@@ -1,5 +1,7 @@
 package br.com.kawashi.banco.pessoa;
 
+import br.com.kawashi.banco.autorizacao.Autorizacao;
+
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.util.ArrayList;
@@ -54,6 +56,7 @@ public class PessoaService {
     }
 
     public Pessoa criar(Long empresaId, PessoaRequest dados) {
+        Autorizacao.conferirEmpresa(empresaId, "Empresa", empresaId);
         // A trava na empresa serve a duas regras: "empresa ativa" continua verdade ate o INSERT, e
         // dois socios criados ao mesmo tempo nao passam juntos pela checagem dos 100%.
         Empresa empresa = travarEmpresa(empresaId);
@@ -86,11 +89,14 @@ public class PessoaService {
 
     @Transactional(readOnly = true)
     public Pessoa buscar(Long id) {
-        return repositorio.findById(id).orElseThrow(() -> new RecursoNaoEncontradoException("Pessoa", id));
+        Pessoa pessoa = repositorio.findById(id).orElseThrow(() -> new RecursoNaoEncontradoException("Pessoa", id));
+        Autorizacao.conferirEmpresa(pessoa.getEmpresaId(), "Pessoa", id);
+        return pessoa;
     }
 
     @Transactional(readOnly = true)
     public Page<Pessoa> listar(Long empresaId, String tipo, Boolean ativa, Pageable paginacao) {
+        Autorizacao.conferirEmpresa(empresaId, "Empresa", empresaId);
         if (!empresas.existsById(empresaId)) {
             throw new RecursoNaoEncontradoException("Empresa", empresaId);
         }

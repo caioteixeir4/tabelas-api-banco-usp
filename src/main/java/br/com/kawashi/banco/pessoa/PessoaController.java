@@ -1,5 +1,8 @@
 package br.com.kawashi.banco.pessoa;
 
+import br.com.kawashi.banco.autorizacao.Exige;
+import br.com.kawashi.banco.autorizacao.Permissoes;
+
 import java.net.URI;
 
 import org.springframework.data.domain.Pageable;
@@ -34,6 +37,7 @@ public class PessoaController {
         this.servico = servico;
     }
 
+    @Exige({Permissoes.PESSOA_GERENCIAR})
     @PostMapping("/empresas/{empresaId}/pessoas")
     public ResponseEntity<PessoaResponse> criar(@PathVariable Long empresaId, @Valid @RequestBody PessoaRequest dados,
             UriComponentsBuilder uri) {
@@ -42,6 +46,7 @@ public class PessoaController {
         return ResponseEntity.created(local).body(PessoaResponse.de(criada));
     }
 
+    @Exige({Permissoes.PESSOA_LER, Permissoes.PESSOA_GERENCIAR})
     @GetMapping("/empresas/{empresaId}/pessoas")
     public Pagina<PessoaResponse> listar(@PathVariable Long empresaId,
             @RequestParam(required = false) String tipo,
@@ -50,6 +55,7 @@ public class PessoaController {
         return Pagina.de(servico.listar(empresaId, tipo, ativa, Paginas.seguro(paginacao)), PessoaResponse::de);
     }
 
+    @Exige({Permissoes.PESSOA_LER, Permissoes.PESSOA_GERENCIAR})
     @GetMapping("/pessoas/{id}")
     public PessoaResponse buscar(@PathVariable Long id) {
         return PessoaResponse.de(servico.buscar(id));
@@ -60,6 +66,7 @@ public class PessoaController {
      * acesso (LOG_ACESSO) com o caminho /api/pessoas/{id}/documento, entao da para saber quem viu o
      * documento de quem e quando.
      */
+    @Exige({Permissoes.DADO_PESSOAL_REVELAR})
     @GetMapping("/pessoas/{id}/documento")
     public DocumentoRevelado revelarDocumento(@PathVariable Long id) {
         Pessoa pessoa = servico.buscar(id);
@@ -70,21 +77,25 @@ public class PessoaController {
     public record DocumentoRevelado(Long id, String natureza, String documento) {
     }
 
+    @Exige({Permissoes.PESSOA_GERENCIAR})
     @PutMapping("/pessoas/{id}")
     public PessoaResponse atualizar(@PathVariable Long id, @Valid @RequestBody PessoaRequest dados) {
         return PessoaResponse.de(servico.atualizar(id, dados));
     }
 
+    @Exige({Permissoes.PESSOA_GERENCIAR})
     @PostMapping("/pessoas/{id}/inativar")
     public PessoaResponse inativar(@PathVariable Long id) {
         return PessoaResponse.de(servico.inativar(id));
     }
 
+    @Exige({Permissoes.PESSOA_GERENCIAR})
     @PostMapping("/pessoas/{id}/reativar")
     public PessoaResponse reativar(@PathVariable Long id) {
         return PessoaResponse.de(servico.reativar(id));
     }
 
+    @Exige({Permissoes.PESSOA_GERENCIAR})
     @DeleteMapping("/pessoas/{id}")
     public ResponseEntity<Void> excluir(@PathVariable Long id) {
         servico.excluir(id);

@@ -23,9 +23,19 @@
   e apague o segredo depois que ela cadastrar a passkey (o convite so vale uma vez, de qualquer jeito).
 
   Modos:
-    -PessoaId e -Email   usuario novo (a pessoa precisa existir e estar ativa);
+    -PessoaId e -Email   usuario novo (a pessoa precisa existir e estar ativa). Ele nasce SEM acesso a
+                         empresa nenhuma: de o acesso com -Vincular (ou crie pela API, como
+                         administrador da empresa, que ja da o cargo);
     -UsuarioId           convite novo para um usuario que ja existe e perdeu as passkeys e os
-                         codigos. Ao ser usado, derruba todas as sessoes dele.
+                         codigos. Ao ser usado, derruba todas as sessoes dele;
+    -Vincular            da a um usuario que ja existe (-UsuarioId) o acesso a uma empresa
+                         (-EmpresaId) com um perfil (-Perfil, padrao ADMINISTRADOR). Se a empresa
+                         ainda nao tem perfis, cria os padrao. Fica no LOG_PERMISSAO como
+                         "SCRIPT:CRIAR_USUARIO". Nao gera convite.
+
+  Hoje, o caminho normal e pela API: o administrador da plataforma cria a empresa com o primeiro
+  administrador (POST /api/plataforma/empresas), e o administrador da empresa cria os demais
+  usuarios (POST /api/usuarios). Este script fica para o comeco e para emergencias.
 
 .PARAMETER PessoaId
   Id da PESSOA que vai ter o usuario (relacao 1 para 1).
@@ -47,6 +57,9 @@
 
 .EXAMPLE
   .\scripts\criar-usuario.ps1 -UsuarioId 7
+
+.EXAMPLE
+  .\scripts\criar-usuario.ps1 -Vincular -UsuarioId 7 -EmpresaId 3 -Perfil ADMINISTRADOR
 #>
 [CmdletBinding(DefaultParameterSetName = 'Novo')]
 param(
@@ -59,8 +72,20 @@ param(
     [string]$Email,
 
     [Parameter(Mandatory = $true, ParameterSetName = 'Convite')]
+    [Parameter(Mandatory = $true, ParameterSetName = 'Vincular')]
     [ValidateRange(1, [long]::MaxValue)]
     [long]$UsuarioId,
+
+    [Parameter(Mandatory = $true, ParameterSetName = 'Vincular')]
+    [switch]$Vincular,
+
+    [Parameter(Mandatory = $true, ParameterSetName = 'Vincular')]
+    [ValidateRange(1, [long]::MaxValue)]
+    [long]$EmpresaId,
+
+    [Parameter(ParameterSetName = 'Vincular')]
+    [ValidatePattern('^[A-Za-z_]{3,50}$')]
+    [string]$Perfil = 'ADMINISTRADOR',
 
     [ValidatePattern('^https?://[A-Za-z0-9.-]+(:\d+)?$')]
     [string]$Site = 'http://localhost:9090',
@@ -101,6 +126,8 @@ if (-not $okVault) { throw "O Vault nao esta no ar ou nao tem o engine kawashi-s
 $arquivo = Join-Path ([IO.Path]::GetTempPath()) ("kw-convite-" + [guid]::NewGuid().ToString('N') + ".tmp")
 $argumentos = if ($PSCmdlet.ParameterSetName -eq 'Novo') {
     "--spring.main.web-application-type=none --app.criar-usuario.modo=novo --app.criar-usuario.pessoa-id=$PessoaId --app.criar-usuario.email=$Email"
+} elseif ($PSCmdlet.ParameterSetName -eq 'Vincular') {
+    "--spring.main.web-application-type=none --app.criar-usuario.modo=vincular --app.criar-usuario.usuario-id=$UsuarioId --app.criar-usuario.empresa-id=$EmpresaId --app.criar-usuario.perfil=$Perfil"
 } else {
     "--spring.main.web-application-type=none --app.criar-usuario.modo=convite --app.criar-usuario.usuario-id=$UsuarioId"
 }
@@ -123,6 +150,13 @@ if (-not $criado.Success -or -not (Test-Path -LiteralPath $arquivo)) {
     throw "O convite NAO foi criado (codigo $codigo). $motivo"
 }
 $id = $criado.Groups[1].Value
+if ($PSCmdlet.ParameterSetName -eq 'Vincular') {
+    Remove-Item -LiteralPath $arquivo -Force -ErrorAction SilentlyContinue
+    Write-Host ""
+    Write-Host "== Usuario $id vinculado a empresa $EmpresaId como $Perfil ==" -ForegroundColor Green
+    Write-Host "Registrado no LOG_PERMISSAO (feito por SCRIPT:CRIAR_USUARIO)."
+    exit 0
+}
 
 # 3. Link no Vault. Token e link vao por variavel de ambiente ("docker exec -e NOME" nao poe o valor
 #    na linha de comando); o link so tem caracteres de URL, sem espaco nem curinga do sh.

@@ -25,113 +25,150 @@ class EmpresaEFilialApiTest {
     private MockMvc mvc;
     @Autowired
     private UsuarioDeTeste usuarios;
+    @Autowired
+    private org.springframework.jdbc.core.JdbcTemplate jdbc;
     private Api api;
 
     @BeforeEach
     void preparar() {
-        api = new Api(mvc, usuarios.token());
+        api = usuarios.api(mvc);
     }
 
-    // ---- empresa -------------------------------------------------------------------------
+    // ---- empresa: criada so pelo administrador da plataforma -------------------------------
+
+    private static String novaEmpresa(String cnpj, String razaoSocial) {
+        return "{\"cnpj\":\"" + cnpj + "\",\"razaoSocial\":\"" + razaoSocial + "\",\"nomeFantasia\":\"   \","
+                + "\"administrador\":{\"cpf\":\"" + GeradorDeDocumentos.cpf() + "\",\"nome\":\"Primeira Administradora\","
+                + "\"email\":\"adm" + ThreadLocalRandom.current().nextInt(1_000_000) + "@teste.kawashi.invalid\"}}";
+    }
 
     @Test
-    void criaEmpresaNormalizandoOCnpjEDevolveLocation() throws Exception {
+    void plataformaCriaEmpresaComOPrimeiroAdministradorMasNaoEnxergaOsDados() throws Exception {
+        Api plataforma = usuarios.apiDaPlataforma(mvc);
         String cnpj = GeradorDeDocumentos.cnpj();
-        var resposta = api.post("/api/empresas", "{\"cnpj\":\"" + GeradorDeDocumentos.formatarCnpj(cnpj)
-                + "\",\"razaoSocial\":\"  Padaria São João LTDA  \",\"nomeFantasia\":\"   \"}");
-        resposta.andExpect(status().isCreated())
-                .andExpect(jsonPath("$.cnpj").value(cnpj))
-                .andExpect(jsonPath("$.razaoSocial").value("Padaria São João LTDA"))
-                .andExpect(jsonPath("$.nomeFantasia").doesNotExist())
-                .andExpect(jsonPath("$.ativa").value(true))
-                .andExpect(header().string("Location", endsWith("/api/empresas/" + Api.id(resposta))));
+        var resposta = plataforma.post("/api/plataforma/empresas", novaEmpresa(GeradorDeDocumentos.formatarCnpj(cnpj), "  Padaria São João LTDA  "))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.convite").value(org.hamcrest.Matchers.startsWith("kwc_")))
+                .andExpect(header().string("Location", containsString("/api/plataforma/empresas/")));
+        long empresaId = ((Number) com.jayway.jsonpath.JsonPath.read(Api.corpo(resposta), "$.empresaId")).longValue();
+
+        plataforma.get("/api/plataforma/empresas?razaoSocial=Padaria São João").andExpect(status().isOk())
+                .andExpect(jsonPath("$.itens[?(@.id == " + empresaId + ")].cnpj").value(org.hamcrest.Matchers.contains(cnpj)))
+                .andExpect(jsonPath("$.itens[?(@.id == " + empresaId + ")].razaoSocial").value(org.hamcrest.Matchers.contains("Padaria São João LTDA")));
+        // Sem vinculo com a empresa: nao entra nos dados dela.
+        plataforma.get("/api/empresas/" + empresaId).andExpect(status().isForbidden());
+        plataforma.post("/api/auth/empresa", "{\"empresaId\":" + empresaId + "}").andExpect(status().isNotFound());
+    }
+
+    @Test
+    void administradorDeEmpresaNaoUsaAsRotasDaPlataforma() throws Exception {
+        api.post("/api/plataforma/empresas", novaEmpresa(GeradorDeDocumentos.cnpj(), "X")).andExpect(status().isForbidden());
+        api.get("/api/plataforma/empresas").andExpect(status().isForbidden());
+        api.post("/api/plataforma/empresas/" + api.empresaAtual() + "/inativar").andExpect(status().isForbidden());
+        // E a rota antiga de criar empresa nao existe mais.
+        api.post("/api/empresas", "{\"cnpj\":\"" + GeradorDeDocumentos.cnpj() + "\",\"razaoSocial\":\"X\"}")
+                .andExpect(status().isMethodNotAllowed());
     }
 
     @Test
     void cnpjComDigitoErradoOuComLetrasEhRecusadoNoCampo() throws Exception {
+        Api plataforma = usuarios.apiDaPlataforma(mvc);
         String errado = GeradorDeDocumentos.comDigitoVerificadorErrado(GeradorDeDocumentos.cnpj());
-        api.post("/api/empresas", "{\"cnpj\":\"" + errado + "\",\"razaoSocial\":\"X\"}")
+        plataforma.post("/api/plataforma/empresas", novaEmpresa(errado, "X"))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.erros[0].campo").value("cnpj"));
-        api.post("/api/empresas", "{\"cnpj\":\"abc" + GeradorDeDocumentos.cnpj() + "xyz\",\"razaoSocial\":\"X\"}")
+        plataforma.post("/api/plataforma/empresas", novaEmpresa("abc" + GeradorDeDocumentos.cnpj() + "xyz", "X"))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.erros[0].campo").value("cnpj"));
     }
 
     @Test
     void empresaPrecisaSerMatrizENaoRepeteCnpj() throws Exception {
+        Api plataforma = usuarios.apiDaPlataforma(mvc);
         String raiz = GeradorDeDocumentos.raizDeCnpj();
-        api.post("/api/empresas", "{\"cnpj\":\"" + GeradorDeDocumentos.cnpj(raiz, "0002") + "\",\"razaoSocial\":\"X\"}")
+        plataforma.post("/api/plataforma/empresas", novaEmpresa(GeradorDeDocumentos.cnpj(raiz, "0002"), "X"))
                 .andExpect(status().isUnprocessableEntity())
                 .andExpect(jsonPath("$.detail").value(containsString("matriz")));
         String cnpj = GeradorDeDocumentos.cnpj(raiz, "0001");
-        api.empresa(cnpj);
-        api.post("/api/empresas", "{\"cnpj\":\"" + cnpj + "\",\"razaoSocial\":\"Outra\"}")
-                .andExpect(status().isConflict());
+        plataforma.post("/api/plataforma/empresas", novaEmpresa(cnpj, "Primeira")).andExpect(status().isCreated());
+        plataforma.post("/api/plataforma/empresas", novaEmpresa(cnpj, "Outra")).andExpect(status().isConflict());
     }
 
     @Test
     void razaoSocialAceita200LetrasAcentuadasERecusa201() throws Exception {
-        api.post("/api/empresas", "{\"cnpj\":\"" + GeradorDeDocumentos.cnpj() + "\",\"razaoSocial\":\"" + "ã".repeat(200) + "\"}")
-                .andExpect(status().isCreated());
-        api.post("/api/empresas", "{\"cnpj\":\"" + GeradorDeDocumentos.cnpj() + "\",\"razaoSocial\":\"" + "ã".repeat(201) + "\"}")
+        Api plataforma = usuarios.apiDaPlataforma(mvc);
+        plataforma.post("/api/plataforma/empresas", novaEmpresa(GeradorDeDocumentos.cnpj(), "ã".repeat(200))).andExpect(status().isCreated());
+        plataforma.post("/api/plataforma/empresas", novaEmpresa(GeradorDeDocumentos.cnpj(), "ã".repeat(201)))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.erros[0].campo").value("razaoSocial"));
         // So espaco (inclusive o espaco Unicode U+2003) nao e razao social.
-        api.post("/api/empresas", "{\"cnpj\":\"" + GeradorDeDocumentos.cnpj() + "\",\"razaoSocial\":\" \"}")
-                .andExpect(status().isBadRequest());
+        plataforma.post("/api/plataforma/empresas", novaEmpresa(GeradorDeDocumentos.cnpj(), " ")).andExpect(status().isBadRequest());
     }
 
     @Test
     void atualizaSemTrocarOCnpjENaoReativaAoAtualizar() throws Exception {
+        Api plataforma = usuarios.apiDaPlataforma(mvc);
         String cnpj = GeradorDeDocumentos.cnpj();
         long id = api.empresa(cnpj);
-        api.post("/api/empresas/" + id + "/inativar").andExpect(status().isOk()).andExpect(jsonPath("$.ativa").value(false));
-        api.post("/api/empresas/" + id + "/inativar").andExpect(status().isOk());
+        plataforma.post("/api/plataforma/empresas/" + id + "/inativar").andExpect(status().isOk()).andExpect(jsonPath("$.ativa").value(false));
+        plataforma.post("/api/plataforma/empresas/" + id + "/inativar").andExpect(status().isOk());
         api.put("/api/empresas/" + id, "{\"cnpj\":\"" + cnpj + "\",\"razaoSocial\":\"Nome Novo\"}")
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.razaoSocial").value("Nome Novo"))
                 .andExpect(jsonPath("$.ativa").value(false));
         api.put("/api/empresas/" + id, "{\"cnpj\":\"" + GeradorDeDocumentos.cnpj() + "\",\"razaoSocial\":\"X\"}")
                 .andExpect(status().isUnprocessableEntity());
-        api.post("/api/empresas/" + id + "/reativar").andExpect(jsonPath("$.ativa").value(true));
+        plataforma.post("/api/plataforma/empresas/" + id + "/reativar").andExpect(jsonPath("$.ativa").value(true));
         api.get("/api/empresas/999999999").andExpect(status().isNotFound());
     }
 
     @Test
-    void listaComFiltroQueTrataPorcentoComoTextoEPaginacaoSegura() throws Exception {
-        String marca = "Filtro" + ThreadLocalRandom.current().nextInt(1_000_000);
-        api.criar("/api/empresas", "{\"cnpj\":\"" + GeradorDeDocumentos.cnpj() + "\",\"razaoSocial\":\"" + marca + " 100% Natural\"}");
-        api.criar("/api/empresas", "{\"cnpj\":\"" + GeradorDeDocumentos.cnpj() + "\",\"razaoSocial\":\"" + marca + " 1000 Natural\"}");
-
-        api.get("/api/empresas?razaoSocial=" + marca).andExpect(jsonPath("$.total").value(2));
-        mvc.perform(api.autenticado(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get("/api/empresas")
-                        .param("razaoSocial", marca + " 100%")))
-                .andExpect(jsonPath("$.total").value(1))
-                .andExpect(jsonPath("$.itens[0].razaoSocial").value(marca + " 100% Natural"));
-        api.get("/api/empresas?page=2147483647").andExpect(status().isBadRequest());
-        api.get("/api/empresas?sort=naoExiste,asc").andExpect(status().isBadRequest());
-        api.get("/api/empresas?size=1000").andExpect(jsonPath("$.tamanho").value(100));
+    void cadaSessaoSoEnxergaASuaEmpresa() throws Exception {
+        long primeira = api.empresaAtual();
+        long segunda = api.empresa();
+        api.get("/api/empresas").andExpect(jsonPath("$.total").value(1)).andExpect(jsonPath("$.itens[0].id").value(segunda));
+        api.get("/api/empresas/" + primeira).andExpect(status().isNotFound());
+        api.entrarNa(primeira);
+        api.get("/api/empresas/" + segunda).andExpect(status().isNotFound());
+        api.get("/api/empresas/" + primeira).andExpect(status().isOk());
     }
 
     @Test
-    void empresaComFilialOuPessoaNaoEhExcluida() throws Exception {
+    void listaDaPlataformaTrataPorcentoComoTextoEPaginacaoSegura() throws Exception {
+        Api plataforma = usuarios.apiDaPlataforma(mvc);
+        String marca = "Filtro" + ThreadLocalRandom.current().nextInt(1_000_000);
+        plataforma.post("/api/plataforma/empresas", novaEmpresa(GeradorDeDocumentos.cnpj(), marca + " 100% Natural")).andExpect(status().isCreated());
+        plataforma.post("/api/plataforma/empresas", novaEmpresa(GeradorDeDocumentos.cnpj(), marca + " 1000 Natural")).andExpect(status().isCreated());
+
+        plataforma.get("/api/plataforma/empresas?razaoSocial=" + marca).andExpect(jsonPath("$.total").value(2));
+        mvc.perform(plataforma.autenticado(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get("/api/plataforma/empresas")
+                        .param("razaoSocial", marca + " 100%")))
+                .andExpect(jsonPath("$.total").value(1))
+                .andExpect(jsonPath("$.itens[0].razaoSocial").value(marca + " 100% Natural"));
+        plataforma.get("/api/plataforma/empresas?page=2147483647").andExpect(status().isBadRequest());
+        plataforma.get("/api/plataforma/empresas?sort=naoExiste,asc").andExpect(status().isBadRequest());
+        plataforma.get("/api/plataforma/empresas?size=1000").andExpect(jsonPath("$.tamanho").value(100));
+    }
+
+    @Test
+    void empresaComFilialPessoaOuPerfisNaoEhExcluida() throws Exception {
+        Api plataforma = usuarios.apiDaPlataforma(mvc);
         String raiz = GeradorDeDocumentos.raizDeCnpj();
         long comFilial = api.empresa(GeradorDeDocumentos.cnpj(raiz, "0001"));
         api.filial(comFilial, raiz);
-        api.delete("/api/empresas/" + comFilial).andExpect(status().isConflict())
+        plataforma.delete("/api/plataforma/empresas/" + comFilial).andExpect(status().isConflict())
                 .andExpect(jsonPath("$.detail").value(containsString("1 filial")));
-
-        long comPessoa = api.empresa();
-        api.pessoa(comPessoa, "CLIENTE");
-        api.delete("/api/empresas/" + comPessoa).andExpect(status().isConflict())
-                .andExpect(jsonPath("$.detail").value(containsString("1 pessoa")));
-
-        long semNada = api.empresa();
-        api.delete("/api/empresas/" + semNada).andExpect(status().isNoContent());
-        api.get("/api/empresas/" + semNada).andExpect(status().isNotFound());
+        // Toda empresa criada tem os perfis de acesso: nao se apaga, se inativa.
+        long soComPerfis = api.empresa();
+        plataforma.delete("/api/plataforma/empresas/" + soComPerfis).andExpect(status().isConflict())
+                .andExpect(jsonPath("$.detail").value(containsString("3 perfil(is)")));
+        // Sem nada pendurado (empresa de antes da autorizacao), sai.
+        String cnpj = GeradorDeDocumentos.cnpj();
+        jdbc.update("INSERT INTO EMPRESA (CNPJ, RAZAO_SOCIAL) VALUES (?, 'Sem Nada LTDA')", cnpj);
+        long semNada = jdbc.queryForObject("SELECT ID FROM EMPRESA WHERE CNPJ = ?", Long.class, cnpj);
+        plataforma.delete("/api/plataforma/empresas/" + semNada).andExpect(status().isNoContent());
+        plataforma.delete("/api/plataforma/empresas/" + semNada).andExpect(status().isNotFound());
     }
-
     // ---- filial --------------------------------------------------------------------------
 
     @Test
@@ -161,7 +198,7 @@ class EmpresaEFilialApiTest {
         api.post(caminho, "{\"cnpj\":\"" + cnpjMatriz + "\",\"nome\":\"X\"}")
                 .andExpect(status().isUnprocessableEntity()).andExpect(jsonPath("$.detail").value(containsString("0001")));
 
-        api.post("/api/empresas/" + empresaId + "/inativar").andExpect(status().isOk());
+        usuarios.apiDaPlataforma(mvc).post("/api/plataforma/empresas/" + empresaId + "/inativar").andExpect(status().isOk());
         api.post(caminho, "{\"cnpj\":\"" + GeradorDeDocumentos.cnpj(raiz, "0002") + "\",\"nome\":\"X\"}")
                 .andExpect(status().isUnprocessableEntity()).andExpect(jsonPath("$.detail").value(containsString("inativa")));
 

@@ -48,7 +48,7 @@ class DadosPessoaisCifradosTest {
 
     @BeforeEach
     void preparar() {
-        api = new Api(mvc, usuarios.token());
+        api = usuarios.api(mvc);
     }
 
     private Map<String, Object> linhaDaPessoa(long id) {

@@ -36,7 +36,7 @@ public class Tokens {
 
     /** O que a API sabe de quem esta chamando, depois de conferir o token. */
     public record Sessao(long tokenId, long usuarioId, long pessoaId, String escopo, LocalDateTime expiraEm,
-            LocalDateTime expiraAbsolutoEm) {
+            LocalDateTime expiraAbsolutoEm, Long empresaId, Long passkeyId) {
     }
 
     private final JdbcTemplate jdbc;
@@ -50,6 +50,15 @@ public class Tokens {
     }
 
     public TokenEmitido emitir(long usuarioId, Long passkeyId, String escopo, String ip, ParametrosDeSeguranca.Parametros p) {
+        return emitir(usuarioId, passkeyId, escopo, ip, p, null);
+    }
+
+    /**
+     * Emite um token. Com {@code empresaId}, a sessao fica presa a essa empresa (quem chama ja
+     * conferiu o vinculo); sem, a sessao so serve para escolher a empresa e para o proprio login.
+     */
+    public TokenEmitido emitir(long usuarioId, Long passkeyId, String escopo, String ip, ParametrosDeSeguranca.Parametros p,
+            Long empresaId) {
         // Limite de sessoes: se ja tem o maximo, derruba as mais antigas ate abrir uma vaga.
         List<Long> ativas = jdbc.queryForList("SELECT ID FROM " + schemas.sessao("TOKEN")
                 + " WHERE USUARIO_ID = ? AND REVOGADO_EM IS NULL AND EXPIRA_EM > SYS_EXTRACT_UTC(SYSTIMESTAMP)"
@@ -62,29 +71,34 @@ public class Tokens {
         String token = PREFIXO + Aleatorio.base64Url32();
         String hash = hash(token);
         jdbc.update("INSERT INTO " + schemas.sessao("TOKEN")
-                + " (USUARIO_ID, PASSKEY_ID, TOKEN_HASH, ESCOPO, EXPIRA_EM, EXPIRA_ABSOLUTO_EM, IP_ORIGEM) VALUES (?, ?, ?, ?,"
+                + " (USUARIO_ID, PASSKEY_ID, TOKEN_HASH, ESCOPO, EXPIRA_EM, EXPIRA_ABSOLUTO_EM, IP_ORIGEM, EMPRESA_ID) VALUES (?, ?, ?, ?,"
                 + " LEAST(SYS_EXTRACT_UTC(SYSTIMESTAMP) + NUMTODSINTERVAL(?, 'MINUTE'), SYS_EXTRACT_UTC(SYSTIMESTAMP) + NUMTODSINTERVAL(?, 'HOUR')),"
-                + " SYS_EXTRACT_UTC(SYSTIMESTAMP) + NUMTODSINTERVAL(?, 'HOUR'), ?)",
-                usuarioId, passkeyId, hash, escopo, p.tokenMinutos(), p.tokenTetoHoras(), p.tokenTetoHoras(), ip);
+                + " SYS_EXTRACT_UTC(SYSTIMESTAMP) + NUMTODSINTERVAL(?, 'HOUR'), ?, ?)",
+                usuarioId, passkeyId, hash, escopo, p.tokenMinutos(), p.tokenTetoHoras(), p.tokenTetoHoras(), ip, empresaId);
         return jdbc.queryForObject("SELECT ID, ESCOPO, EXPIRA_EM, EXPIRA_ABSOLUTO_EM FROM " + schemas.sessao("TOKEN")
                 + " WHERE TOKEN_HASH = ?", (r, n) -> new TokenEmitido(r.getLong(1), token, r.getString(2),
                         r.getTimestamp(3).toLocalDateTime(), r.getTimestamp(4).toLocalDateTime()), hash);
     }
 
     /**
-     * Confere o token e renova a validade. Vazio = nao vale (inexistente, vencido, revogado, ou o
-     * usuario foi desativado): quem chama nao precisa, e nao deve, saber qual dos casos.
+     * Confere o token e renova a validade. Vazio = nao vale (inexistente, vencido, revogado, o
+     * usuario foi desativado, ou o token e de uma empresa em que o usuario nao tem mais vinculo
+     * ativo): quem chama nao precisa, e nao deve, saber qual dos casos.
      */
     public Optional<Sessao> validar(String token, ParametrosDeSeguranca.Parametros p) {
         if (token == null || !FORMATO.matcher(token).matches()) {
             return Optional.empty();
         }
         List<Object[]> achados = jdbc.query("SELECT t.ID, t.USUARIO_ID, u.PESSOA_ID, t.ESCOPO,"
-                + " CASE WHEN t.ULTIMO_USO_EM < SYS_EXTRACT_UTC(SYSTIMESTAMP) - INTERVAL '1' MINUTE THEN 1 ELSE 0 END"
+                + " CASE WHEN t.ULTIMO_USO_EM < SYS_EXTRACT_UTC(SYSTIMESTAMP) - INTERVAL '1' MINUTE THEN 1 ELSE 0 END,"
+                + " t.EMPRESA_ID, t.PASSKEY_ID"
                 + " FROM " + schemas.sessao("TOKEN") + " t JOIN " + schemas.login("USUARIO") + " u ON u.ID = t.USUARIO_ID"
                 + " WHERE t.TOKEN_HASH = ? AND t.REVOGADO_EM IS NULL AND t.EXPIRA_EM > SYS_EXTRACT_UTC(SYSTIMESTAMP)"
-                + " AND t.EXPIRA_ABSOLUTO_EM > SYS_EXTRACT_UTC(SYSTIMESTAMP) AND u.ATIVO = TRUE",
-                (r, n) -> new Object[] {r.getLong(1), r.getLong(2), r.getLong(3), r.getString(4), r.getInt(5)}, hash(token));
+                + " AND t.EXPIRA_ABSOLUTO_EM > SYS_EXTRACT_UTC(SYSTIMESTAMP) AND u.ATIVO = TRUE"
+                + " AND (t.EMPRESA_ID IS NULL OR EXISTS (SELECT 1 FROM " + schemas.login("USUARIO_EMPRESA") + " ue"
+                + " WHERE ue.USUARIO_ID = t.USUARIO_ID AND ue.EMPRESA_ID = t.EMPRESA_ID AND ue.ATIVO))",
+                (r, n) -> new Object[] {r.getLong(1), r.getLong(2), r.getLong(3), r.getString(4), r.getInt(5),
+                        (Long) r.getObject(6, Long.class), (Long) r.getObject(7, Long.class)}, hash(token));
         if (achados.isEmpty()) {
             return Optional.empty();
         }
@@ -97,7 +111,7 @@ public class Tokens {
         }
         return jdbc.query("SELECT EXPIRA_EM, EXPIRA_ABSOLUTO_EM FROM " + schemas.sessao("TOKEN") + " WHERE ID = ?",
                 (r, n) -> new Sessao(tokenId, (Long) a[1], (Long) a[2], (String) a[3],
-                        r.getTimestamp(1).toLocalDateTime(), r.getTimestamp(2).toLocalDateTime()), tokenId)
+                        r.getTimestamp(1).toLocalDateTime(), r.getTimestamp(2).toLocalDateTime(), (Long) a[5], (Long) a[6]), tokenId)
                 .stream().findFirst();
     }
 
@@ -116,6 +130,12 @@ public class Tokens {
     public int revogarDaPasskey(long passkeyId, String motivo) {
         return jdbc.update("UPDATE " + schemas.sessao("TOKEN") + " SET REVOGADO_EM = SYS_EXTRACT_UTC(SYSTIMESTAMP), MOTIVO_REVOGACAO = ?"
                 + " WHERE PASSKEY_ID = ? AND REVOGADO_EM IS NULL", motivo, passkeyId);
+    }
+
+    /** Derruba as sessoes do usuario presas a uma empresa (o acesso a ela foi desativado). */
+    public int revogarDaEmpresa(long usuarioId, long empresaId, String motivo) {
+        return jdbc.update("UPDATE " + schemas.sessao("TOKEN") + " SET REVOGADO_EM = SYS_EXTRACT_UTC(SYSTIMESTAMP), MOTIVO_REVOGACAO = ?"
+                + " WHERE USUARIO_ID = ? AND EMPRESA_ID = ? AND REVOGADO_EM IS NULL", motivo, usuarioId, empresaId);
     }
 
     /** SHA-256 em hexadecimal: e so isto que vai para o banco. */

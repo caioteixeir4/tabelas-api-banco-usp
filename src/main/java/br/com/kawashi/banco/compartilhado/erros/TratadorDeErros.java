@@ -157,6 +157,27 @@ public class TratadorDeErros extends ResponseEntityExceptionHandler {
                 "A operação viola uma restrição de integridade dos dados.");
     }
 
+    @ExceptionHandler(AcessoNegadoException.class)
+    ProblemDetail acessoNegado(AcessoNegadoException ex) {
+        return problema(HttpStatus.FORBIDDEN, ex.getTitulo(), ex.getMessage());
+    }
+
+    /**
+     * As regras da autorizacao que o BANCO garante (14_autorizacao.sql) levantam ORA-20101 a
+     * ORA-20110: por exemplo, a troca de cargo que deixaria a empresa sem administrador. Viram 422,
+     * com a mensagem que o banco escreveu. Qualquer outro erro de banco continua sendo 500.
+     */
+    @ExceptionHandler(org.springframework.dao.DataAccessException.class)
+    ProblemDetail regraDoBanco(org.springframework.dao.DataAccessException ex) {
+        for (Throwable causa = ex; causa != null; causa = causa.getCause()) {
+            if (causa instanceof java.sql.SQLException sql && sql.getErrorCode() >= 20101 && sql.getErrorCode() <= 20110) {
+                String mensagem = sql.getMessage() == null ? "" : sql.getMessage().split("\n")[0].replaceFirst("^ORA-\\d+:\\s*", "");
+                return problema(HttpStatus.UNPROCESSABLE_ENTITY, "Regra de negócio violada", mensagem);
+            }
+        }
+        return inesperado(ex);
+    }
+
     @ExceptionHandler(Exception.class)
     ProblemDetail inesperado(Exception ex) {
         LOG.error("Erro inesperado", ex);

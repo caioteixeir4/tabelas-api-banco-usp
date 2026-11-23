@@ -1,5 +1,7 @@
 package br.com.kawashi.banco.filial;
 
+import br.com.kawashi.banco.autorizacao.Autorizacao;
+
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -42,6 +44,7 @@ public class FilialService {
     }
 
     public Filial criar(Long empresaId, FilialRequest dados) {
+        Autorizacao.conferirEmpresa(empresaId, "Empresa", empresaId);
         // Trava a linha da empresa ate o fim da transacao: sem isso, um "inativar" concorrente
         // comitava entre a leitura de "ativa" e o INSERT, e a filial nascia numa empresa inativa.
         Empresa empresa = empresas.buscarTravando(empresaId)
@@ -71,11 +74,14 @@ public class FilialService {
 
     @Transactional(readOnly = true)
     public Filial buscar(Long id) {
-        return repositorio.findById(id).orElseThrow(() -> new RecursoNaoEncontradoException("Filial", id));
+        Filial filial = repositorio.findById(id).orElseThrow(() -> new RecursoNaoEncontradoException("Filial", id));
+        Autorizacao.conferirEmpresa(filial.getEmpresaId(), "Filial", id);
+        return filial;
     }
 
     @Transactional(readOnly = true)
     public Page<Filial> listar(Long empresaId, Pageable paginacao) {
+        Autorizacao.conferirEmpresa(empresaId, "Empresa", empresaId);
         if (!empresas.existsById(empresaId)) {
             throw new RecursoNaoEncontradoException("Empresa", empresaId);
         }

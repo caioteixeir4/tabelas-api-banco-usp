@@ -1,25 +1,27 @@
 package br.com.kawashi.banco.empresa;
 
-import java.net.URI;
-
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.web.PageableDefault;
-import org.springframework.http.ResponseEntity;
-import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
-import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
-import org.springframework.web.util.UriComponentsBuilder;
 
+import br.com.kawashi.banco.autorizacao.Exige;
+import br.com.kawashi.banco.autorizacao.Permissoes;
 import br.com.kawashi.banco.compartilhado.Pagina;
 import br.com.kawashi.banco.compartilhado.Paginas;
+
 import jakarta.validation.Valid;
 
+/**
+ * A empresa da sessao: ver e alterar os dados dela. Criar, inativar, reativar e excluir empresas
+ * e coisa do administrador da plataforma ({@code /api/plataforma/empresas}, ver PlataformaController).
+ * A listagem so mostra a empresa da sessao, e outra empresa responde 404.
+ */
 @RestController
 @RequestMapping("/api/empresas")
 public class EmpresaController {
@@ -30,13 +32,7 @@ public class EmpresaController {
         this.servico = servico;
     }
 
-    @PostMapping
-    public ResponseEntity<EmpresaResponse> criar(@Valid @RequestBody EmpresaRequest dados, UriComponentsBuilder uri) {
-        Empresa criada = servico.criar(dados);
-        URI local = uri.path("/api/empresas/{id}").buildAndExpand(criada.getId()).toUri();
-        return ResponseEntity.created(local).body(EmpresaResponse.de(criada));
-    }
-
+    @Exige({Permissoes.EMPRESA_LER})
     @GetMapping
     public Pagina<EmpresaResponse> listar(
             @RequestParam(required = false) String cnpj,
@@ -46,29 +42,15 @@ public class EmpresaController {
         return Pagina.de(servico.listar(cnpj, razaoSocial, ativa, Paginas.seguro(paginacao)), EmpresaResponse::de);
     }
 
+    @Exige({Permissoes.EMPRESA_LER})
     @GetMapping("/{id}")
     public EmpresaResponse buscar(@PathVariable Long id) {
         return EmpresaResponse.de(servico.buscar(id));
     }
 
+    @Exige({Permissoes.EMPRESA_ALTERAR})
     @PutMapping("/{id}")
     public EmpresaResponse atualizar(@PathVariable Long id, @Valid @RequestBody EmpresaRequest dados) {
         return EmpresaResponse.de(servico.atualizar(id, dados));
-    }
-
-    @PostMapping("/{id}/inativar")
-    public EmpresaResponse inativar(@PathVariable Long id) {
-        return EmpresaResponse.de(servico.inativar(id));
-    }
-
-    @PostMapping("/{id}/reativar")
-    public EmpresaResponse reativar(@PathVariable Long id) {
-        return EmpresaResponse.de(servico.reativar(id));
-    }
-
-    @DeleteMapping("/{id}")
-    public ResponseEntity<Void> excluir(@PathVariable Long id) {
-        servico.excluir(id);
-        return ResponseEntity.noContent().build();
     }
 }

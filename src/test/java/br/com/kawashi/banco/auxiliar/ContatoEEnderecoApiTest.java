@@ -32,7 +32,7 @@ class ContatoEEnderecoApiTest {
 
     @BeforeEach
     void preparar() {
-        api = new Api(mvc, usuarios.token());
+        api = usuarios.api(mvc);
     }
 
     /** Caminho base do dono ("/api/filiais/7" ou "/api/pessoas/7"), criando o dono. */

@@ -1,0 +1,2 @@
+# Le os segredos do Vault na subida, quando ha papel AppRole (ver SegredosDoVault).
+org.springframework.boot.EnvironmentPostProcessor=br.com.kawashi.banco.compartilhado.SegredosDoVault

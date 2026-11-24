@@ -48,7 +48,9 @@ controlador o que passou por todos.
 
 ```mermaid
 flowchart TB
-    BFF(["Pedido do BFF"]) --> F0["RegistroDeAcessoFilter (0)<br/>no fim, grava LOG_ACESSO: quem, IP do navegador,<br/>método, caminho e status, até das recusas"]
+    BFF(["Pedido do BFF"]) --> FC{"CaminhoCanonicoFilter (0)<br/>caminho com ponto e vírgula, por cento,<br/>barra invertida, barra dupla ou ponto-ponto,<br/>ou diferente do que o servidor entendeu?"}
+    FC -- sim --> R400c["400 (antes de tudo)"]
+    FC -- não --> F0["RegistroDeAcessoFilter (1)<br/>no fim, grava LOG_ACESSO: quem, IP do navegador,<br/>método, caminho e status, até das recusas"]
     F0 --> F5{"CabecalhosDeSegurancaFilter (5)<br/>HTTPS exigido e o pedido veio em HTTP?"}
     F5 -- sim --> R403a["403"]
     F5 -- não --> F10{"LimiteDeCorpoFilter (10)<br/>corpo maior que 64 KB?"}
@@ -57,13 +59,15 @@ flowchart TB
     F15 -- não --> R403b["403 a tudo, inclusive ao login"]
     F15 -- sim --> F15b{"IP do navegador em<br/>X-Kawashi-Ip-Cliente?"}
     F15b -- não --> R400["400"]
-    F15b -- sim --> F20{"AutenticacaoFilter (20)<br/>cerimônia de passkey sem token?"}
+    F15b -- sim --> F17{"LimiteDePedidosFilter (17)<br/>passou de 600 pedidos<br/>neste minuto deste IP?"}
+    F17 -- sim --> R429["429 com Retry-After"]
+    F17 -- não --> F20{"AutenticacaoFilter (20)<br/>cerimônia de passkey sem token?"}
     F20 -- sim --> C["Controlador<br/>validação dos campos (400)"]
     F20 -- não --> T{"token válido?"}
-    T -- não --> R401["401, sempre a mesma resposta"]
+    T -- não --> R401["401, sempre a mesma resposta<br/>(vencido, revogado, conta desligada,<br/>vínculo desativado, empresa inativada)"]
     T -- sim --> E{"escopo CADASTRAR_PASSKEY<br/>fora das rotas permitidas?"}
     E -- sim --> R403c["403"]
-    E -- não --> FP{"FiltroDePermissao<br/>(rotas fora de /api/auth)<br/>a rota tem @Exige? a sessão tem empresa?<br/>o perfil tem a permissão?"}
+    E -- não --> FP{"FiltroDePermissao<br/>(rotas fora de /api/auth)<br/>a rota tem @Exige? aceitou os termos vigentes?<br/>a sessão tem empresa? o perfil tem a permissão?"}
     FP -- não --> R403d["403"]
     FP -- sim --> C
     C --> SV["Serviço<br/>registro de outra empresa: 404<br/>regras de negócio (404, 409, 422)<br/>e LOG_ALTERACAO na mesma transação"]
@@ -73,7 +77,7 @@ flowchart TB
 
 | Recurso | Endpoints |
 |---|---|
-| Login (passkey) | sem token: `POST /api/auth/passkey/login/opcoes`, `POST /api/auth/passkey/login`, `POST /api/auth/convite/opcoes`, `POST /api/auth/convite`, `POST /api/auth/recuperacao`. Com token: `GET /api/auth/eu`, `GET /api/auth/empresas`, `POST /api/auth/empresa`, `GET/POST /api/auth/passkeys`, `POST /api/auth/passkeys/opcoes`, `DELETE /api/auth/passkeys/{id}`, `POST /api/auth/codigos-de-recuperacao`, `POST /api/auth/logout`, `POST /api/auth/sair-de-todos` |
+| Login (passkey) | sem token: `POST /api/auth/passkey/login/opcoes`, `POST /api/auth/passkey/login`, `POST /api/auth/convite/opcoes`, `POST /api/auth/convite`, `POST /api/auth/recuperacao`. Com token: `GET /api/auth/eu`, `GET /api/auth/empresas`, `POST /api/auth/empresa`, `GET/POST /api/auth/passkeys`, `POST /api/auth/passkeys/opcoes`, `DELETE /api/auth/passkeys/{id}`, `POST /api/auth/codigos-de-recuperacao`, `POST /api/auth/logout`, `POST /api/auth/sair-de-todos`, `GET /api/auth/termos`, `POST /api/auth/termos/aceite` |
 | Empresa (a da sessão) | `GET /api/empresas` (só a da sessão; filtros `cnpj`, `razaoSocial`, `ativa`), `GET/PUT /api/empresas/{id}` |
 | Plataforma | `GET/POST /api/plataforma/empresas`, `POST /api/plataforma/empresas/{id}/inativar`, `.../reativar`, `DELETE /api/plataforma/empresas/{id}` |
 | Usuários e perfis (administrador) | `GET/POST /api/usuarios`, `PUT /api/usuarios/{id}/perfil`, `POST /api/usuarios/{id}/desativar`, `.../reativar`, `.../convite`, `GET /api/usuarios/historico`, `GET/POST /api/perfis`, `PUT /api/perfis/{id}/permissoes`, `GET /api/permissoes` |
@@ -260,7 +264,7 @@ sequenceDiagram
 | `POST /api/auth/codigos-de-recuperacao` | `200` `{ "codigos": [...] }`: 10 novos; os anteriores deixam de valer |
 | `POST /api/auth/logout` | `204`: este token para de valer na hora |
 | `POST /api/auth/sair-de-todos` | `204`: todas as sessões do usuário caem |
-| quarta sessão do mesmo usuário | a mais antiga cai |
+| quarta sessão do mesmo usuário | a mais antiga cai (dois logins ao mesmo tempo contam um depois do outro: a linha do usuário fica travada até o fim da emissão) |
 
 O token só é aceito em `Authorization: Bearer`; token na URL é recusado. Token ausente, inválido,
 vencido ou revogado recebem a mesma resposta `401`. Ele vale 15 minutos, é renovado com o uso, até 8
@@ -329,6 +333,18 @@ As tabelas e as travas do banco estão em `14_autorizacao.sql`, no repositório 
   nem tem `INSERT` nele: nem mudança feita direto no banco escapa. É encadeado por hash.
 - **Contato e endereço** seguem o dono: os de uma filial usam as permissões de filial, os de uma
   pessoa, as de pessoa. Quem gerencia também lê.
+- **Revelar o documento** de uma pessoa exige `DADO_PESSOAL_REVELAR` **e** poder ler a pessoa: um
+  perfil só com "revelar" não percorre os ids lendo documentos.
+- **Convite novo de recuperação** (`POST /api/usuarios/{id}/convite`) só para conta que é **só desta
+  empresa**: com vínculo ativo aqui, sem vínculo com outra empresa e sem ser administrador da
+  plataforma (senão `422`: só a equipe da plataforma resolve). O segredo volta para o administrador
+  que pediu; com ele, o administrador entraria como a pessoa em qualquer outra empresa dela. Cada
+  convite novo faz os pendentes do usuário vencerem.
+- **Empresa inativada** derruba na hora as sessões presas a ela (`EMPRESA_INATIVADA`), e a validação
+  do token confere que a empresa está ativa.
+- **Falha fechada fora de um pedido:** sem sessão (uma tarefa agendada, uma thread nova), as
+  checagens de empresa e de permissão negam tudo; código interno que precisa passar diz isso
+  explicitamente (`Autorizacao.semConferir`).
 
 | Permissão | ADMINISTRADOR | OPERADOR | CONSULTA |
 |---|:-:|:-:|:-:|
@@ -348,7 +364,7 @@ fazem e cria perfis novos; as permissões exclusivas não vão para eles.
 |---|---|---|
 | `GET /api/auth/empresas` | logado | as empresas em que entra, com o cargo em cada uma |
 | `POST /api/auth/empresa` `{ "empresaId" }` | logado | `200` com um token **novo** preso à empresa (o anterior cai). Sem vínculo: `404` |
-| `GET /api/auth/eu` | logado | também `empresaId`, `permissoes` (na empresa da sessão) e `adminPlataforma` |
+| `GET /api/auth/eu` | logado | também `empresaId`, `permissoes` (na empresa da sessão), `adminPlataforma` e `termosPendentes` |
 | `GET /api/usuarios` | administrador | o painel (`V_USUARIO_ACESSOS`): nome, cargo, perfil, situação, passkeys, último login |
 | `POST /api/usuarios` `{ "pessoaId", "email", "perfilId" }` | administrador | `201` com o `convite` (**uma vez**). Pessoa ou perfil de outra empresa: `404`; pessoa que já tem usuário: `409` |
 | `PUT /api/usuarios/{id}/perfil` `{ "perfilId" }` | administrador | `204`. Último administrador: `422` |
@@ -518,6 +534,36 @@ Sem isso, um `PUT` que muda o nome regravava também `ATIVA` com o valor lido an
 - **Limite de corpo:** mais de 64 KiB (`app.limite-corpo-bytes`) recebe `413`. Vale para o corpo que
   declara o tamanho (recusado sem ser lido) e para o que não declara (transferência fragmentada,
   contado durante a leitura).
+
+## Termos de uso e política de privacidade (LGPD)
+
+As tabelas (`TERMO`, `ACEITE_TERMO`) são do repositório de regras (`15_aceite_de_termos.sql`); a API só
+lê os termos e só insere aceites.
+
+| Rota | Resposta |
+|---|---|
+| `GET /api/auth/termos` | `200` lista das versões vigentes: `{ id, documento, versao, texto, hashTexto, publicadoEm, aceito }` |
+| `POST /api/auth/termos/aceite` `{ "termos": [ids] }` | `200` `{ termosPendentes }`; id que não é de versão vigente: `422`, nada gravado |
+| qualquer rota de negócio, com termo pendente | `403` "Aceite os termos" (inclusive as da plataforma) |
+
+`GET /api/auth/eu` traz `termosPendentes`. O aceite repetido não duplica (vale o primeiro). Publicada
+uma versão nova (pelo DBA), todo mundo volta a ter pendência.
+
+## Limite de pedidos
+
+`LimiteDePedidosFilter`: mais de `app.limite-pedidos.por-minuto` (padrão 600, `LIMITE_PEDIDOS_POR_MINUTO`)
+pedidos do mesmo IP de navegador num minuto recebem `429` com `Retry-After`. É a segunda barreira: o BFF
+tem limite próprio, mais baixo nas cerimônias de login. O contador fica em memória (com várias
+instâncias, cada uma conta o seu).
+
+## Segredos pelo Vault
+
+`compartilhado/SegredosDoVault` roda na subida, antes de qualquer bean. Com `VAULT_ADDR`,
+`VAULT_ROLE_ID` e `VAULT_SECRET_ID` (papel criado por `criar-approle.ps1` no repositório de regras),
+entra no Vault e lê `cifra/<AMB>`, `bff/<AMB>` e a senha das duas contas (`api/<conta>`), que passam a
+valer mais que o `.env`; revoga o próprio token no fim. Qualquer falha impede a subida. Sem nenhum dos
+três, nada muda (segredos do `.env`); com só parte deles, não sobe. Vault em `http` só no próprio
+computador.
 
 ## Limitações conhecidas
 

@@ -220,6 +220,21 @@ try {
     Confere 'a sessao ja nasce presa a empresa (a conta tem acesso a uma so)' ($eu.Status -eq 200 -and $eu.Json.empresaId) "status=$($eu.Status) $($eu.Texto)"
     if (-not $eu.Json.empresaId) { throw 'A conta de teste precisa de acesso a uma empresa (criar-usuario.ps1 -UsuarioId ... modo vincular, ou rode o ServidorRealTest uma vez).' }
     $empresaId = $eu.Json.empresaId
+
+    Write-Host '== termos de uso e politica de privacidade (LGPD)'
+    if ($eu.Json.termosPendentes) {
+        # So na primeira vez (ou depois de o DBA publicar versao nova): o aceite fica gravado.
+        $r = Chamar GET "/api/empresas/$empresaId"
+        Confere 'com termo pendente, rota de negocio recusada (403 "Aceite os termos")' ($r.Status -eq 403 -and $r.Json.title -eq 'Aceite os termos') "status=$($r.Status) $($r.Texto)"
+        $t = Chamar GET '/api/auth/termos'
+        Confere 'os termos vigentes vem com texto e SHA-256' ($t.Status -eq 200 -and @($t.Json).Count -ge 2 -and @($t.Json | Where-Object { $_.hashTexto -notmatch '^[0-9a-f]{64}$' }).Count -eq 0) "status=$($t.Status)"
+        $r = Chamar POST '/api/auth/termos/aceite' (Corpo @{ termos = @($t.Json | ForEach-Object { $_.id }) })
+        Confere 'aceite das versoes vigentes (200, sem pendencia)' ($r.Status -eq 200 -and $r.Json.termosPendentes -eq $false) "status=$($r.Status) $($r.Texto)"
+    }
+    $eu = Chamar GET '/api/auth/eu'
+    Confere 'sem termo pendente' ($eu.Status -eq 200 -and $eu.Json.termosPendentes -eq $false) "status=$($eu.Status)"
+    $r = Chamar GET '/api;x/auth/eu'
+    Confere 'caminho fora da forma canonica recusado antes de tudo (400)' ($r.Status -eq 400) "status=$($r.Status)"
     $emp = (Chamar GET "/api/empresas/$empresaId").Json
     $raiz = $emp.cnpj.Substring(0, 8)
     $r = Chamar GET '/api/empresas'

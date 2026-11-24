@@ -32,9 +32,11 @@ import jakarta.validation.Valid;
 public class PessoaController {
 
     private final PessoaService servico;
+    private final br.com.kawashi.banco.autorizacao.Autorizacao autorizacao;
 
-    public PessoaController(PessoaService servico) {
+    public PessoaController(PessoaService servico, br.com.kawashi.banco.autorizacao.Autorizacao autorizacao) {
         this.servico = servico;
+        this.autorizacao = autorizacao;
     }
 
     @Exige({Permissoes.PESSOA_GERENCIAR})
@@ -64,11 +66,13 @@ public class PessoaController {
     /**
      * Revela o documento completo. E um caminho separado de proposito: toda consulta fica no log de
      * acesso (LOG_ACESSO) com o caminho /api/pessoas/{id}/documento, entao da para saber quem viu o
-     * documento de quem e quando.
+     * documento de quem e quando. Exige tambem poder LER a pessoa: so "revelar" nao basta para
+     * percorrer os ids lendo documentos.
      */
     @Exige({Permissoes.DADO_PESSOAL_REVELAR})
     @GetMapping("/pessoas/{id}/documento")
     public DocumentoRevelado revelarDocumento(@PathVariable Long id) {
+        autorizacao.exigir(Permissoes.PESSOA_LER, Permissoes.PESSOA_GERENCIAR);
         Pessoa pessoa = servico.buscar(id);
         return new DocumentoRevelado(pessoa.getId(), pessoa.getNatureza(), pessoa.getDocumento());
     }

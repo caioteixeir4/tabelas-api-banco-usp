@@ -230,7 +230,7 @@
      ===================================================================================== -->
 <script id="modelo" type="application/json">
 {
-  "estado": "Cadastros, logs, cadastro de contas, o login por passkey e a autorização multiempresa (perfis, permissões, vínculos, administrador da plataforma) existem no Oracle, conferidos campo a campo em 23/11/2026. Não há senha de usuário. CPF, e-mail e telefone são gravados cifrados. Só o aceite de termos ainda é proposta.",
+  "estado": "Cadastros, logs, cadastro de contas, o login por passkey e a autorização multiempresa (perfis, permissões, vínculos, administrador da plataforma) e o aceite dos termos de uso e da política de privacidade existem no Oracle, conferidos campo a campo em 23/11/2026. Não há senha de usuário. CPF, e-mail e telefone são gravados cifrados.",
   "esquemas": {
     "padrao": { "rotulo": "KAWASHI_ENV_<AMB>", "nome": "cadastros" },
     "login": { "rotulo": "KAWASHI_ENV_<AMB>_LOGIN", "nome": "login e autorização: usuário, passkeys, perfis, vínculos" },
@@ -674,7 +674,7 @@
             { "n": "EXPIRA_EM", "t": "TIMESTAMP(6)", "nota": "Deslizante: cada uso empurra para 15 minutos à frente, nunca além do teto." },
             { "n": "EXPIRA_ABSOLUTO_EM", "t": "TIMESTAMP(6)", "nota": "Teto: 8 horas depois do login. Passado, só com novo login." },
             { "n": "REVOGADO_EM", "t": "TIMESTAMP(6)", "nulo": true },
-            { "n": "MOTIVO_REVOGACAO", "t": "VARCHAR2(20)", "nulo": true, "nota": "LOGOUT, SAIR_DE_TODOS, PASSKEY_REMOVIDA, LIMITE_SESSOES (a quarta sessão derruba a mais antiga), USUARIO_DESLIGADO, RECUPERACAO (código ou convite de recuperação: cai tudo), SUSPEITA, TROCA_EMPRESA (a pessoa trocou de empresa: token novo) ou VINCULO_DESATIVADO (o acesso à empresa foi tirado)." },
+            { "n": "MOTIVO_REVOGACAO", "t": "VARCHAR2(20)", "nulo": true, "nota": "LOGOUT, SAIR_DE_TODOS, PASSKEY_REMOVIDA, LIMITE_SESSOES (a quarta sessão derruba a mais antiga), USUARIO_DESLIGADO, RECUPERACAO (código ou convite de recuperação: cai tudo), SUSPEITA, TROCA_EMPRESA (a pessoa trocou de empresa: token novo), VINCULO_DESATIVADO (o acesso à empresa foi tirado) ou EMPRESA_INATIVADA (a empresa foi inativada: caem as sessões de todos nela). Revogado é para sempre: o gatilho TOKEN_IMUTAVEL_TRG impede, até para o DBA, desrevogar, aumentar o teto ou trocar dono, empresa, escopo ou hash (ORA-20112)." },
             { "n": "IP_ORIGEM", "t": "VARCHAR2(45)", "nulo": true, "nota": "IP do navegador (o BFF informa). Só registro: o token não é preso ao IP." },
             { "n": "EMPRESA_ID", "t": "NUMBER", "nulo": true, "fk": { "t": "EMPRESA_REF", "c": "ID", "esquema": "padrão" }, "nota": "Em qual empresa a sessão trabalha (ver o quadro da autorização). Vazio logo depois de entrar, se a pessoa tem acesso a mais de uma: ela escolhe, e a troca emite um token novo. O token só vale enquanto o vínculo com a empresa estiver ativo." }
           ],
@@ -686,7 +686,7 @@
             { "tipo": "CHECK", "nome": "CK_TOKEN_HASH", "regra": "REGEXP_LIKE(TOKEN_HASH, '^[0-9a-f]{64}$')" },
             { "tipo": "CHECK", "nome": "CK_TOKEN_ESCOPO", "regra": "ESCOPO IN ('COMPLETO', 'CADASTRAR_PASSKEY')" },
             { "tipo": "CHECK", "nome": "CK_TOKEN_VALIDADE", "regra": "EXPIRA_EM > CRIADO_EM AND EXPIRA_EM <= EXPIRA_ABSOLUTO_EM" },
-            { "tipo": "CHECK", "nome": "CK_TOKEN_REVOGACAO", "regra": "(REVOGADO_EM IS NULL AND MOTIVO_REVOGACAO IS NULL) OR (REVOGADO_EM IS NOT NULL AND MOTIVO_REVOGACAO IN ('LOGOUT', 'SAIR_DE_TODOS', 'PASSKEY_REMOVIDA', 'LIMITE_SESSOES', 'USUARIO_DESLIGADO', 'RECUPERACAO', 'SUSPEITA', 'TROCA_EMPRESA', 'VINCULO_DESATIVADO'))" },
+            { "tipo": "CHECK", "nome": "CK_TOKEN_REVOGACAO", "regra": "(REVOGADO_EM IS NULL AND MOTIVO_REVOGACAO IS NULL) OR (REVOGADO_EM IS NOT NULL AND MOTIVO_REVOGACAO IN ('LOGOUT', 'SAIR_DE_TODOS', 'PASSKEY_REMOVIDA', 'LIMITE_SESSOES', 'USUARIO_DESLIGADO', 'RECUPERACAO', 'SUSPEITA', 'TROCA_EMPRESA', 'VINCULO_DESATIVADO', 'EMPRESA_INATIVADA'))" },
             { "tipo": "FK", "nome": "FK_TOKEN_EMPRESA", "regra": "EMPRESA_ID → KAWASHI_ENV_<AMB>.EMPRESA (ID), entre schemas, sem cascade" },
             { "tipo": "INDEX", "nome": "IX_TOKEN_EMPRESA", "regra": "(USUARIO_ID, EMPRESA_ID)" },
             { "tipo": "INDEX", "nome": "IX_TOKEN_USUARIO", "regra": "(USUARIO_ID, REVOGADO_EM)" },
@@ -755,7 +755,7 @@
           "campos": [
             { "n": "ID", "t": "NUMBER", "pk": true, "ident": true },
             { "n": "ORDEM", "t": "NUMBER", "uq": true, "nota": "Numeração sem buraco, dada pelo gatilho, como no LOG_ALTERACAO." },
-            { "n": "EVENTO", "t": "VARCHAR2(40)", "nota": "LOGIN, LOGOUT, SAIR_DE_TODOS, PASSKEY_CADASTRADA, PASSKEY_REMOVIDA, CODIGOS_GERADOS, CODIGO_USADO, CONVITE_CRIADO, CONVITE_USADO, IP_BLOQUEADO, SESSAO_ENCERRADA, USUARIO_CRIADO, PARAMETRO_ALTERADO, CONTADOR_SUSPEITO, EMPRESA_ESCOLHIDA, EMPRESA_CRIADA, ADMIN_PLATAFORMA_CONCEDIDO ou ADMIN_PLATAFORMA_REVOGADO." },
+            { "n": "EVENTO", "t": "VARCHAR2(40)", "nota": "LOGIN, LOGOUT, SAIR_DE_TODOS, PASSKEY_CADASTRADA, PASSKEY_REMOVIDA, CODIGOS_GERADOS, CODIGO_USADO, CONVITE_CRIADO, CONVITE_USADO, IP_BLOQUEADO, SESSAO_ENCERRADA, USUARIO_CRIADO, PARAMETRO_ALTERADO, CONTADOR_SUSPEITO, EMPRESA_ESCOLHIDA, EMPRESA_CRIADA, ADMIN_PLATAFORMA_CONCEDIDO, ADMIN_PLATAFORMA_REVOGADO ou TERMO_ACEITO (gravado pelo gatilho do aceite de termos)." },
             { "n": "USUARIO_ID", "t": "NUMBER", "nulo": true },
             { "n": "DETALHE", "t": "VARCHAR2(500 CHAR)", "nulo": true },
             { "n": "IP_ORIGEM", "t": "VARCHAR2(45)", "nulo": true },
@@ -767,7 +767,7 @@
           "restricoes": [
             { "tipo": "PK", "nome": "PK_LOG_SEGURANCA", "regra": "ID" },
             { "tipo": "UNIQUE", "nome": "UK_LOG_SEGURANCA_ORDEM", "regra": "ORDEM" },
-            { "tipo": "CHECK", "nome": "CK_LOG_SEGURANCA_EVENTO", "regra": "EVENTO IN ('LOGIN', 'LOGOUT', 'SAIR_DE_TODOS', 'PASSKEY_CADASTRADA', 'PASSKEY_REMOVIDA', 'CODIGOS_GERADOS', 'CODIGO_USADO', 'CONVITE_CRIADO', 'CONVITE_USADO', 'IP_BLOQUEADO', 'SESSAO_ENCERRADA', 'USUARIO_CRIADO', 'PARAMETRO_ALTERADO', 'CONTADOR_SUSPEITO', 'EMPRESA_ESCOLHIDA', 'EMPRESA_CRIADA', 'ADMIN_PLATAFORMA_CONCEDIDO', 'ADMIN_PLATAFORMA_REVOGADO')" },
+            { "tipo": "CHECK", "nome": "CK_LOG_SEGURANCA_EVENTO", "regra": "EVENTO IN ('LOGIN', 'LOGOUT', 'SAIR_DE_TODOS', 'PASSKEY_CADASTRADA', 'PASSKEY_REMOVIDA', 'CODIGOS_GERADOS', 'CODIGO_USADO', 'CONVITE_CRIADO', 'CONVITE_USADO', 'IP_BLOQUEADO', 'SESSAO_ENCERRADA', 'USUARIO_CRIADO', 'PARAMETRO_ALTERADO', 'CONTADOR_SUSPEITO', 'EMPRESA_ESCOLHIDA', 'EMPRESA_CRIADA', 'ADMIN_PLATAFORMA_CONCEDIDO', 'ADMIN_PLATAFORMA_REVOGADO', 'TERMO_ACEITO')" },
             { "tipo": "INDEX", "nome": "IX_LOG_SEGURANCA_USUARIO", "regra": "(USUARIO_ID, DATA_HORA)" }
           ]
         }
@@ -785,13 +785,14 @@
       "extras": []
     },    {
       "id": "seguranca",
-      "titulo": "Proposta: aceite de termos",
-      "selo": "prop",
-      "seloTexto": "proposta, ainda não existe no banco",
-      "subtitulo": "O que ainda falta do login: o registro de qual versão dos termos de uso e da política de privacidade cada usuário aceitou (LGPD). O USUARIO aparece repetido, em cinza: está no quadro do login.",
+      "titulo": "Termos de uso e política de privacidade (LGPD)",
+      "selo": "real",
+      "seloTexto": "no Oracle hoje (repositório de regras)",
+      "subtitulo": "A prova do consentimento: qual texto cada usuário aceitou, quando e de onde (15_aceite_de_termos.sql). Vale a versão mais recente de cada documento; sem aceitar as vigentes, a API recusa tudo de negócio (403). O USUARIO aparece repetido, em cinza: está no quadro do login.",
       "colunas": [
         { "v": "centro", "tabelas": ["USUARIO_REF"] },
-        { "v": "centro", "tabelas": ["ACEITE_TERMO"] }
+        { "v": "centro", "tabelas": ["ACEITE_TERMO"] },
+        { "v": "centro", "tabelas": ["TERMO"] }
       ],
       "tabelas": [
         {
@@ -802,25 +803,45 @@
           "restricoes": []
         },
         {
+          "id": "TERMO", "nome": "TERMO", "schema": "login",
+          "desc": "cada versão publicada de cada documento; a API só lê",
+          "campos": [
+            { "n": "ID", "t": "NUMBER", "pk": true, "ident": true, "nota": "A versão vigente de cada documento é a de maior ID." },
+            { "n": "DOCUMENTO", "t": "VARCHAR2(30)", "uq": "UK_TERMO", "uqCom": ["DOCUMENTO", "VERSAO"], "nota": "'TERMOS_DE_USO' ou 'POLITICA_DE_PRIVACIDADE'." },
+            { "n": "VERSAO", "t": "VARCHAR2(20)", "uq": "UK_TERMO", "uqCom": ["DOCUMENTO", "VERSAO"], "nota": "Versão nova só pelo DBA (publicar-termo.ps1): todo usuário aceita de novo." },
+            { "n": "TEXTO", "t": "CLOB", "nota": "O texto inteiro. Publicado, não muda nem sai, nem pelo DBA (ORA-20111): corrigir é publicar outra versão." },
+            { "n": "HASH_TEXTO", "t": "VARCHAR2(64)", "nota": "SHA-256 do texto, calculado pelo gatilho (o informado é ignorado). O publicar-termo.ps1 confere que é o do arquivo." },
+            { "n": "PUBLICADO_POR", "t": "VARCHAR2(128)", "nota": "Posto pelo gatilho: a conta de quem publicou." },
+            { "n": "PUBLICADO_EM", "t": "TIMESTAMP(6)", "pad": "SYS_EXTRACT_UTC(SYSTIMESTAMP)" }
+          ],
+          "restricoes": [
+            { "tipo": "PK", "nome": "PK_TERMO", "regra": "ID" },
+            { "tipo": "UNIQUE", "nome": "UK_TERMO", "regra": "(DOCUMENTO, VERSAO)" },
+            { "tipo": "CHECK", "nome": "CK_TERMO_DOCUMENTO", "regra": "DOCUMENTO IN ('TERMOS_DE_USO', 'POLITICA_DE_PRIVACIDADE')" },
+            { "tipo": "CHECK", "nome": "CK_TERMO_HASH", "regra": "REGEXP_LIKE(HASH_TEXTO, '^[0-9a-f]{64}$')" }
+          ]
+        },
+        {
           "id": "ACEITE_TERMO", "nome": "ACEITE_TERMO", "schema": "login",
-          "desc": "o que o usuário aceitou, em qual versão (LGPD)",
+          "desc": "quem aceitou qual versão, quando e de onde; a API só insere",
           "campos": [
             { "n": "ID", "t": "NUMBER", "pk": true, "ident": true },
-            { "n": "USUARIO_ID", "t": "NUMBER", "fk": { "t": "USUARIO_REF", "c": "ID" }, "uq": "UK_ACEITE_TERMO", "uqCom": ["USUARIO_ID", "DOCUMENTO", "VERSAO"] },
-            { "n": "DOCUMENTO", "t": "VARCHAR2(30)", "uq": "UK_ACEITE_TERMO", "uqCom": ["USUARIO_ID", "DOCUMENTO", "VERSAO"], "nota": "'TERMOS_DE_USO' ou 'POLITICA_DE_PRIVACIDADE'." },
-            { "n": "VERSAO", "t": "VARCHAR2(20)", "uq": "UK_ACEITE_TERMO", "uqCom": ["USUARIO_ID", "DOCUMENTO", "VERSAO"], "nota": "Quando sai uma versão nova, o login pede o aceite de novo." },
-            { "n": "IP_ORIGEM", "t": "VARCHAR2(45)", "nulo": true },
-            { "n": "ACEITO_EM", "t": "TIMESTAMP(6)", "pad": "SYS_EXTRACT_UTC(SYSTIMESTAMP)" }
+            { "n": "USUARIO_ID", "t": "NUMBER", "fk": { "t": "USUARIO_REF", "c": "ID" }, "uq": "UK_ACEITE_TERMO", "uqCom": ["USUARIO_ID", "TERMO_ID"] },
+            { "n": "TERMO_ID", "t": "NUMBER", "fk": { "t": "TERMO", "c": "ID" }, "uq": "UK_ACEITE_TERMO", "uqCom": ["USUARIO_ID", "TERMO_ID"], "nota": "A versão aceita (e, por ela, o texto e o hash). Aceitar de novo não duplica: vale o primeiro." },
+            { "n": "IP_ORIGEM", "t": "VARCHAR2(45)", "nulo": true, "nota": "O IP do navegador, repassado pelo BFF." },
+            { "n": "ACEITO_EM", "t": "TIMESTAMP(6)", "pad": "SYS_EXTRACT_UTC(SYSTIMESTAMP)", "nota": "Posto pelo gatilho (a hora informada é ignorada), que também grava TERMO_ACEITO no LOG_SEGURANCA." }
           ],
           "restricoes": [
             { "tipo": "PK", "nome": "PK_ACEITE_TERMO", "regra": "ID" },
-            { "tipo": "UNIQUE", "nome": "UK_ACEITE_TERMO", "regra": "(USUARIO_ID, DOCUMENTO, VERSAO)" },
-            { "tipo": "FK", "nome": "FK_ACEITE_TERMO_USUARIO", "regra": "USUARIO_ID → USUARIO (ID), sem cascade" }
+            { "tipo": "UNIQUE", "nome": "UK_ACEITE_TERMO", "regra": "(USUARIO_ID, TERMO_ID)" },
+            { "tipo": "FK", "nome": "FK_ACEITE_TERMO_USUARIO", "regra": "USUARIO_ID → USUARIO (ID), sem cascade" },
+            { "tipo": "FK", "nome": "FK_ACEITE_TERMO_TERMO", "regra": "TERMO_ID → TERMO (ID), sem cascade" }
           ]
         }
       ],
       "relacoes": [
-        { "pai": "USUARIO_REF", "filho": "ACEITE_TERMO", "fk": "USUARIO_ID", "pk": "ID", "card": "1:N", "nome": "FK_ACEITE_TERMO_USUARIO" }
+        { "pai": "USUARIO_REF", "filho": "ACEITE_TERMO", "fk": "USUARIO_ID", "pk": "ID", "card": "1:N", "nome": "FK_ACEITE_TERMO_USUARIO" },
+        { "pai": "TERMO", "filho": "ACEITE_TERMO", "fk": "TERMO_ID", "pk": "ID", "card": "1:N", "nome": "FK_ACEITE_TERMO_TERMO", "obs": "Uma versão é aceita por muitos usuários." }
       ],
       "extras": []
     },    {
@@ -1026,7 +1047,7 @@
     "Feito (etapa 1): cadastros em torno de PESSOA e logs da aplicação, com a API e os testes.",
     "Feito (etapa 2): endurecimento. A API usa duas contas de banco (a que atende os pedidos não cria, altera nem apaga tabela), HTTPS obrigatório, e o log ganhou uma âncora no Vault que denuncia até o DBA que recalcula a corrente.",
     "Feito (etapa 3): login só por passkey (20/11/2026, no lugar da senha). A conta nasce de um convite de uso único, a pessoa cadastra a passkey e recebe 10 códigos de recuperação; token opaco (15 min deslizantes, teto de 8 h, até 3 sessões) guardado no BFF, nunca no navegador; bloqueio do IP (10 falhas em 10 min, 1 h); a API só atende o BFF.",
-    "Falta do login: confirmação de e-mail, aceite de termos e criação de usuário pela API (por administrador, com a autorização).",
+    "Feito (23/11/2026): criação de usuário pela API (pelo administrador, com a autorização) e aceite versionado dos termos de uso e da política de privacidade (TERMO e ACEITE_TERMO). Falta do login: confirmação de e-mail.",
     "Depois (etapa 4): autorização por perfil e por empresa.",
     "Feito (criptografia, pela LGPD): três camadas. O disco do banco é cifrado (TDE), a API cifra CPF, e-mail e telefone antes de gravar, e as respostas saem mascaradas (o valor inteiro só pelo caminho de revelar, que fica no log de acesso).",
     "Feito (cadastro de contas): toda conta criada pelos scripts (pessoa, API, administrador) entra em SYS.KAWASHI_CONTA com perfil e cargo; o painel mostra as liberações e a situação da senha contra o limite de 90 dias.",

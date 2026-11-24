@@ -8,18 +8,18 @@
 > e é **só por passkey** (desde 20/11/2026; não há senha de usuário): toda a `/api` exige token, e só
 > o **BFF** (o servidor do site, repositório `bff-banco-usp`) fala com a API. A **autorização
 > multiempresa** existe desde 23/11/2026: cada sessão vive numa empresa, perfis por empresa, e o banco
-> garante as regras de cargo. A confirmação de e-mail e o aceite de termos ainda são proposta. O desenho, campo a campo, está em [`diagrama-tabelas.html`](diagrama-tabelas.html)
+> garante as regras de cargo. O aceite de termos (LGPD) entrou em 23/11/2026; a confirmação de e-mail ainda falta. O desenho, campo a campo, está em [`diagrama-tabelas.html`](diagrama-tabelas.html)
 > (abra no navegador); a API está em [`api-e-regras.md`](api-e-regras.md); este texto explica o porquê.
 
 ## Visão geral
 
-São 24 tabelas de negócio (1 delas ainda proposta) em 4 schemas por ambiente (mais uma interna, de controle do log), e uma visão de painel de usuários (`V_USUARIO_ACESSOS`). A separação por schema não é só organização: cada schema
+São 25 tabelas de negócio em 4 schemas por ambiente (mais uma interna, de controle do log), e uma visão de painel de usuários (`V_USUARIO_ACESSOS`). A separação por schema não é só organização: cada schema
 recebe uma permissão diferente, e é isso que limita o estrago se a API ou uma conta for comprometida.
 
 | Schema | O que guarda | Tabelas | O que a conta de execução da API pode fazer |
 |---|---|---|---|
 | `KAWASHI_ENV_<AMB>` | cadastros | `EMPRESA`, `FILIAL`, `PESSOA`, `CONTATO`, `ENDERECO` | ler e gravar linhas; não cria, altera nem apaga tabela |
-| `KAWASHI_ENV_<AMB>_LOGIN` | o que é permanente do usuário e a autorização | `USUARIO`, `PASSKEY`, `CONVITE`, `CODIGO_RECUPERACAO`, `PARAMETRO_SEGURANCA`, `ADMIN_PLATAFORMA`, `PERMISSAO`, `PERFIL`, `PERFIL_PERMISSAO`, `USUARIO_EMPRESA`; proposta: `ACEITE_TERMO` | ler, criar e alterar (parâmetros, permissões e administradores da plataforma: só ler). Nenhum `DELETE` |
+| `KAWASHI_ENV_<AMB>_LOGIN` | o que é permanente do usuário e a autorização | `USUARIO`, `PASSKEY`, `CONVITE`, `CODIGO_RECUPERACAO`, `PARAMETRO_SEGURANCA`, `ADMIN_PLATAFORMA`, `PERMISSAO`, `PERFIL`, `PERFIL_PERMISSAO`, `USUARIO_EMPRESA`, `TERMO`, `ACEITE_TERMO` | ler, criar e alterar (parâmetros, permissões, termos e administradores da plataforma: só ler; perfil e aceite: só ler e criar; do usuário, só a coluna `ATIVO` muda). Nenhum `DELETE` |
 | `KAWASHI_ENV_<AMB>_SESSAO` | o que expira | `TOKEN`, `DESAFIO`, `BLOQUEIO_IP` | ler, criar e alterar; quem apaga o vencido é um job do banco |
 | `KAWASHI_ENV_<AMB>_LOG` | histórico | `LOG_ALTERACAO`, `LOG_ACESSO`, `LOG_SEGURANCA`, `TENTATIVA_LOGIN`, `LOG_PERMISSAO` | **só inserir e ler** (`LOG_PERMISSAO`: só ler; quem grava são os gatilhos) |
 
@@ -84,8 +84,12 @@ para o qual foi criada (um site falso não consegue usá-la: imune a phishing).
 - **`PARAMETRO_SEGURANCA`**: os números das regras (duração do token, limite de sessões, de falhas por
   IP, validade do convite...). A API só lê; mudança feita no banco vai sozinha para o `LOG_SEGURANCA`,
   com quem mudou, o valor antigo e o novo.
-- **`ACEITE_TERMO`** (proposta): qual versão dos termos de uso e da política de privacidade o usuário
-  aceitou, quando e de qual IP. O sistema guarda CPF, e a LGPD pede esse registro.
+- **`TERMO`** (23/11/2026): cada versão publicada dos termos de uso e da política de privacidade, com
+  o texto e o SHA-256 dele, calculado pelo banco. Vale a mais recente de cada documento. Publicada,
+  não muda nem sai (nem pelo DBA); versão nova só pelo DBA (`publicar-termo.ps1`).
+- **`ACEITE_TERMO`** (23/11/2026): qual versão o usuário aceitou, quando (hora do banco) e de qual
+  IP; uma linha por usuário e versão, e cada aceite vai sozinho para o `LOG_SEGURANCA`. O sistema
+  guarda CPF, e a LGPD pede esse registro. Sem aceitar as versões vigentes, nada de negócio responde.
 
 ## Autorização (schema `LOGIN`, aplicada em 23/11/2026)
 
@@ -251,8 +255,8 @@ depois de conferir o segredo.
 - `TENTATIVA_LOGIN` não guarda e-mail (nem a impressão digital dele): no login por passkey o e-mail
   nem é informado.
 
-Ficam para depois: confirmação de e-mail, aceite de termos, localização suspeita e a âncora do
-`LOG_SEGURANCA` no Vault. A criação de usuário pela API entrou com a autorização (etapa 4).
+Ficam para depois: confirmação de e-mail e localização suspeita. O aceite de termos e a âncora do
+`LOG_SEGURANCA` (e do `LOG_PERMISSAO`) no Vault entraram em 23/11/2026. A criação de usuário pela API entrou com a autorização (etapa 4).
 
 ## Como cada mecanismo de segurança funciona
 
@@ -276,7 +280,7 @@ Ficam para depois: confirmação de e-mail, aceite de termos, localização susp
 | Rastro das trocas de cargo | `LOG_PERMISSAO` | Gatilho grava quem, quando, de quê para quê; encadeado por hash. |
 | Rastro de mudanças de segurança | `LOG_SEGURANCA` | Login, passkeys, códigos, convites, bloqueios e parâmetros. Encadeado por hash. |
 | Log à prova de adulteração | schema `LOG`, `HASH_ANTERIOR`, `HASH` | A API só insere; as linhas são encadeadas por hash. |
-| Consentimento (LGPD, proposta) | `ACEITE_TERMO` | Aceite por versão dos termos e da política de privacidade. |
+| Consentimento (LGPD) | `TERMO`, `ACEITE_TERMO` | Aceite por versão dos termos e da política de privacidade, com o hash do texto, a hora e o IP; sem aceite, nada de negócio. |
 | Regras ajustáveis e auditadas | `PARAMETRO_SEGURANCA` | Os números ficam em tabela; cada mudança vai para o `LOG_SEGURANCA`. |
 
 Os números (15 minutos, 8 horas, 3 sessões, 10 falhas, 10 minutos, 1 hora, 5 minutos de desafio, 24 h
@@ -351,8 +355,8 @@ Cada uma com migração, API, testes e esta documentação atualizados:
 3. **Login. Feita.** Primeira versão com senha (18/11/2026), trocada no dia 20/11/2026 por **passkey +
    BFF** (ver "Login por passkey e BFF"): schemas `LOGIN` e `SESSAO` no repositório de regras, convite,
    códigos de recuperação, token opaco guardado no BFF, bloqueio por IP e toda a `/api` exigindo token.
-   **A fazer:** confirmação de e-mail, aceite de termos, criação de usuário pela API, limite de pedidos
-   por IP em toda a API e a âncora do `LOG_SEGURANCA`.
+   Depois vieram (23/11/2026) o aceite de termos, a criação de usuário pela API, o limite de pedidos
+   por IP e a âncora do `LOG_SEGURANCA`. **A fazer:** confirmação de e-mail.
 4. **Autorização. Feita** (23/11/2026): perfis por empresa, permissão conferida em toda rota, sessão
    presa a uma empresa, isolamento entre empresas, administrador da plataforma, e as regras de cargo
    garantidas pelo banco com log próprio (ver "Autorização").
@@ -361,8 +365,8 @@ Cada uma com migração, API, testes e esta documentação atualizados:
 6. **Cadastro de contas do banco. Feito**, no repositório de regras. Ver "Contas do banco" abaixo.
 
 No diagrama, os quadros "Cadastros e logs", "Contas do banco", "Login" e "Autorização" mostram
-tabelas existentes, conferidas campo a campo contra o Oracle; só o aceite de termos continua marcado
-como proposta.
+tabelas existentes, conferidas campo a campo contra o Oracle, inclusive as dos termos (no quadro
+"Login").
 
 ## Contas do banco: quem é, o que pode e validade da senha
 
@@ -458,5 +462,5 @@ jurídico:
   isso tende a virar **anonimizar** a pessoa (trocar nome e documento por valores neutros) em vez de
   apagar a linha, para não quebrar o histórico e os logs.
 - O que o projeto já faz nessa direção: os logs não guardam valor de campo nem query string, só
-  "qual registro mudou"; nenhuma senha, token ou código fica em texto puro; `ACEITE_TERMO` (proposto)
+  "qual registro mudou"; nenhuma senha, token ou código fica em texto puro; `ACEITE_TERMO`
   registra o consentimento por versão.

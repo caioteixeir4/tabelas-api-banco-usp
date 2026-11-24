@@ -59,6 +59,10 @@ public class Tokens {
      */
     public TokenEmitido emitir(long usuarioId, Long passkeyId, String escopo, String ip, ParametrosDeSeguranca.Parametros p,
             Long empresaId) {
+        // Trava a linha do usuario ate o fim da transacao: dois logins ao mesmo tempo contam as sessoes
+        // um depois do outro, e o limite nao estoura. (Fora de transacao a trava nao segura nada:
+        // quem chama emitir esta sempre numa, ver ServicoDeLogin.)
+        jdbc.queryForList("SELECT ID FROM " + schemas.login("USUARIO") + " WHERE ID = ? FOR UPDATE", Long.class, usuarioId);
         // Limite de sessoes: se ja tem o maximo, derruba as mais antigas ate abrir uma vaga.
         List<Long> ativas = jdbc.queryForList("SELECT ID FROM " + schemas.sessao("TOKEN")
                 + " WHERE USUARIO_ID = ? AND REVOGADO_EM IS NULL AND EXPIRA_EM > SYS_EXTRACT_UTC(SYSTIMESTAMP)"
@@ -83,7 +87,7 @@ public class Tokens {
     /**
      * Confere o token e renova a validade. Vazio = nao vale (inexistente, vencido, revogado, o
      * usuario foi desativado, ou o token e de uma empresa em que o usuario nao tem mais vinculo
-     * ativo): quem chama nao precisa, e nao deve, saber qual dos casos.
+     * ativo, ou de uma empresa inativada): quem chama nao precisa, e nao deve, saber qual dos casos.
      */
     public Optional<Sessao> validar(String token, ParametrosDeSeguranca.Parametros p) {
         if (token == null || !FORMATO.matcher(token).matches()) {
@@ -96,7 +100,8 @@ public class Tokens {
                 + " WHERE t.TOKEN_HASH = ? AND t.REVOGADO_EM IS NULL AND t.EXPIRA_EM > SYS_EXTRACT_UTC(SYSTIMESTAMP)"
                 + " AND t.EXPIRA_ABSOLUTO_EM > SYS_EXTRACT_UTC(SYSTIMESTAMP) AND u.ATIVO = TRUE"
                 + " AND (t.EMPRESA_ID IS NULL OR EXISTS (SELECT 1 FROM " + schemas.login("USUARIO_EMPRESA") + " ue"
-                + " WHERE ue.USUARIO_ID = t.USUARIO_ID AND ue.EMPRESA_ID = t.EMPRESA_ID AND ue.ATIVO))",
+                + " WHERE ue.USUARIO_ID = t.USUARIO_ID AND ue.EMPRESA_ID = t.EMPRESA_ID AND ue.ATIVO"
+                + " AND EXISTS (SELECT 1 FROM EMPRESA e WHERE e.ID = t.EMPRESA_ID AND e.ATIVA)))",
                 (r, n) -> new Object[] {r.getLong(1), r.getLong(2), r.getLong(3), r.getString(4), r.getInt(5),
                         (Long) r.getObject(6, Long.class), (Long) r.getObject(7, Long.class)}, hash(token));
         if (achados.isEmpty()) {
@@ -133,6 +138,12 @@ public class Tokens {
     }
 
     /** Derruba as sessoes do usuario presas a uma empresa (o acesso a ela foi desativado). */
+    /** Derruba as sessoes de TODOS presas a uma empresa (ex.: a empresa foi inativada). */
+    public int revogarTodosDaEmpresa(long empresaId, String motivo) {
+        return jdbc.update("UPDATE " + schemas.sessao("TOKEN") + " SET REVOGADO_EM = SYS_EXTRACT_UTC(SYSTIMESTAMP), MOTIVO_REVOGACAO = ?"
+                + " WHERE EMPRESA_ID = ? AND REVOGADO_EM IS NULL", motivo, empresaId);
+    }
+
     public int revogarDaEmpresa(long usuarioId, long empresaId, String motivo) {
         return jdbc.update("UPDATE " + schemas.sessao("TOKEN") + " SET REVOGADO_EM = SYS_EXTRACT_UTC(SYSTIMESTAMP), MOTIVO_REVOGACAO = ?"
                 + " WHERE USUARIO_ID = ? AND EMPRESA_ID = ? AND REVOGADO_EM IS NULL", motivo, usuarioId, empresaId);

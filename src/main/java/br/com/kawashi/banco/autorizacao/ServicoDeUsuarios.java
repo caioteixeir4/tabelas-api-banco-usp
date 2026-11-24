@@ -112,17 +112,32 @@ public class ServicoDeUsuarios {
     }
 
     /**
-     * Convite novo para quem perdeu as passkeys e os codigos. So para usuario cuja pessoa e DESTA
-     * empresa: usado, o convite derruba todas as sessoes dele, e o administrador de uma empresa nao
-     * pode fazer isso com quem e de outra.
+     * Convite novo para quem perdeu as passkeys e os codigos. Quem usa o convite cadastra uma
+     * passkey NA CONTA do usuario, e o segredo volta para o administrador que pediu: entao so vale
+     * para conta que e SO desta empresa. Por isso:
+     * <ul>
+     *   <li>a pessoa do usuario e desta empresa, com vinculo ATIVO nela;</li>
+     *   <li>nenhum vinculo (ativo ou nao) com outra empresa: senao o administrador daqui entraria
+     *       como ele na outra;</li>
+     *   <li>nao e administrador da plataforma.</li>
+     * </ul>
+     * Fora disso, so a equipe da plataforma (criar-usuario.ps1) resolve. Os convites pendentes do
+     * usuario deixam de valer ({@code Convites.criar}).
      */
     public String novoConvite(long usuarioId) {
         long empresa = empresa();
         Long daEmpresa = jdbc.queryForObject("SELECT COUNT(*) FROM " + schemas.login("USUARIO") + " u JOIN PESSOA p ON p.ID = u.PESSOA_ID"
-                + " JOIN " + schemas.login("USUARIO_EMPRESA") + " ue ON ue.USUARIO_ID = u.ID AND ue.EMPRESA_ID = p.EMPRESA_ID"
+                + " JOIN " + schemas.login("USUARIO_EMPRESA") + " ue ON ue.USUARIO_ID = u.ID AND ue.EMPRESA_ID = p.EMPRESA_ID AND ue.ATIVO"
                 + " WHERE u.ID = ? AND p.EMPRESA_ID = ?", Long.class, usuarioId, empresa);
         if (daEmpresa == null || daEmpresa == 0) {
             throw new RecursoNaoEncontradoException("Usuário", usuarioId);
+        }
+        Long foraDaqui = jdbc.queryForObject("SELECT (SELECT COUNT(*) FROM " + schemas.login("USUARIO_EMPRESA")
+                + " WHERE USUARIO_ID = ? AND EMPRESA_ID <> ?) + (SELECT COUNT(*) FROM " + schemas.login("ADMIN_PLATAFORMA")
+                + " WHERE USUARIO_ID = ?) FROM DUAL", Long.class, usuarioId, empresa, usuarioId);
+        if (foraDaqui != null && foraDaqui > 0) {
+            throw new RegraDeNegocioException("Este usuário tem acesso além desta empresa: o convite novo só pode ser feito pela equipe "
+                    + "da plataforma.");
         }
         return usuarios.novoConvite(usuarioId, SessaoAtual.quemNoLog());
     }

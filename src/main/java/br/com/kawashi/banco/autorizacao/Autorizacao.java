@@ -26,8 +26,9 @@ import br.com.kawashi.banco.login.Tokens;
  *   <li>as permissoes sao lidas do banco a cada pedido (uma consulta, guardada no proprio pedido):
  *       trocar o cargo de alguem vale na hora;</li>
  *   <li>o perfil FIXO (ADMINISTRADOR) tem todas as permissoes, implicitamente;</li>
- *   <li>fora de um pedido HTTP (codigo interno da propria aplicacao) nada e conferido: quem chama
- *       ja e confiavel. Dentro de um pedido sem sessao, tudo e negado.</li>
+ *   <li>FALHA FECHADA: sem sessao (inclusive fora de um pedido HTTP: uma tarefa agendada, uma
+ *       thread nova) tudo e negado. Codigo interno que precisa passar sem conferir diz isso
+ *       explicitamente com {@link #semConferir}.</li>
  * </ul>
  */
 @Component
@@ -61,11 +62,11 @@ public class Autorizacao {
     }
 
     /**
-     * O registro e da empresa da sessao? Senao, 404 (nem confirma que existe). Fora de um pedido
-     * HTTP, nao confere.
+     * O registro e da empresa da sessao? Senao, 404 (nem confirma que existe). Sem sessao (ate fora
+     * de um pedido HTTP), 404 tambem; so {@link #semConferir} passa direto.
      */
     public static void conferirEmpresa(Long empresaDoRegistro, String recurso, Object id) {
-        if (!emPedido()) {
+        if (liberado()) {
             return;
         }
         Long atual = empresaDoPedido().orElse(null);
@@ -76,7 +77,7 @@ public class Autorizacao {
 
     /** Exige pelo menos uma das permissoes, na empresa da sessao (403). */
     public void exigir(String... algumaDestas) {
-        if (!emPedido()) {
+        if (liberado()) {
             return;
         }
         Set<String> tem = permissoesDoPedido();
@@ -199,8 +200,8 @@ public class Autorizacao {
         }
     }
 
-    /** Confere so dentro de um pedido HTTP, e fora de {@link #semConferir}. */
-    private static boolean emPedido() {
-        return RequestContextHolder.getRequestAttributes() != null && !Boolean.TRUE.equals(SEM_CONFERIR.get());
+    /** Dentro de {@link #semConferir}: o codigo interno pediu, explicitamente, para nao conferir. */
+    public static boolean liberado() {
+        return Boolean.TRUE.equals(SEM_CONFERIR.get());
     }
 }

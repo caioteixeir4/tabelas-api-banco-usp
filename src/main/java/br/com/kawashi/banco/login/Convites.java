@@ -30,8 +30,14 @@ public class Convites {
         this.schemas = schemas;
     }
 
-    /** Cria o convite e devolve o segredo (a unica vez em que ele existe em claro). */
+    /**
+     * Cria o convite e devolve o segredo (a unica vez em que ele existe em claro). Os convites ainda
+     * pendentes do usuario vencem na hora: vale so o ultimo.
+     */
     public String criar(long usuarioId, String finalidade, String criadoPor, ParametrosDeSeguranca.Parametros p) {
+        jdbc.update("UPDATE " + schemas.login("CONVITE") + " SET EXPIRA_EM = SYS_EXTRACT_UTC(SYSTIMESTAMP)"
+                + " WHERE USUARIO_ID = ? AND USADO_EM IS NULL AND EXPIRA_EM > SYS_EXTRACT_UTC(SYSTIMESTAMP)"
+                + " AND CRIADO_EM < SYS_EXTRACT_UTC(SYSTIMESTAMP)", usuarioId);
         String segredo = PREFIXO + Aleatorio.base64Url32();
         jdbc.update("INSERT INTO " + schemas.login("CONVITE") + " (USUARIO_ID, TOKEN_HASH, FINALIDADE, CRIADO_POR, EXPIRA_EM)"
                 + " VALUES (?, ?, ?, ?, SYS_EXTRACT_UTC(SYSTIMESTAMP) + NUMTODSINTERVAL(?, 'HOUR'))",

@@ -28,7 +28,7 @@ import jakarta.servlet.http.HttpServletResponse;
  * log da aplicacao como aviso.
  */
 @Component
-@Order(Ordered.HIGHEST_PRECEDENCE)
+@Order(Ordered.HIGHEST_PRECEDENCE + 1)  // logo depois do CaminhoCanonicoFilter
 public class RegistroDeAcessoFilter extends OncePerRequestFilter {
 
     private static final Logger LOG = LoggerFactory.getLogger(RegistroDeAcessoFilter.class);

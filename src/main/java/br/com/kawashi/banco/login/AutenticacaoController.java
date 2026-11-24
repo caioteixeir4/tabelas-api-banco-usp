@@ -70,18 +70,24 @@ public class AutenticacaoController {
     }
 
     public record Eu(long usuarioId, long pessoaId, String escopo, OffsetDateTime expiraEm, OffsetDateTime expiraAbsolutoEm,
-            Long empresaId, java.util.Set<String> permissoes, boolean adminPlataforma) {
+            Long empresaId, java.util.Set<String> permissoes, boolean adminPlataforma, boolean termosPendentes) {
     }
 
     public record EscolhaDeEmpresa(@NotNull(message = "Informe a empresa") Long empresaId) {
     }
 
+    public record AceiteDeTermos(@NotNull(message = "Informe os termos aceitos") @Size(min = 1, max = 10, message = "Informe os termos aceitos")
+            List<@NotNull Long> termos) {
+    }
+
     private final ServicoDeLogin servico;
     private final br.com.kawashi.banco.autorizacao.Autorizacao autorizacao;
+    private final Termos termos;
 
-    public AutenticacaoController(ServicoDeLogin servico, br.com.kawashi.banco.autorizacao.Autorizacao autorizacao) {
+    public AutenticacaoController(ServicoDeLogin servico, br.com.kawashi.banco.autorizacao.Autorizacao autorizacao, Termos termos) {
         this.servico = servico;
         this.autorizacao = autorizacao;
+        this.termos = termos;
     }
 
     // ---- sem token ---------------------------------------------------------------------------
@@ -162,7 +168,7 @@ public class AutenticacaoController {
     public Eu eu(HttpServletRequest requisicao) {
         Tokens.Sessao s = sessao(requisicao);
         return new Eu(s.usuarioId(), s.pessoaId(), s.escopo(), utc(s.expiraEm()), utc(s.expiraAbsolutoEm()), s.empresaId(),
-                autorizacao.permissoesDoPedido(), autorizacao.ehAdminPlataforma(s.usuarioId()));
+                autorizacao.permissoesDoPedido(), autorizacao.ehAdminPlataforma(s.usuarioId()), termos.temPendencia(s.usuarioId()));
     }
 
     /** As empresas em que o usuario entra, com o cargo em cada uma. */
@@ -175,6 +181,23 @@ public class AutenticacaoController {
     @PostMapping("/empresa")
     public ResponseEntity<?> escolherEmpresa(@Valid @RequestBody EscolhaDeEmpresa pedido, HttpServletRequest requisicao) {
         return responder(servico.escolherEmpresa(sessao(requisicao), pedido.empresaId(), FiltroDoBff.ipDoCliente(requisicao)), "");
+    }
+
+    /** Os termos de uso e a politica de privacidade vigentes, com o texto e se o usuario ja aceitou cada um. */
+    @GetMapping("/termos")
+    public List<Termos.Termo> termosVigentes(HttpServletRequest requisicao) {
+        return termos.vigentes(sessao(requisicao).usuarioId());
+    }
+
+    /** Aceita versoes VIGENTES dos termos (ids de GET /termos). Id antigo ou desconhecido: 422, nada gravado. */
+    @PostMapping("/termos/aceite")
+    public ResponseEntity<?> aceitarTermos(@Valid @RequestBody AceiteDeTermos pedido, HttpServletRequest requisicao) {
+        Tokens.Sessao s = sessao(requisicao);
+        if (!termos.aceitar(s.usuarioId(), pedido.termos(), FiltroDoBff.ipDoCliente(requisicao))) {
+            return ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY).body(problema(HttpStatus.UNPROCESSABLE_ENTITY,
+                    "Termo inválido", "Aceite as versões vigentes dos termos (elas podem ter mudado: recarregue)."));
+        }
+        return ResponseEntity.ok(Map.of("termosPendentes", termos.temPendencia(s.usuarioId())));
     }
 
     // ---- apoio ---------------------------------------------------------------------------------

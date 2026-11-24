@@ -103,10 +103,10 @@ class PessoaApiTest {
         api.post("/api/empresas/999999999/pessoas", Api.pessoaJson("CLIENTE", GeradorDeDocumentos.cpf(), null, null))
                 .andExpect(status().isNotFound());
         api.get("/api/empresas/999999999/pessoas").andExpect(status().isNotFound());
+        // Empresa inativada: a sessao cai antes de chegar a regra (o servico ainda recusaria com 422).
         usuarios.apiDaPlataforma(mvc).post("/api/plataforma/empresas/" + empresaId + "/inativar").andExpect(status().isOk());
         api.post(pessoas, Api.pessoaJson("CLIENTE", GeradorDeDocumentos.cpf(), null, null))
-                .andExpect(status().isUnprocessableEntity())
-                .andExpect(jsonPath("$.detail").value(containsString("inativa")));
+                .andExpect(status().isUnauthorized());
     }
 
     // ---- campos que dependem do tipo -----------------------------------------------------

@@ -110,16 +110,17 @@ class EmpresaEFilialApiTest {
         Api plataforma = usuarios.apiDaPlataforma(mvc);
         String cnpj = GeradorDeDocumentos.cnpj();
         long id = api.empresa(cnpj);
-        plataforma.post("/api/plataforma/empresas/" + id + "/inativar").andExpect(status().isOk()).andExpect(jsonPath("$.ativa").value(false));
-        plataforma.post("/api/plataforma/empresas/" + id + "/inativar").andExpect(status().isOk());
         api.put("/api/empresas/" + id, "{\"cnpj\":\"" + cnpj + "\",\"razaoSocial\":\"Nome Novo\"}")
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.razaoSocial").value("Nome Novo"))
-                .andExpect(jsonPath("$.ativa").value(false));
+                .andExpect(jsonPath("$.razaoSocial").value("Nome Novo"));
         api.put("/api/empresas/" + id, "{\"cnpj\":\"" + GeradorDeDocumentos.cnpj() + "\",\"razaoSocial\":\"X\"}")
                 .andExpect(status().isUnprocessableEntity());
-        plataforma.post("/api/plataforma/empresas/" + id + "/reativar").andExpect(jsonPath("$.ativa").value(true));
         api.get("/api/empresas/999999999").andExpect(status().isNotFound());
+        plataforma.post("/api/plataforma/empresas/" + id + "/inativar").andExpect(status().isOk()).andExpect(jsonPath("$.ativa").value(false));
+        plataforma.post("/api/plataforma/empresas/" + id + "/inativar").andExpect(status().isOk());
+        // Inativada, quem estava logado nela sai na hora (revisao de 23/11/2026).
+        api.get("/api/empresas/" + id).andExpect(status().isUnauthorized());
+        plataforma.post("/api/plataforma/empresas/" + id + "/reativar").andExpect(jsonPath("$.ativa").value(true));
     }
 
     @Test
@@ -198,13 +199,14 @@ class EmpresaEFilialApiTest {
         api.post(caminho, "{\"cnpj\":\"" + cnpjMatriz + "\",\"nome\":\"X\"}")
                 .andExpect(status().isUnprocessableEntity()).andExpect(jsonPath("$.detail").value(containsString("0001")));
 
-        usuarios.apiDaPlataforma(mvc).post("/api/plataforma/empresas/" + empresaId + "/inativar").andExpect(status().isOk());
-        api.post(caminho, "{\"cnpj\":\"" + GeradorDeDocumentos.cnpj(raiz, "0002") + "\",\"nome\":\"X\"}")
-                .andExpect(status().isUnprocessableEntity()).andExpect(jsonPath("$.detail").value(containsString("inativa")));
-
         api.post("/api/empresas/999999999/filiais", "{\"cnpj\":\"" + GeradorDeDocumentos.cnpj(raiz, "0003") + "\",\"nome\":\"X\"}")
                 .andExpect(status().isNotFound());
         api.get("/api/empresas/999999999/filiais").andExpect(status().isNotFound());
+
+        // Empresa inativada: a sessao cai antes de chegar a regra (o servico ainda recusaria com 422).
+        usuarios.apiDaPlataforma(mvc).post("/api/plataforma/empresas/" + empresaId + "/inativar").andExpect(status().isOk());
+        api.post(caminho, "{\"cnpj\":\"" + GeradorDeDocumentos.cnpj(raiz, "0002") + "\",\"nome\":\"X\"}")
+                .andExpect(status().isUnauthorized());
     }
 
     @Test

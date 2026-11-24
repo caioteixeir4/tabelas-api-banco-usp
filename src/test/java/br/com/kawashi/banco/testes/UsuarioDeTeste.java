@@ -13,6 +13,7 @@ import br.com.kawashi.banco.autorizacao.Autorizacao;
 import br.com.kawashi.banco.compartilhado.cifra.CifraDeDados;
 import br.com.kawashi.banco.login.ParametrosDeSeguranca;
 import br.com.kawashi.banco.login.SchemasDoLogin;
+import br.com.kawashi.banco.login.Termos;
 import br.com.kawashi.banco.login.Tokens;
 import br.com.kawashi.banco.login.Usuarios;
 import br.com.kawashi.banco.pessoa.DocumentoCifrado;
@@ -58,9 +59,11 @@ public class UsuarioDeTeste {
     private final SchemasDoLogin schemas;
     private final Autorizacao autorizacao;
     private final TransactionTemplate novaTransacao;
+    private final Termos termos;
 
     public UsuarioDeTeste(JdbcTemplate jdbc, CifraDeDados cifra, Usuarios usuarios, Tokens tokens, ParametrosDeSeguranca parametros,
-            SchemasDoLogin schemas, Autorizacao autorizacao, PlatformTransactionManager transacoes) {
+            SchemasDoLogin schemas, Autorizacao autorizacao, PlatformTransactionManager transacoes, Termos termos) {
+        this.termos = termos;
         this.jdbc = jdbc;
         this.cifra = cifra;
         this.usuarios = usuarios;
@@ -79,12 +82,24 @@ public class UsuarioDeTeste {
 
     /** Usuario novo numa empresa nova, com o perfil pedido (ADMINISTRADOR, OPERADOR ou CONSULTA). */
     public Criado novo(String perfil) {
+        return novo(perfil, true);
+    }
+
+    /** Usuario novo que ainda NAO aceitou os termos (as rotas de negocio respondem 403 para ele). */
+    public Criado novoSemAceite() {
+        return novo("ADMINISTRADOR", false);
+    }
+
+    private Criado novo(String perfil, boolean aceitar) {
         String cnpj = GeradorDeDocumentos.cnpj();
         long empresaId = empresaNova(cnpj);
         long pessoaId = pessoaNova(empresaId);
         String email = "usuario" + ThreadLocalRandom.current().nextLong(1_000_000_000L) + "@teste.kawashi.invalid";
         Usuarios.Criado c = usuarios.criar(pessoaId, email, QUEM);
         autorizacao.vincular(c.usuarioId(), empresaId, autorizacao.perfilPorNome(empresaId, perfil).orElseThrow(), QUEM);
+        if (aceitar) {
+            aceitarTermos(c.usuarioId());
+        }
         return new Criado(c.usuarioId(), pessoaId, email, c.convite(), empresaId, cnpj);
     }
 
@@ -94,6 +109,7 @@ public class UsuarioDeTeste {
         String email = "usuario" + ThreadLocalRandom.current().nextLong(1_000_000_000L) + "@teste.kawashi.invalid";
         Usuarios.Criado c = usuarios.criar(pessoaId, email, QUEM);
         autorizacao.vincular(c.usuarioId(), empresaId, autorizacao.perfilPorNome(empresaId, perfil).orElseThrow(), QUEM);
+        aceitarTermos(c.usuarioId());
         return new Criado(c.usuarioId(), pessoaId, email, c.convite(), empresaId, null);
     }
 
@@ -154,6 +170,7 @@ public class UsuarioDeTeste {
                 jdbc.update("UPDATE " + schemas.login("USUARIO_EMPRESA") + " SET ATIVO = TRUE, PERFIL_ID = ?, ATUALIZADO_POR = ?"
                         + " WHERE USUARIO_ID = ? AND EMPRESA_ID = ?", administrador, QUEM, id, empresaId);
             }
+            aceitarTermos(id);
             return new SessaoPersistente(tokens.emitir(id, null, "COMPLETO", Api.IP_DE_TESTE, parametros.atuais(), empresaId).token(),
                     empresaId);
         });
@@ -179,10 +196,16 @@ public class UsuarioDeTeste {
                     + "repositorio de regras: infra/scripts/conceder-admin-plataforma.ps1 -Ambiente TESTE_DEV -UsuarioId " + id
                     + " -Motivo \"testes da plataforma\"");
         }
+        aceitarTermos(id);  // na transacao do teste (desfeito no fim)
         return new Api(mvc, tokens.emitir(id, null, "COMPLETO", Api.IP_DE_TESTE, parametros.atuais(), null).token());
     }
 
     /** Empresa nova (direto no banco, como faria o administrador da plataforma) com os perfis padrao. */
+    /** Aceita as versoes vigentes dos termos (LGPD): sem isso, as rotas de negocio respondem 403. */
+    public void aceitarTermos(long usuarioId) {
+        termos.aceitar(usuarioId, termos.vigentes(usuarioId).stream().map(Termos.Termo::id).toList(), Api.IP_DE_TESTE);
+    }
+
     public long empresaNova(String cnpj) {
         jdbc.update("INSERT INTO EMPRESA (CNPJ, RAZAO_SOCIAL) VALUES (?, 'Empresa de Teste LTDA')", cnpj);
         long empresaId = jdbc.queryForObject("SELECT ID FROM EMPRESA WHERE CNPJ = ?", Long.class, cnpj);

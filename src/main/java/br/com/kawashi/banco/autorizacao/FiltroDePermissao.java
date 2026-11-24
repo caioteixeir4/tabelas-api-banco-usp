@@ -10,6 +10,7 @@ import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
 
 import br.com.kawashi.banco.compartilhado.erros.AcessoNegadoException;
 import br.com.kawashi.banco.login.SessaoAtual;
+import br.com.kawashi.banco.login.Termos;
 import br.com.kawashi.banco.login.Tokens;
 
 import jakarta.servlet.http.HttpServletRequest;
@@ -20,6 +21,9 @@ import jakarta.servlet.http.HttpServletResponse;
  * dos filtros (o token ja foi conferido). /api/auth fica de fora: e o proprio login, com regras
  * no {@code AutenticacaoFilter}.
  *
+ * <p>Antes da regra, o aceite dos termos vigentes ({@link Termos}): com pendencia, 403 "Aceite os
+ * termos" em qualquer rota de negocio.
+ *
  * <p>Rota de /api SEM a marca {@code @Exige} e recusada (403) e o erro vai para o log: a regra
  * esquecida fecha a rota, nunca abre.
  */
@@ -29,9 +33,11 @@ public class FiltroDePermissao implements HandlerInterceptor, WebMvcConfigurer {
     private static final Logger LOG = LoggerFactory.getLogger(FiltroDePermissao.class);
 
     private final Autorizacao autorizacao;
+    private final Termos termos;
 
-    public FiltroDePermissao(Autorizacao autorizacao) {
+    public FiltroDePermissao(Autorizacao autorizacao, Termos termos) {
         this.autorizacao = autorizacao;
+        this.termos = termos;
     }
 
     @Override
@@ -51,6 +57,10 @@ public class FiltroDePermissao implements HandlerInterceptor, WebMvcConfigurer {
         }
         Tokens.Sessao sessao = SessaoAtual.de(requisicao)
                 .orElseThrow(() -> new AcessoNegadoException("Sem permissão", "Pedido sem sessão."));
+        if (termos.temPendencia(sessao.usuarioId())) {
+            // LGPD: sem o aceite das versoes vigentes, nada de negocio (nem da plataforma).
+            throw new AcessoNegadoException("Aceite os termos", "Aceite os termos de uso e a política de privacidade vigentes (/api/auth/termos).");
+        }
         if (regra.adminPlataforma()) {
             if (!autorizacao.ehAdminPlataforma(sessao.usuarioId())) {
                 throw new AcessoNegadoException("Sem permissão", "Só o administrador da plataforma faz isto.");

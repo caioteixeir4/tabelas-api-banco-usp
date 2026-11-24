@@ -38,9 +38,11 @@ public class EmpresaService {
     private final JdbcTemplate jdbc;
     private final RegistroDeAlteracoes log;
     private final br.com.kawashi.banco.login.SchemasDoLogin schemas;
+    private final br.com.kawashi.banco.login.Tokens tokens;
 
     public EmpresaService(EmpresaRepository repositorio, JdbcTemplate jdbc, RegistroDeAlteracoes log,
-            br.com.kawashi.banco.login.SchemasDoLogin schemas) {
+            br.com.kawashi.banco.login.SchemasDoLogin schemas, br.com.kawashi.banco.login.Tokens tokens) {
+        this.tokens = tokens;
         this.repositorio = repositorio;
         this.jdbc = jdbc;
         this.log = log;
@@ -78,8 +80,13 @@ public class EmpresaService {
     @Transactional(readOnly = true)
     public Page<Empresa> listar(String cnpj, String razaoSocial, Boolean ativa, Pageable paginacao) {
         List<Specification<Empresa>> filtros = new ArrayList<>();
-        // Dentro de uma sessao, so a empresa dela aparece.
-        Autorizacao.empresaDoPedido().ifPresent(id -> filtros.add((raiz, consulta, cb) -> cb.equal(raiz.get("id"), id)));
+        // So a empresa da sessao aparece. Sem sessao com empresa, nada (falha fechada): a lista de
+        // todas as empresas e so da plataforma (listarTodas).
+        if (!Autorizacao.liberado()) {
+            Long id = Autorizacao.empresaDoPedido().orElseThrow(() -> new br.com.kawashi.banco.compartilhado.erros.AcessoNegadoException(
+                    "Escolha a empresa", "Escolha em qual empresa vai trabalhar (/api/auth/empresa)."));
+            filtros.add((raiz, consulta, cb) -> cb.equal(raiz.get("id"), id));
+        }
         if (cnpj != null && !cnpj.isBlank()) {
             String digitos = Documentos.somenteDigitos(cnpj);
             filtros.add((raiz, consulta, cb) -> cb.equal(raiz.get("cnpj"), digitos));
@@ -123,6 +130,8 @@ public class EmpresaService {
         if (empresa.isAtiva()) {
             empresa.inativar();
             log.alterou(TABELA, id, "inativada");
+            // Quem estava logado nela sai na hora (e o token ja nao valeria: Tokens.validar confere a empresa).
+            tokens.revogarTodosDaEmpresa(id, "EMPRESA_INATIVADA");
         }
         return empresa;
     }

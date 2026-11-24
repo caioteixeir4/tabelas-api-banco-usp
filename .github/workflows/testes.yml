@@ -1,0 +1,36 @@
+# Integracao continua da API: a cada push e pull request, compila TUDO (codigo e testes) e roda os
+# testes que nao precisam do Oracle (documentos, cifra, tratamento de erros, leitura de segredos do Vault). Os testes de
+# integracao (@IntegracaoApi) precisam do banco e do Vault do repositorio regras-banco-usp, com
+# segredos que nao vao para o GitHub: rodam na maquina de desenvolvimento (mvn test).
+# Tambem recusa arquivo de segredo versionado por engano.
+name: Testes
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  testes:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Nenhum segredo versionado
+        run: |
+          if git ls-files | grep -E '(^|/)\.env$|\.p12$|\.pfx$|\.jks$|\.pem$|\.key$'; then
+            echo "::error::Arquivo de segredo no repositorio (acima). Tire do git e troque o segredo."
+            exit 1
+          fi
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '24'
+          cache: maven
+
+      - name: Compila e roda os testes sem banco
+        run: mvn -B -ntp test -Dtest='CifraDeDadosTest,DocumentosTest,TratadorDeErrosTest,SegredosDoVaultTest' -Dsurefire.failIfNoSpecifiedTests=false

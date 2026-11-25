@@ -1,5 +1,6 @@
 package br.com.kawashi.banco.empresa;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.endsWith;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
@@ -27,6 +28,8 @@ class EmpresaEFilialApiTest {
     private UsuarioDeTeste usuarios;
     @Autowired
     private org.springframework.jdbc.core.JdbcTemplate jdbc;
+    @Autowired
+    private br.com.kawashi.banco.testes.CorreioDeTeste correio;
     private Api api;
 
     @BeforeEach
@@ -48,8 +51,10 @@ class EmpresaEFilialApiTest {
         String cnpj = GeradorDeDocumentos.cnpj();
         var resposta = plataforma.post("/api/plataforma/empresas", novaEmpresa(GeradorDeDocumentos.formatarCnpj(cnpj), "  Padaria São João LTDA  "))
                 .andExpect(status().isCreated())
-                .andExpect(jsonPath("$.convite").value(org.hamcrest.Matchers.startsWith("kwc_")))
+                .andExpect(jsonPath("$.enviadoPara").value(org.hamcrest.Matchers.startsWith("a***@")))
+                .andExpect(jsonPath("$.convite").doesNotExist())   // o convite foi para o e-mail do administrador novo
                 .andExpect(header().string("Location", containsString("/api/plataforma/empresas/")));
+        assertThat(correio.todas()).anyMatch(m -> "CONVITE".equals(m.tipo()) && m.para().startsWith("adm"));
         long empresaId = ((Number) com.jayway.jsonpath.JsonPath.read(Api.corpo(resposta), "$.empresaId")).longValue();
 
         plataforma.get("/api/plataforma/empresas?razaoSocial=Padaria São João").andExpect(status().isOk())

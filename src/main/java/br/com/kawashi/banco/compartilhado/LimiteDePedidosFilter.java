@@ -53,7 +53,8 @@ public class LimiteDePedidosFilter extends OncePerRequestFilter {
         if (janelas.size() > 50_000) {
             janelas.values().removeIf(j -> j.minuto() < minuto);  // nao deixa a memoria crescer sem fim
         }
-        Janela janela = janelas.compute(FiltroDoBff.ipDoCliente(requisicao),
+        // Por grupo de IP: o IPv4, ou o bloco /64 do IPv6 (quem troca de endereco dentro do bloco conta junto).
+        Janela janela = janelas.compute(Ips.grupo(FiltroDoBff.ipDoCliente(requisicao)),
                 (ip, atual) -> atual == null || atual.minuto() != minuto ? new Janela(minuto, new AtomicInteger()) : atual);
         if (janela.pedidos().incrementAndGet() > porMinuto) {
             long segundos = Math.max(1, ((minuto + 1) * 60_000 - agora + 999) / 1000);

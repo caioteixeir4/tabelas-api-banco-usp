@@ -95,7 +95,7 @@ public class UsuarioDeTeste {
         long empresaId = empresaNova(cnpj);
         long pessoaId = pessoaNova(empresaId);
         String email = "usuario" + ThreadLocalRandom.current().nextLong(1_000_000_000L) + "@teste.kawashi.invalid";
-        Usuarios.Criado c = usuarios.criar(pessoaId, email, QUEM);
+        Usuarios.Criado c = usuarios.criar(pessoaId, email, QUEM, false);
         autorizacao.vincular(c.usuarioId(), empresaId, autorizacao.perfilPorNome(empresaId, perfil).orElseThrow(), QUEM);
         if (aceitar) {
             aceitarTermos(c.usuarioId());
@@ -107,7 +107,7 @@ public class UsuarioDeTeste {
     public Criado naEmpresa(long empresaId, String perfil) {
         long pessoaId = pessoaNova(empresaId);
         String email = "usuario" + ThreadLocalRandom.current().nextLong(1_000_000_000L) + "@teste.kawashi.invalid";
-        Usuarios.Criado c = usuarios.criar(pessoaId, email, QUEM);
+        Usuarios.Criado c = usuarios.criar(pessoaId, email, QUEM, false);
         autorizacao.vincular(c.usuarioId(), empresaId, autorizacao.perfilPorNome(empresaId, perfil).orElseThrow(), QUEM);
         aceitarTermos(c.usuarioId());
         return new Criado(c.usuarioId(), pessoaId, email, c.convite(), empresaId, null);
@@ -132,12 +132,12 @@ public class UsuarioDeTeste {
     }
 
     public String token(Criado usuario) {
-        return tokens.emitir(usuario.usuarioId(), null, "COMPLETO", Api.IP_DE_TESTE, parametros.atuais(), usuario.empresaId()).token();
+        return confirmado(tokens.emitir(usuario.usuarioId(), null, "COMPLETO", Api.IP_DE_TESTE, parametros.atuais(), usuario.empresaId()));
     }
 
     /** Token sem empresa (logo depois de entrar, antes de escolher). */
     public String tokenSemEmpresa(Criado usuario) {
-        return tokens.emitir(usuario.usuarioId(), null, "COMPLETO", Api.IP_DE_TESTE, parametros.atuais(), null).token();
+        return confirmado(tokens.emitir(usuario.usuarioId(), null, "COMPLETO", Api.IP_DE_TESTE, parametros.atuais(), null));
     }
 
     /** Usuario e empresa fixos, gravados de verdade (commit), para pedidos que chegam por outras threads. */
@@ -156,7 +156,7 @@ public class UsuarioDeTeste {
                     (r, n) -> r.getLong(1), indice).stream().findFirst().orElse(null);
             if (id == null) {
                 // A pessoa do usuario fica numa empresa propria: a limpeza do teste apaga as pessoas da empresa fixa.
-                id = usuarios.criar(pessoaNova(empresaNova(GeradorDeDocumentos.cnpj())), EMAIL_PERSISTENTE, QUEM).usuarioId();
+                id = usuarios.criar(pessoaNova(empresaNova(GeradorDeDocumentos.cnpj())), EMAIL_PERSISTENTE, QUEM, false).usuarioId();
             } else {
                 // Volta ao estado de partida, seja qual for o que outra execucao deixou.
                 jdbc.update("UPDATE " + schemas.login("USUARIO") + " SET ATIVO = TRUE WHERE ID = ?", id);
@@ -171,7 +171,7 @@ public class UsuarioDeTeste {
                         + " WHERE USUARIO_ID = ? AND EMPRESA_ID = ?", administrador, QUEM, id, empresaId);
             }
             aceitarTermos(id);
-            return new SessaoPersistente(tokens.emitir(id, null, "COMPLETO", Api.IP_DE_TESTE, parametros.atuais(), empresaId).token(),
+            return new SessaoPersistente(confirmado(tokens.emitir(id, null, "COMPLETO", Api.IP_DE_TESTE, parametros.atuais(), empresaId)),
                     empresaId);
         });
     }
@@ -197,10 +197,24 @@ public class UsuarioDeTeste {
                     + " -Motivo \"testes da plataforma\"");
         }
         aceitarTermos(id);  // na transacao do teste (desfeito no fim)
-        return new Api(mvc, tokens.emitir(id, null, "COMPLETO", Api.IP_DE_TESTE, parametros.atuais(), null).token());
+        return new Api(mvc, confirmado(tokens.emitir(id, null, "COMPLETO", Api.IP_DE_TESTE, parametros.atuais(), null)));
     }
 
     /** Empresa nova (direto no banco, como faria o administrador da plataforma) com os perfis padrao. */
+    /**
+     * Token como o de quem acabou de entrar com a passkey (sessao confirmada: as rotas que dao poder
+     * passam). O token dos testes nao vem de uma passkey de verdade, entao a confirmacao e marcada aqui.
+     */
+    private String confirmado(Tokens.TokenEmitido t) {
+        tokens.marcarConfirmacao(t.id());
+        return t.token();
+    }
+
+    /** Token preso a empresa, SEM a confirmacao recente (como depois de CONFIRMACAO_MINUTOS sem usar a passkey). */
+    public String tokenSemConfirmacao(Criado usuario) {
+        return tokens.emitir(usuario.usuarioId(), null, "COMPLETO", Api.IP_DE_TESTE, parametros.atuais(), usuario.empresaId()).token();
+    }
+
     /** Aceita as versoes vigentes dos termos (LGPD): sem isso, as rotas de negocio respondem 403. */
     public void aceitarTermos(long usuarioId) {
         termos.aceitar(usuarioId, termos.vigentes(usuarioId).stream().map(Termos.Termo::id).toList(), Api.IP_DE_TESTE);

@@ -150,6 +150,16 @@ public class Passkeys {
         return o;
     }
 
+    /**
+     * Opcoes da CONFIRMACAO (a pessoa ja esta logada e vai fazer algo sensivel): so as passkeys dela
+     * servem (allowCredentials), com verificacao obrigatoria (digital, rosto ou PIN).
+     */
+    public Map<String, Object> opcoesDeConfirmacao(String desafio, List<String> dela) {
+        Map<String, Object> o = opcoesDeLogin(desafio);
+        o.put("allowCredentials", dela.stream().map(id -> Map.of("type", "public-key", "id", id)).toList());
+        return o;
+    }
+
     // ---- o que volta do navegador ----------------------------------------------------------
 
     /** O desafio que a resposta diz estar respondendo (ainda NAO verificada: so para achar o desafio). */

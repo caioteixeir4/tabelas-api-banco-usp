@@ -43,6 +43,7 @@
 #>
 param(
     [string]$Base = 'http://localhost:8080',
+    [string]$MailpitUrl = 'http://localhost:8025',
     [Parameter(Mandatory = $true)][ValidateRange(1, [long]::MaxValue)][long]$UsuarioId,
     [string]$InfraEnvFile
 )
@@ -241,11 +242,16 @@ try {
     Confere 'a lista de empresas mostra so a da sessao' ($r.Status -eq 200 -and $r.Json.total -eq 1 -and $r.Json.itens[0].id -eq $empresaId)
 
     Write-Host '== plataforma (empresa nova com o primeiro administrador)'
-    $novaEmpresa = { param($cnpj, $razao) Corpo @{ cnpj = $cnpj; razaoSocial = $razao; administrador = @{ cpf = (NovoCpf); nome = 'Admin Smoke'; email = "adm$(Get-Random)@teste.kawashi.invalid" } } }
+    $novaEmpresa = { param($cnpj, $razao, $email) if (-not $email) { $email = "adm$(Get-Random)@teste.kawashi.invalid" }; Corpo @{ cnpj = $cnpj; razaoSocial = $razao; administrador = @{ cpf = (NovoCpf); nome = 'Admin Smoke'; email = $email } } }
     if ($eu.Json.adminPlataforma) {
         $cnpjNova = NovoCnpj (NovaRaiz) '0001'
-        $r = Chamar POST '/api/plataforma/empresas' (& $novaEmpresa $cnpjNova "  $marca Ltda  ")
-        Confere 'plataforma cria empresa (201) e o convite do administrador vem uma vez' ($r.Status -eq 201 -and $r.Json.convite -match '^kwc_') "status=$($r.Status) $($r.Texto)"
+        $emailAdm = "adm$(Get-Random)@teste.kawashi.invalid"
+        $r = Chamar POST '/api/plataforma/empresas' (& $novaEmpresa $cnpjNova "  $marca Ltda  " $emailAdm)
+        Confere 'plataforma cria empresa (201); o convite NAO vem na resposta, so para onde foi' ($r.Status -eq 201 -and -not $r.Json.convite -and $r.Json.enviadoPara -like 'a`*`*`*@*') "status=$($r.Status) $($r.Texto)"
+        # O convite chegou ao e-mail do administrador novo (Mailpit, o correio de teste do repositorio de regras).
+        Start-Sleep -Seconds 1
+        $caixa = try { Invoke-RestMethod "$MailpitUrl/api/v1/search?query=to:$emailAdm" -TimeoutSec 5 } catch { $null }
+        Confere 'o convite chegou ao e-mail do administrador novo (Mailpit)' ($caixa -and $caixa.messages_count -ge 1) "Mailpit em $MailpitUrl respondeu: $($caixa | ConvertTo-Json -Compress -Depth 2)"
         $nova = $r.Json.empresaId
         $r = Chamar GET "/api/plataforma/empresas?razaoSocial=$marca"
         Confere 'razaoSocial aparada' ($r.Status -eq 200 -and @($r.Json.itens | Where-Object { $_.razaoSocial -eq "$marca Ltda" }).Count -eq 1)

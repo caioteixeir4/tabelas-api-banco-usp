@@ -31,7 +31,8 @@ import br.com.kawashi.banco.pessoa.PessoaService;
 @Transactional
 public class ServicoDeUsuarios {
 
-    public record Criado(long usuarioId, String convite) {
+    /** O que o administrador fica sabendo: so para onde foi (mascarado). Nunca o segredo do convite. */
+    public record Enviado(String enviadoPara) {
     }
 
     private final JdbcTemplate jdbc;
@@ -40,9 +41,11 @@ public class ServicoDeUsuarios {
     private final Usuarios usuarios;
     private final PessoaService pessoas;
     private final Tokens tokens;
+    private final br.com.kawashi.banco.email.Avisos avisos;
 
     public ServicoDeUsuarios(JdbcTemplate jdbc, SchemasDoLogin schemas, Autorizacao autorizacao, Usuarios usuarios,
-            PessoaService pessoas, Tokens tokens) {
+            PessoaService pessoas, Tokens tokens, br.com.kawashi.banco.email.Avisos avisos) {
+        this.avisos = avisos;
         this.jdbc = jdbc;
         this.schemas = schemas;
         this.autorizacao = autorizacao;
@@ -70,8 +73,13 @@ public class ServicoDeUsuarios {
                 }, empresa);
     }
 
-    /** Cria o usuario de uma pessoa DESTA empresa, ja com o cargo; o convite vem uma vez. */
-    public Criado criar(long pessoaId, String email, long perfilId) {
+    /**
+     * Cria o usuario de uma pessoa DESTA empresa, ja com o cargo, e manda o convite para o e-mail
+     * dele. A resposta e SEMPRE a mesma ("enviado para j***@dominio"), exista ou nao conta com esse
+     * e-mail: se ja existe (em qualquer empresa), nada e criado e quem recebe o aviso e o dono do
+     * e-mail. Assim o administrador nao descobre quem usa o sistema em outras empresas.
+     */
+    public Enviado criar(long pessoaId, String email, long perfilId) {
         long empresa = empresa();
         autorizacao.exigir(Permissoes.PERFIL_GERENCIAR);  // criar o usuario ja da o cargo
         Pessoa pessoa = pessoas.buscar(pessoaId);  // de outra empresa: 404
@@ -84,9 +92,15 @@ public class ServicoDeUsuarios {
         }
         exigirPerfilDaEmpresa(perfilId, empresa, true);
         String quem = SessaoAtual.quemNoLog();
-        Usuarios.Criado criado = usuarios.criar(pessoaId, email, quem);
+        String ip = SessaoAtual.ipDoPedido();
+        java.util.Optional<Long> dono = usuarios.porEmail(email);
+        if (dono.isPresent()) {
+            String razao = jdbc.queryForObject("SELECT RAZAO_SOCIAL FROM EMPRESA WHERE ID = ?", String.class, empresa);
+            return new Enviado(avisos.jaTemConta(dono.get(), razao, ip));
+        }
+        Usuarios.Criado criado = usuarios.criar(pessoaId, email, quem, true);
         autorizacao.vincular(criado.usuarioId(), empresa, perfilId, quem);
-        return new Criado(criado.usuarioId(), criado.convite());
+        return new Enviado(avisos.convite(criado.usuarioId(), criado.convite(), "CADASTRO", ip));
     }
 
     /** Troca o cargo. O banco recusa (422) se a empresa ficar sem administrador ativo. */
@@ -122,7 +136,8 @@ public class ServicoDeUsuarios {
      *   <li>nao e administrador da plataforma.</li>
      * </ul>
      * Fora disso, so a equipe da plataforma (criar-usuario.ps1) resolve. Os convites pendentes do
-     * usuario deixam de valer ({@code Convites.criar}).
+     * usuario deixam de valer ({@code Convites.criar}). O segredo vai para o e-mail da conta; quem pediu
+     * recebe so o endereco mascarado.
      */
     public String novoConvite(long usuarioId) {
         long empresa = empresa();
@@ -139,7 +154,8 @@ public class ServicoDeUsuarios {
             throw new RegraDeNegocioException("Este usuário tem acesso além desta empresa: o convite novo só pode ser feito pela equipe "
                     + "da plataforma.");
         }
-        return usuarios.novoConvite(usuarioId, SessaoAtual.quemNoLog());
+        String segredo = usuarios.novoConvite(usuarioId, SessaoAtual.quemNoLog(), true);
+        return avisos.convite(usuarioId, segredo, "NOVA_PASSKEY", SessaoAtual.ipDoPedido());
     }
 
     /** O LOG_PERMISSAO desta empresa: quem mudou o cargo de quem, quando, de qual para qual. */

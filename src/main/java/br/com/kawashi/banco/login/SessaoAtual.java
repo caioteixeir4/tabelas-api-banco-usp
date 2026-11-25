@@ -35,6 +35,12 @@ public final class SessaoAtual {
         return Optional.ofNullable((Tokens.Sessao) atributos.getAttribute(ATRIBUTO, RequestAttributes.SCOPE_REQUEST));
     }
 
+    /** O IP do navegador do pedido em andamento (o que o BFF informou); nulo fora de um pedido. */
+    public static String ipDoPedido() {
+        return RequestContextHolder.getRequestAttributes() instanceof org.springframework.web.context.request.ServletRequestAttributes s
+                ? FiltroDoBff.ipDoCliente(s.getRequest()) : null;
+    }
+
     /** Como o usuario aparece nos logs: "USUARIO:<id>", ou "API" quando nao ha ninguem logado. */
     public static String quemNoLog() {
         return doPedido().map(s -> "USUARIO:" + s.usuarioId()).orElse("API");

@@ -48,9 +48,12 @@ public class Usuarios {
         this.log = log;
     }
 
-    /** Cria o usuario da pessoa e o convite para a primeira passkey. Devolve o segredo do convite. */
+    /**
+     * Cria o usuario da pessoa e o convite para a primeira passkey. Devolve o segredo do convite;
+     * {@code porEmail}: ele vai para o e-mail da pessoa (quem chama manda, ver Avisos).
+     */
     @Transactional
-    public Criado criar(long pessoaId, String email, String criadoPor) {
+    public Criado criar(long pessoaId, String email, String criadoPor, boolean porEmail) {
         String normalizado = normalizar(email);
         if (normalizado == null || !normalizado.matches("[^@\\s]+@[^@\\s]+\\.[^@\\s.]+") || normalizado.length() > 150) {
             throw new RegraDeNegocioException("E-mail inválido.");
@@ -71,22 +74,28 @@ public class Usuarios {
                 pessoaId, cifra.cifrar(CONTEXTO_EMAIL, normalizado), indice, Aleatorio.base64Url32());
         long id = jdbc.queryForObject("SELECT ID FROM " + schemas.login("USUARIO") + " WHERE EMAIL_INDICE = ?", Long.class, indice);
         log.registrar("USUARIO_CRIADO", id, null, null, criadoPor);
-        String convite = convites.criar(id, "CADASTRO", criadoPor, parametros.atuais());
+        String convite = convites.criar(id, "CADASTRO", criadoPor, parametros.atuais(), porEmail);
         log.registrar("CONVITE_CRIADO", id, "cadastro da primeira passkey", null, criadoPor);
         return new Criado(id, convite);
     }
 
     /** Convite para quem perdeu todos os aparelhos e os codigos: cadastra uma passkey nova. */
     @Transactional
-    public String novoConvite(long usuarioId, String criadoPor) {
+    public String novoConvite(long usuarioId, String criadoPor, boolean porEmail) {
         Long existe = jdbc.queryForObject("SELECT COUNT(*) FROM " + schemas.login("USUARIO") + " WHERE ID = ? AND ATIVO = TRUE",
                 Long.class, usuarioId);
         if (existe == null || existe == 0) {
             throw new RecursoNaoEncontradoException("Usuário", usuarioId);
         }
-        String convite = convites.criar(usuarioId, "NOVA_PASSKEY", criadoPor, parametros.atuais());
+        String convite = convites.criar(usuarioId, "NOVA_PASSKEY", criadoPor, parametros.atuais(), porEmail);
         log.registrar("CONVITE_CRIADO", usuarioId, "nova passkey (acesso perdido)", null, criadoPor);
         return convite;
+    }
+
+    /** O usuario dono deste e-mail, se houver (pela impressao digital: o e-mail e gravado cifrado). */
+    public java.util.Optional<Long> porEmail(String email) {
+        return jdbc.query("SELECT ID FROM " + schemas.login("USUARIO") + " WHERE EMAIL_INDICE = ?", (r, n) -> r.getLong(1),
+                cifra.indice(CONTEXTO_EMAIL, normalizar(email))).stream().findFirst();
     }
 
     public String email(long usuarioId) {

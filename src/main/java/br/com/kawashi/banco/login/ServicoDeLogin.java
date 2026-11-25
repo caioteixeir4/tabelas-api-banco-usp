@@ -8,6 +8,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import br.com.kawashi.banco.compartilhado.Ips;
 import br.com.kawashi.banco.compartilhado.cifra.CifraDeDados;
 import br.com.kawashi.banco.compartilhado.erros.RecursoNaoEncontradoException;
 import br.com.kawashi.banco.compartilhado.erros.RegraDeNegocioException;
@@ -57,10 +58,13 @@ public class ServicoDeLogin {
     private final Usuarios usuarios;
     private final LogDeSeguranca log;
     private final br.com.kawashi.banco.autorizacao.Autorizacao autorizacao;
+    private final br.com.kawashi.banco.email.Avisos avisos;
 
     public ServicoDeLogin(JdbcTemplate jdbc, SchemasDoLogin schemas, CifraDeDados cifra, ParametrosDeSeguranca parametros,
             Tokens tokens, Desafios desafios, Convites convites, CodigosDeRecuperacao codigos, Passkeys passkeys,
-            Usuarios usuarios, LogDeSeguranca log, br.com.kawashi.banco.autorizacao.Autorizacao autorizacao) {
+            Usuarios usuarios, LogDeSeguranca log, br.com.kawashi.banco.autorizacao.Autorizacao autorizacao,
+            br.com.kawashi.banco.email.Avisos avisos) {
+        this.avisos = avisos;
         this.autorizacao = autorizacao;
         this.jdbc = jdbc;
         this.schemas = schemas;
@@ -162,6 +166,7 @@ public class ServicoDeLogin {
         if ("NOVA_PASSKEY".equals(convite.get().finalidade())) {
             // Quem perdeu o acesso: as sessoes antigas (que podem estar com outra pessoa) caem.
             tokens.revogarTodos(usuarioId, "RECUPERACAO", null);
+            avisos.aviso(usuarioId, "o acesso foi recuperado com um convite e uma passkey nova foi cadastrada; as outras sessões caíram", ip);
         }
         List<String> novos = codigos.gerar(usuarioId, p.codigosRecuperacao());
         log.registrar("CODIGOS_GERADOS", usuarioId, novos.size() + " codigos", ip, LogDeSeguranca.quem(usuarioId));
@@ -193,6 +198,7 @@ public class ServicoDeLogin {
         tentativa("CODIGO_RECUPERACAO", usuarioId, ip, true, null);
         log.registrar("CODIGO_USADO", usuarioId, caidas + " sessao(oes) derrubada(s); token so para cadastrar passkey", ip,
                 LogDeSeguranca.quem(usuarioId));
+        avisos.aviso(usuarioId, "um código de recuperação foi usado e as outras sessões caíram", ip);
         return new Entrou(token, null);
     }
 
@@ -200,6 +206,7 @@ public class ServicoDeLogin {
 
     @Transactional
     public Map<String, Object> opcoesDeNovaPasskey(Tokens.Sessao sessao) {
+        exigirConfirmacao(sessao);
         Parametros p = parametros.atuais();
         String desafio = desafios.criar("CADASTRO", sessao.usuarioId(), p);
         return passkeys.opcoesDeCadastro(desafio, usuarios.handle(sessao.usuarioId()), usuarios.email(sessao.usuarioId()),
@@ -209,10 +216,13 @@ public class ServicoDeLogin {
     /** Cadastra mais uma passkey. Vazio = a resposta nao passou na verificacao. */
     @Transactional
     public Optional<Long> novaPasskey(Tokens.Sessao sessao, String respostaJson, String nome, String ip) {
+        exigirConfirmacao(sessao);
         Parametros p = parametros.atuais();
         Long id = cadastrar(sessao.usuarioId(), respostaJson, nome, ip, p, "PASSKEY");
         if (id == null) {
             conferirIp(ip, p);   // a tentativa ja foi registrada no cadastro, com o motivo
+        } else {
+            avisos.aviso(sessao.usuarioId(), "uma passkey nova foi cadastrada (\"" + nome + "\")", ip);
         }
         return Optional.ofNullable(id);
     }
@@ -224,6 +234,7 @@ public class ServicoDeLogin {
 
     @Transactional
     public void removerPasskey(Tokens.Sessao sessao, long passkeyId, String ip) {
+        exigirConfirmacao(sessao);
         List<String> ativas = passkeys.ativasDoUsuario(sessao.usuarioId());
         if (ativas.size() <= 1) {
             throw new RegraDeNegocioException("Esta é a sua única passkey: cadastre outra antes de remover esta, senão você "
@@ -235,14 +246,78 @@ public class ServicoDeLogin {
         int caidas = tokens.revogarDaPasskey(passkeyId, "PASSKEY_REMOVIDA");
         log.registrar("PASSKEY_REMOVIDA", sessao.usuarioId(), "passkey " + passkeyId + "; " + caidas + " sessao(oes) dela encerrada(s)",
                 ip, LogDeSeguranca.quem(sessao.usuarioId()));
+        avisos.aviso(sessao.usuarioId(), "uma passkey foi removida", ip);
     }
 
     @Transactional
     public List<String> novosCodigos(Tokens.Sessao sessao, String ip) {
+        exigirConfirmacao(sessao);
         List<String> novos = codigos.gerar(sessao.usuarioId(), parametros.atuais().codigosRecuperacao());
         log.registrar("CODIGOS_GERADOS", sessao.usuarioId(), novos.size() + " codigos; os anteriores deixaram de valer", ip,
                 LogDeSeguranca.quem(sessao.usuarioId()));
+        avisos.aviso(sessao.usuarioId(), "foram gerados códigos de recuperação novos (os anteriores deixaram de valer)", ip);
         return novos;
+    }
+
+    // ---- confirmar com a passkey (antes de operacao sensivel) ------------------------------------
+
+    /** Desafio preso ao usuario da sessao; so as passkeys dele servem. */
+    @Transactional
+    public Resultado opcoesDeConfirmacao(Tokens.Sessao sessao, String ip) {
+        Parametros p = parametros.atuais();
+        Optional<IpBloqueado> bloqueio = bloqueio(ip);
+        if (bloqueio.isPresent()) {
+            return bloqueio.get();
+        }
+        return new Opcoes(passkeys.opcoesDeConfirmacao(desafios.criar("CONFIRMACAO", sessao.usuarioId(), p),
+                passkeys.ativasDoUsuario(sessao.usuarioId())));
+    }
+
+    /**
+     * Confere a passkey (do PROPRIO usuario da sessao, com verificacao) e marca a sessao como
+     * confirmada agora. Falhou: conta como tentativa do IP, como um login. A resposta de recusa NAO e
+     * 401 (o BFF derrubaria a sessao): quem chama devolve 422.
+     */
+    @Transactional
+    public Resultado confirmar(Tokens.Sessao sessao, String respostaJson, String ip) {
+        Parametros p = parametros.atuais();
+        Optional<IpBloqueado> bloqueio = bloqueio(ip);
+        if (bloqueio.isPresent()) {
+            tentativa("CONFIRMACAO", sessao.usuarioId(), ip, false, "IP_BLOQUEADO");
+            return bloqueio.get();
+        }
+        try {
+            String desafio = passkeys.desafioDoLogin(respostaJson);
+            Optional<Desafios.Desafio> d = desafios.consumir(desafio, "CONFIRMACAO");
+            if (d.isEmpty() || d.get().usuarioId() == null || d.get().usuarioId() != sessao.usuarioId()) {
+                return falhou("CONFIRMACAO", "DESAFIO_INVALIDO", sessao.usuarioId(), ip, p);
+            }
+            Passkeys.Login login = passkeys.verificarLogin(respostaJson, desafio);
+            if (login.usuarioId() != sessao.usuarioId()) {
+                return falhou("CONFIRMACAO", "VERIFICACAO_FALHOU", sessao.usuarioId(), ip, p);  // passkey de outra pessoa
+            }
+            passkeys.registrarUso(login);
+            tokens.marcarConfirmacao(sessao.tokenId());
+            tentativa("CONFIRMACAO", sessao.usuarioId(), ip, true, null);
+            log.registrar("PASSKEY_CONFIRMADA", sessao.usuarioId(), "passkey " + login.passkeyId(), ip, LogDeSeguranca.quem(sessao.usuarioId()));
+            return new Opcoes(Map.of());
+        } catch (Passkeys.Recusa r) {
+            if ("CONTADOR_SUSPEITO".equals(r.motivo())) {
+                log.registrar("CONTADOR_SUSPEITO", r.usuarioId(), "contador da passkey voltou: possivel copia do aparelho", ip, "API");
+            }
+            return falhou("CONFIRMACAO", r.motivo(), sessao.usuarioId(), ip, p);
+        }
+    }
+
+    /**
+     * Operacao sensivel da conta: com a sessao normal, a passkey tem de ter sido usada ha pouco. Quem
+     * entrou com codigo de recuperacao (escopo CADASTRAR_PASSKEY) cadastra a passkey nova sem isso:
+     * e a propria recuperacao, e ele nao tem passkey para confirmar.
+     */
+    private static void exigirConfirmacao(Tokens.Sessao sessao) {
+        if ("COMPLETO".equals(sessao.escopo()) && !sessao.confirmadaAgora()) {
+            throw new br.com.kawashi.banco.compartilhado.erros.ConfirmacaoNecessariaException();
+        }
     }
 
     // ---- empresa da sessao ---------------------------------------------------------------------
@@ -261,6 +336,7 @@ public class ServicoDeLogin {
         // Revoga antes de emitir: o limite de sessoes nao derruba outra sessao por causa desta troca.
         tokens.revogar(sessao.tokenId(), "TROCA_EMPRESA");
         Tokens.TokenEmitido token = tokens.emitir(sessao.usuarioId(), sessao.passkeyId(), sessao.escopo(), ip, parametros.atuais(), empresaId);
+        tokens.herdarConfirmacao(sessao.tokenId(), token.id());
         log.registrar("EMPRESA_ESCOLHIDA", sessao.usuarioId(), "empresa " + empresaId, ip, LogDeSeguranca.quem(sessao.usuarioId()));
         return new Entrou(token, null);
     }
@@ -311,7 +387,7 @@ public class ServicoDeLogin {
     private Optional<IpBloqueado> bloqueio(String ip) {
         return jdbc.query("SELECT CEIL((CAST(BLOQUEADO_ATE AS DATE) - CAST(SYS_EXTRACT_UTC(SYSTIMESTAMP) AS DATE)) * 86400)"
                 + " FROM " + schemas.sessao("BLOQUEIO_IP") + " WHERE IP = ? AND BLOQUEADO_ATE > SYS_EXTRACT_UTC(SYSTIMESTAMP)",
-                (r, n) -> new IpBloqueado(Math.max(1, r.getLong(1))), ip).stream().findFirst();
+                (r, n) -> new IpBloqueado(Math.max(1, r.getLong(1))), Ips.grupo(ip)).stream().findFirst();
     }
 
     private Resultado falhou(String metodo, String motivo, Long usuarioId, String ip, Parametros p) {
@@ -320,23 +396,27 @@ public class ServicoDeLogin {
         return new Recusado();
     }
 
-    /** Se o IP passou do limite de falhas na janela, bloqueia o IP. */
+    /**
+     * Se o grupo do IP (o IPv4, ou o bloco /64 do IPv6: ver Ips) passou do limite de falhas na
+     * janela, bloqueia o grupo inteiro.
+     */
     private void conferirIp(String ip, Parametros p) {
+        String grupo = Ips.grupo(ip);
         Long falhas = jdbc.queryForObject("SELECT COUNT(*) FROM " + schemas.log("TENTATIVA_LOGIN")
-                + " WHERE IP_ORIGEM = ? AND SUCESSO = FALSE AND DATA_HORA > SYS_EXTRACT_UTC(SYSTIMESTAMP) - NUMTODSINTERVAL(?, 'MINUTE')",
-                Long.class, ip, p.ipJanelaMinutos());
+                + " WHERE IP_GRUPO = ? AND SUCESSO = FALSE AND DATA_HORA > SYS_EXTRACT_UTC(SYSTIMESTAMP) - NUMTODSINTERVAL(?, 'MINUTE')",
+                Long.class, grupo, p.ipJanelaMinutos());
         if (falhas != null && falhas >= p.ipMaxFalhas()) {
             String motivoDoBloqueio = falhas + " falhas em " + p.ipJanelaMinutos() + " min";
             jdbc.update("MERGE INTO " + schemas.sessao("BLOQUEIO_IP") + " b USING (SELECT ? AS IP FROM DUAL) n ON (b.IP = n.IP)"
                     + " WHEN MATCHED THEN UPDATE SET b.BLOQUEADO_ATE = SYS_EXTRACT_UTC(SYSTIMESTAMP) + NUMTODSINTERVAL(?, 'MINUTE'), b.MOTIVO = ?"
                     + " WHEN NOT MATCHED THEN INSERT (IP, BLOQUEADO_ATE, MOTIVO) VALUES (n.IP, SYS_EXTRACT_UTC(SYSTIMESTAMP) + NUMTODSINTERVAL(?, 'MINUTE'), ?)",
-                    ip, p.ipBloqueioMinutos(), motivoDoBloqueio, p.ipBloqueioMinutos(), motivoDoBloqueio);
-            log.registrar("IP_BLOQUEADO", null, motivoDoBloqueio + "; bloqueado por " + p.ipBloqueioMinutos() + " min", ip, "API");
+                    grupo, p.ipBloqueioMinutos(), motivoDoBloqueio, p.ipBloqueioMinutos(), motivoDoBloqueio);
+            log.registrar("IP_BLOQUEADO", null, motivoDoBloqueio + "; bloqueado por " + p.ipBloqueioMinutos() + " min: " + grupo, ip, "API");
         }
     }
 
     private void tentativa(String metodo, Long usuarioId, String ip, boolean sucesso, String motivo) {
-        jdbc.update("INSERT INTO " + schemas.log("TENTATIVA_LOGIN") + " (METODO, USUARIO_ID, IP_ORIGEM, SUCESSO, MOTIVO)"
-                + " VALUES (?, ?, ?, ?, ?)", metodo, usuarioId, ip, sucesso, motivo);
+        jdbc.update("INSERT INTO " + schemas.log("TENTATIVA_LOGIN") + " (METODO, USUARIO_ID, IP_ORIGEM, IP_GRUPO, SUCESSO, MOTIVO)"
+                + " VALUES (?, ?, ?, ?, ?, ?)", metodo, usuarioId, ip, Ips.grupo(ip), sucesso, motivo);
     }
 }

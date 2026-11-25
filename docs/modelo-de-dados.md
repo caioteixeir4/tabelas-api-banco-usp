@@ -8,7 +8,7 @@
 > e é **só por passkey** (desde 20/11/2026; não há senha de usuário): toda a `/api` exige token, e só
 > o **BFF** (o servidor do site, repositório `bff-banco-usp`) fala com a API. A **autorização
 > multiempresa** existe desde 23/11/2026: cada sessão vive numa empresa, perfis por empresa, e o banco
-> garante as regras de cargo. O aceite de termos (LGPD) entrou em 23/11/2026; a confirmação de e-mail ainda falta. O desenho, campo a campo, está em [`diagrama-tabelas.html`](diagrama-tabelas.html)
+> garante as regras de cargo. O aceite de termos (LGPD) entrou em 23/11/2026; o convite por e-mail (que confirma o e-mail), a confirmação com passkey antes do que é sensível e o bloqueio por bloco IPv6, em 24/11/2026. O desenho, campo a campo, está em [`diagrama-tabelas.html`](diagrama-tabelas.html)
 > (abra no navegador); a API está em [`api-e-regras.md`](api-e-regras.md); este texto explica o porquê.
 
 ## Visão geral
@@ -74,10 +74,13 @@ para o qual foi criada (um site falso não consegue usá-la: imune a phishing).
   `DADOS_CREDENCIAL`, a chave pública (e o resto do que o WebAuthn guarda); `CONTADOR`, o contador de
   assinaturas (se voltar, é um aparelho clonado); `BACKUP_ELEGIVEL`/`BACKUP_FEITO` dizem se é uma
   passkey sincronizada (iCloud, Google). `REVOGADA_EM` marca a removida (nada é apagado).
-- **`CONVITE`**: como uma conta nasce. Um administrador (hoje, o script `criar-usuario.ps1`) cria o
-  usuário com um convite de uso único e validade de 24 h; no link, a pessoa cadastra a primeira
-  passkey. `FINALIDADE` `NOVA_PASSKEY` é o convite para quem perdeu tudo: ao ser usado, derruba todas
-  as sessões. Do segredo do convite, o banco guarda só o SHA-256.
+- **`CONVITE`**: como uma conta nasce. O administrador da empresa (pela API), a plataforma (o primeiro
+  administrador de uma empresa nova) ou a equipe (o script `criar-usuario.ps1`) cria o usuário com um
+  convite de uso único e validade de 24 h; no link, a pessoa cadastra a primeira passkey. `FINALIDADE`
+  `NOVA_PASSKEY` é o convite para quem perdeu tudo: ao ser usado, derruba todas as sessões. Do segredo
+  do convite, o banco guarda só o SHA-256. Pela API, o segredo vai para o e-mail da própria pessoa
+  (`ENVIADO_POR_EMAIL`), nunca para quem pediu; usar esse convite confirma o e-mail
+  (`USUARIO.EMAIL_CONFIRMADO_EM`, gravado pelo gatilho). Um convite novo faz os pendentes vencerem.
 - **`CODIGO_RECUPERACAO`**: 10 códigos de uso único, entregues ao aceitar o convite (e quando a
   pessoa pede novos, o que revoga os anteriores). Servem para quem perdeu os aparelhos: o código dá um
   token que **só** permite cadastrar uma passkey nova. Só o SHA-256 fica no banco.
@@ -147,8 +150,9 @@ Tudo aqui tem data de validade obrigatória. Quem apaga o vencido é um job do b
 - **`TOKEN`**: a sessão. Tem duas validades: `EXPIRA_EM`, que se renova enquanto há uso, e
   `EXPIRA_ABSOLUTO_EM`, um teto que a renovação não ultrapassa. `PASSKEY_ID` diz com qual passkey
   entrou (remover a passkey derruba as sessões dela). `ESCOPO` é `COMPLETO` ou `CADASTRAR_PASSKEY`
-  (entrou com código de recuperação). `REVOGADO_EM` e `MOTIVO_REVOGACAO` marcam o fim. Apagado 7 dias
-  depois do teto.
+  (entrou com código de recuperação). `REVOGADO_EM` e `MOTIVO_REVOGACAO` marcam o fim. `VERIFICADO_EM`
+  é a última vez que a pessoa usou a passkey na sessão: operação sensível exige que seja recente
+  (`CONFIRMACAO_MINUTOS`). Apagado 7 dias depois do teto.
 - **`DESAFIO`**: o número aleatório que o aparelho assina, de uso único e 5 minutos de validade, com
   a `FINALIDADE` (`LOGIN` ou `CADASTRO`; o de cadastro é preso ao usuário). Usado ou vencido, não
   serve: uma assinatura capturada não pode ser reapresentada. Apagado 1 dia depois de vencer.
@@ -255,7 +259,7 @@ depois de conferir o segredo.
 - `TENTATIVA_LOGIN` não guarda e-mail (nem a impressão digital dele): no login por passkey o e-mail
   nem é informado.
 
-Ficam para depois: confirmação de e-mail e localização suspeita. O aceite de termos e a âncora do
+Fica para depois: localização suspeita. O aceite de termos e a âncora do
 `LOG_SEGURANCA` (e do `LOG_PERMISSAO`) no Vault entraram em 23/11/2026. A criação de usuário pela API entrou com a autorização (etapa 4).
 
 ## Como cada mecanismo de segurança funciona
@@ -356,7 +360,8 @@ Cada uma com migração, API, testes e esta documentação atualizados:
    BFF** (ver "Login por passkey e BFF"): schemas `LOGIN` e `SESSAO` no repositório de regras, convite,
    códigos de recuperação, token opaco guardado no BFF, bloqueio por IP e toda a `/api` exigindo token.
    Depois vieram (23/11/2026) o aceite de termos, a criação de usuário pela API, o limite de pedidos
-   por IP e a âncora do `LOG_SEGURANCA`. **A fazer:** confirmação de e-mail.
+   por IP e a âncora do `LOG_SEGURANCA`. Em 24/11/2026, o convite por e-mail (e com ele a confirmação do e-mail), a confirmação com passkey
+   antes do que é sensível e o bloqueio por bloco IPv6.
 4. **Autorização. Feita** (23/11/2026): perfis por empresa, permissão conferida em toda rota, sessão
    presa a uma empresa, isolamento entre empresas, administrador da plataforma, e as regras de cargo
    garantidas pelo banco com log próprio (ver "Autorização").

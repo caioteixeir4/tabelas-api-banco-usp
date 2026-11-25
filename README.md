@@ -83,6 +83,18 @@ schemas protegidos e o Vault montados pelo `regras-banco-usp`. O que liga cada p
 - **Barreiras contra abuso e desvio:** limite de pedidos por IP (429 com `Retry-After`), caminho fora
   da forma canônica recusado antes de qualquer filtro (`;`, `%`, `//`...), empresa inativada derruba
   as sessões dela na hora, e as checagens de empresa e permissão falham fechadas fora de um pedido.
+- **Convite e avisos por e-mail** (desde 24/11/2026): o convite vai para o e-mail da PRÓPRIA pessoa; o
+  administrador (ou a plataforma, no caso do primeiro administrador de uma empresa nova) vê só
+  "enviado para j***@dominio". Usar o convite confirma o e-mail. Cadastrar ou remover passkey, gerar
+  códigos, usar código de recuperação e recuperar o acesso geram aviso por e-mail ao dono da conta.
+  Criar usuário com um e-mail que já tem conta responde igual, e quem fica sabendo é o dono do e-mail.
+  No desenvolvimento, as mensagens caem no Mailpit (http://localhost:8025).
+- **Confirmar com a passkey antes do que é sensível** (desde 24/11/2026): operações da conta (passkeys,
+  códigos) e as que dão poder (criar usuário, trocar cargo, mudar permissões, convite, empresas da
+  plataforma) exigem que a passkey tenha sido usada nos últimos 5 minutos. Senão, `403 "Confirme com
+  sua passkey"`, e o site pede a passkey sozinho. Uma sessão roubada não vira poder sem o aparelho.
+- **Bloqueio por IP com IPv6 por bloco:** as falhas e o limite de pedidos contam pelo IPv4 ou pelo bloco
+  /64 do IPv6.
 - **Segredos pelo Vault (pronto, ainda desligado):** com um papel AppRole, a API lê as chaves de cifra,
   o segredo do BFF e as senhas do banco do Vault na subida (`compartilhado/SegredosDoVault`), e não
   sobe sem ele; sem o papel, lê do `.env`. Liga-se quando o Vault de desenvolvimento ganhar
@@ -102,13 +114,9 @@ Documentação:
 
 Ainda não implementado:
 
-1. **Complementos do login:** confirmação de e-mail (precisa de um servidor de e-mail). Com ele, o
-   convite de recuperação e o do primeiro administrador de uma empresa nova passam a ir para o e-mail
-   da pessoa, e não para quem pediu (achados 1 e 4 da revisão de 23/11/2026).
-2. **Confirmar com a passkey antes de operações sensíveis da conta** (cadastrar ou remover passkey,
-   gerar códigos de recuperação), para uma sessão roubada não virar tomada da conta (achado 5).
-3. **Dar acesso, pela API, a um usuário que já é de outra empresa** (hoje só pelo script).
-4. Os itens de segurança listados em "Pendências".
+1. **Dar acesso, pela API, a um usuário que já é de outra empresa** (hoje só pelo script). Quando uma
+   empresa tenta, o dono do e-mail recebe um aviso e pede à equipe.
+2. Os itens de segurança listados em "Pendências".
 
 ## Rodando
 
@@ -196,6 +204,10 @@ Configuração, por variável de ambiente ou pelo `.env`:
 | `WEBAUTHN_RP_NOME` | Nome que o aparelho mostra | `Kawashi` |
 | `CIFRA_CHAVE_DADOS`, `CIFRA_CHAVE_INDICE` | Chaves (32 bytes em base64) que cifram os dados pessoais e geram a impressão digital deles. Sem elas a API não sobe | sem padrão |
 | `LIMITE_PEDIDOS_POR_MINUTO` | Pedidos por minuto de um mesmo IP de navegador; passou, `429` | `600` |
+| `MAIL_HOST`, `MAIL_PORT` | Servidor SMTP dos convites e avisos (no desenvolvimento, o Mailpit do repositório de regras) | `localhost`, `1025` |
+| `MAIL_USUARIO`, `MAIL_SENHA`, `MAIL_AUTH`, `MAIL_TLS` | Login e STARTTLS do SMTP (em produção, `MAIL_AUTH=true` e `MAIL_TLS=true`) | vazios, `false`, `false` |
+| `EMAIL_REMETENTE` | De quem o e-mail sai | `nao-responda@kawashi.invalid` |
+| `SITE_URL` | Endereço do site (o BFF), que vai no link do convite | `http://localhost:9090` |
 | `VAULT_ADDR`, `VAULT_ROLE_ID`, `VAULT_SECRET_ID`, `VAULT_AMBIENTE` | Papel AppRole do Vault (gravados pelo `criar-approle.ps1 -Ligar`, no repositório de regras). Com eles, as senhas do banco, as chaves de cifra e o `BFF_SEGREDO` vêm do Vault na subida e valem mais que o `.env`; a API não sobe sem o Vault. Todos ou nenhum; `VAULT_AMBIENTE` sai do `DB_SCHEMA` se faltar | vazios (lê do `.env`) |
 
 As senhas também ficam no Vault, em `kawashi-secrets/api/<conta>`. O schema de log é deduzido
@@ -242,7 +254,7 @@ proxy) e chamam os endpoints por MockMvc. Cada teste roda numa transação que �
 então não sobra dado no banco e os testes não interferem entre si. Os documentos usados são
 CNPJ/CPF válidos e aleatórios (`GeradorDeDocumentos`), nunca reais.
 
-A suíte tem **178 testes** (última execução de `mvn clean test`, 23/11/2026, todos passando). Toda
+A suíte tem **185 testes** (última execução de `mvn clean test`, 24/11/2026, todos passando). Toda
 chamada à API nos testes finge vir do BFF (`testes/Api` manda o segredo de teste e um IP de navegador)
 e vai com token: `testes/UsuarioDeTeste` cria a empresa, os perfis, o usuário e o vínculo de
 ADMINISTRADOR (dentro da transação do teste, que é desfeita) e emite o token preso à empresa. Cada
@@ -271,9 +283,13 @@ e os testes foram reescritos mais densos, vários casos por teste.
 | `RevisaoDeSegurancaApiTest` (as correções da revisão de 23/11/2026: convite só para conta que é só desta empresa; convites antigos vencem; empresa inativada derruba as sessões; revelar exige ler; falha fechada numa thread sem pedido; caminho com `;`, `%61` ou `//` recusado antes dos filtros) | 6 |
 | `LimiteDePedidosTest` (com limite baixo: o sexto pedido do minuto recebe 429 com `Retry-After`, outro IP segue) | 1 |
 | `SegredosDoVaultTest` (contra um Vault falso local, sem banco: os quatro caminhos, valores na frente do `.env`, token revogado, outro ambiente e papel errado impedem a subida) | 3 |
+| `EmailEConfirmacaoApiTest` (o convite vai ao e-mail da pessoa e usá-lo confirma o e-mail; e-mail que já tem conta responde igual e só o dono fica sabendo; operação sensível sem passkey recente pede confirmação, a passkey de outra conta não confirma, a própria libera; aviso por e-mail; falhas de um bloco IPv6 /64 bloqueiam o bloco) | 4 |
+| `IpsTest` (IPv4 inteiro, IPv6 pelo bloco /64, IPv4 dentro de IPv6; sem banco e sem DNS) | 3 |
 | `DadosPessoaisCifradosTest` (o que fica na tabela, unicidade pela impressão digital, máscara, revelar com rastro, cifra adulterada por fora) | 13 |
 
 Cada correção da revisão foi conferida quebrando o código de propósito: sete mutações (convite liberado para quem tem outra empresa, convites pendentes que não vencem, validação que ignora a empresa inativa, inativar sem revogar, revelar sem exigir leitura, conferência liberada fora de um pedido, caminho torto aceito), e cada uma derrubou o teste certo. A primeira versão do teste de "fora de um pedido" não pegava a mutação (o Spring põe um pedido falso na thread do teste); ele passou a rodar numa thread nova.
+
+Os itens de 24/11/2026 também: oito mutações (o segredo do convite voltando para quem pediu, sem a resposta neutra, convite sem a marca de e-mail, rota de poder sem confirmação, operação da conta sem confirmação, confirmação aceitando a passkey de outra pessoa, IPv6 por endereço exato, sem o aviso de códigos novos), e cada uma derrubou o teste certo.
 
 O `ServidorRealTest` é a exceção à transação desfeita: precisa gravar de verdade para disputar as
 travas. Ele usa um usuário e uma empresa **fixos** (criados na primeira execução), porque perfis e
@@ -309,7 +325,7 @@ Vault (`kawashi-secrets/smoke-passkey/<AMBIENTE>/<usuario>`); nas seguintes, ent
 software só serve para conta de teste do desenvolvimento: a chave fica no Vault, e não presa num
 aparelho. No fim faz logout e confere que o token parou de valer. A conta precisa ter acesso a uma
 empresa (a do `ServidorRealTest`) e, para a parte da plataforma, ser administradora da plataforma.
-Última execução: 23/11/2026 (depois dos termos e da revisão), 56 ok, contra a conta fixa de teste (usuário 108 do
+Última execução: 24/11/2026, 59 ok (inclusive o convite do administrador novo chegando ao Mailpit), contra a conta fixa de teste (usuário 108 do
 `TESTE_DEV`). O Vault de desenvolvimento esquece a chave da passkey de software quando reinicia:
 depois disso, gere um convite novo (`criar-usuario.ps1 -UsuarioId 108`) e o roteiro cadastra outra.
 
@@ -349,11 +365,10 @@ depois disso, gere um convite novo (`criar-usuario.ps1 -UsuarioId 108`) e o rote
 - **O log de alteração não guarda o valor antigo nem o novo**, só que o registro mudou.
 - Empacotamento (Dockerfile). A integração contínua (`.github/workflows/testes.yml`) compila tudo e
   roda os testes que não precisam do Oracle; os de integração rodam na máquina de desenvolvimento.
-- **Bloqueio por IP com IPv6:** o bloqueio depois de falhas é por endereço exato; um atacante com um
-  bloco IPv6 troca de endereço. E, atrás de um proxy reverso, o BFF precisa de `FORWARD_HEADERS=native`
-  para mandar o IP real (achado 11 da revisão).
-- **Mensagem de e-mail repetido:** criar usuário com um e-mail que já existe em outra empresa responde
-  que já existe (inevitável enquanto o e-mail for único no sistema; achado 8 da revisão).
+- **Proxy reverso:** atrás de um, o BFF precisa de `FORWARD_HEADERS=native` para mandar o IP real (ele
+  avisa no log se recebe `X-Forwarded-For` sem isso).
+- **E-mail que não chega:** o envio é depois do commit; se o servidor de e-mail falhar, o convite existe
+  mas não chega (fica no log da aplicação), e o administrador pede outro.
 
 ## Origem
 

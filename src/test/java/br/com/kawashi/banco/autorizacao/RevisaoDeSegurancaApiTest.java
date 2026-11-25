@@ -50,6 +50,8 @@ class RevisaoDeSegurancaApiTest {
     private JdbcTemplate jdbc;
     @Autowired
     private SchemasDoLogin schemas;
+    @Autowired
+    private br.com.kawashi.banco.testes.CorreioDeTeste correio;
     @jakarta.persistence.PersistenceContext
     private jakarta.persistence.EntityManager jpa;
 
@@ -64,8 +66,8 @@ class RevisaoDeSegurancaApiTest {
         autorizacao.vincular(tambemDeOutra.usuarioId(), outra.empresaId(),
                 autorizacao.perfilPorNome(outra.empresaId(), "ADMINISTRADOR").orElseThrow(), UsuarioDeTeste.QUEM);
 
-        api.post("/api/usuarios/" + soDaqui.usuarioId() + "/convite").andExpect(status().isOk())
-                .andExpect(jsonPath("$.convite").exists());
+        api.post("/api/usuarios/" + soDaqui.usuarioId() + "/convite").andExpect(status().isAccepted())
+                .andExpect(jsonPath("$.enviadoPara").exists());
         api.post("/api/usuarios/" + tambemDeOutra.usuarioId() + "/convite").andExpect(status().isUnprocessableEntity())
                 .andExpect(jsonPath("$.detail").value(org.hamcrest.Matchers.containsString("equipe da plataforma")));
 
@@ -79,9 +81,12 @@ class RevisaoDeSegurancaApiTest {
         UsuarioDeTeste.Criado admin = usuarios.novo();
         Api api = usuarios.api(mvc, admin);
         UsuarioDeTeste.Criado u = usuarios.naEmpresa(admin.empresaId(), "OPERADOR");
-        String primeiro = JsonPath.read(Api.corpo(api.post("/api/usuarios/" + u.usuarioId() + "/convite")), "$.convite");
+        api.post("/api/usuarios/" + u.usuarioId() + "/convite").andExpect(status().isAccepted());
+        String primeiro = correio.ultimoConvite(u.email()).orElseThrow();
         Thread.sleep(5);  // o vencimento so atinge convite criado ANTES (hora do banco, em microssegundos)
-        String segundo = JsonPath.read(Api.corpo(api.post("/api/usuarios/" + u.usuarioId() + "/convite")), "$.convite");
+        api.post("/api/usuarios/" + u.usuarioId() + "/convite").andExpect(status().isAccepted());
+        String segundo = correio.ultimoConvite(u.email()).orElseThrow();
+        assertThat(segundo).isNotEqualTo(primeiro);
         assertThat(convites.valido(primeiro)).as("convite anterior").isEmpty();
         assertThat(convites.valido(u.convite())).as("convite de cadastro").isEmpty();
         assertThat(convites.valido(segundo)).as("convite mais recente").isPresent();

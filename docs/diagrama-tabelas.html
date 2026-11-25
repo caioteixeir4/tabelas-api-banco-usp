@@ -563,7 +563,8 @@
             { "n": "HANDLE", "t": "VARCHAR2(43)", "uq": true, "nota": "Identificador aleatório da conta (32 bytes, base64url) que vai para o aparelho como 'user.id' da passkey. Nem o e-mail nem o id do banco saem daqui. No login, o aparelho devolve o handle, e a API confere que é o dono da passkey." },
             { "n": "ATIVO", "t": "BOOLEAN", "pad": "TRUE", "nota": "Inativo não entra, e os tokens que já tinha param de valer na hora." },
             { "n": "CRIADO_EM", "t": "TIMESTAMP(6)", "pad": "SYS_EXTRACT_UTC(SYSTIMESTAMP)" },
-            { "n": "ATUALIZADO_EM", "t": "TIMESTAMP(6)", "pad": "SYS_EXTRACT_UTC(SYSTIMESTAMP)" }
+            { "n": "ATUALIZADO_EM", "t": "TIMESTAMP(6)", "pad": "SYS_EXTRACT_UTC(SYSTIMESTAMP)" },
+            { "n": "EMAIL_CONFIRMADO_EM", "t": "TIMESTAMP(6)", "nulo": true, "nota": "Quando o e-mail foi confirmado: usar um convite que chegou POR E-MAIL prova que a caixa é da pessoa. Quem grava é o gatilho do CONVITE (CONVITE_CONFIRMA_EMAIL_TRG), nunca a API: dela, a API só muda ATIVO." }
           ],
           "restricoes": [
             { "tipo": "PK", "nome": "PK_USUARIO", "regra": "ID" },
@@ -611,10 +612,11 @@
             { "n": "USUARIO_ID", "t": "NUMBER", "fk": { "t": "USUARIO", "c": "ID" } },
             { "n": "TOKEN_HASH", "t": "VARCHAR2(64)", "uq": true, "nota": "SHA-256 do segredo do convite ('kwc_' + 32 bytes). O segredo vai no link, depois do # (o navegador nunca o manda ao servidor)." },
             { "n": "FINALIDADE", "t": "VARCHAR2(20)", "nota": "'CADASTRO' (a primeira passkey) ou 'NOVA_PASSKEY' (quem perdeu tudo: ao ser usado, derruba todas as sessões)." },
-            { "n": "CRIADO_POR", "t": "VARCHAR2(128)", "nota": "Quem emitiu (hoje, \"SCRIPT\": o criar-usuario.ps1)." },
+            { "n": "CRIADO_POR", "t": "VARCHAR2(128)", "nota": "Quem emitiu: USUARIO:<id> (o administrador, pela API), ou SCRIPT (a equipe, pelo criar-usuario.ps1)." },
             { "n": "CRIADO_EM", "t": "TIMESTAMP(6)", "pad": "SYS_EXTRACT_UTC(SYSTIMESTAMP)" },
             { "n": "EXPIRA_EM", "t": "TIMESTAMP(6)", "nota": "CONVITE_HORAS (24) depois de criado." },
-            { "n": "USADO_EM", "t": "TIMESTAMP(6)", "nulo": true, "nota": "Marcado de forma atômica: dois pedidos com o mesmo convite, só um vale." }
+            { "n": "USADO_EM", "t": "TIMESTAMP(6)", "nulo": true, "nota": "Marcado de forma atômica: dois pedidos com o mesmo convite, só um vale." },
+            { "n": "ENVIADO_POR_EMAIL", "t": "BOOLEAN", "pad": "FALSE", "nota": "O segredo foi para o e-mail da PRÓPRIA pessoa (e não voltou para quem pediu). Usar este convite confirma o e-mail. Não muda depois de criado (ORA-20113). Falso: entregue pela equipe (Vault). Criar um convite novo faz os pendentes do usuário vencerem." }
           ],
           "restricoes": [
             { "tipo": "PK", "nome": "PK_CONVITE", "regra": "ID" },
@@ -649,7 +651,7 @@
           "id": "PARAMETRO_SEGURANCA", "nome": "PARAMETRO_SEGURANCA", "schema": "login",
           "desc": "os números das regras; a API só lê",
           "campos": [
-            { "n": "CHAVE", "t": "VARCHAR2(40)", "pk": true, "nota": "TOKEN_MINUTOS (15), TOKEN_TETO_HORAS (8), SESSOES_MAXIMAS (3), IP_MAX_FALHAS (10), IP_JANELA_MINUTOS (10), IP_BLOQUEIO_MINUTOS (60), DESAFIO_MINUTOS (5), CONVITE_HORAS (24), CODIGOS_RECUPERACAO (10), PASSKEYS_MAXIMAS (10)." },
+            { "n": "CHAVE", "t": "VARCHAR2(40)", "pk": true, "nota": "TOKEN_MINUTOS (15), TOKEN_TETO_HORAS (8), SESSOES_MAXIMAS (3), IP_MAX_FALHAS (10), IP_JANELA_MINUTOS (10), IP_BLOQUEIO_MINUTOS (60), DESAFIO_MINUTOS (5), CONVITE_HORAS (24), CODIGOS_RECUPERACAO (10), PASSKEYS_MAXIMAS (10), CONFIRMACAO_MINUTOS (5: por quanto tempo a última passkey usada vale para operação sensível)." },
             { "n": "VALOR", "t": "NUMBER", "nota": "Falta de parâmetro é erro na API, nunca um valor padrão mais fraco." },
             { "n": "DESCRICAO", "t": "VARCHAR2(200 CHAR)" },
             { "n": "ATUALIZADO_POR", "t": "VARCHAR2(128)", "nulo": true, "nota": "Preenchido pelo gatilho com quem mudou. Toda mudança vira uma linha PARAMETRO_ALTERADO no LOG_SEGURANCA, com o valor antigo e o novo." },
@@ -676,7 +678,8 @@
             { "n": "REVOGADO_EM", "t": "TIMESTAMP(6)", "nulo": true },
             { "n": "MOTIVO_REVOGACAO", "t": "VARCHAR2(20)", "nulo": true, "nota": "LOGOUT, SAIR_DE_TODOS, PASSKEY_REMOVIDA, LIMITE_SESSOES (a quarta sessão derruba a mais antiga), USUARIO_DESLIGADO, RECUPERACAO (código ou convite de recuperação: cai tudo), SUSPEITA, TROCA_EMPRESA (a pessoa trocou de empresa: token novo), VINCULO_DESATIVADO (o acesso à empresa foi tirado) ou EMPRESA_INATIVADA (a empresa foi inativada: caem as sessões de todos nela). Revogado é para sempre: o gatilho TOKEN_IMUTAVEL_TRG impede, até para o DBA, desrevogar, aumentar o teto ou trocar dono, empresa, escopo ou hash (ORA-20112)." },
             { "n": "IP_ORIGEM", "t": "VARCHAR2(45)", "nulo": true, "nota": "IP do navegador (o BFF informa). Só registro: o token não é preso ao IP." },
-            { "n": "EMPRESA_ID", "t": "NUMBER", "nulo": true, "fk": { "t": "EMPRESA_REF", "c": "ID", "esquema": "padrão" }, "nota": "Em qual empresa a sessão trabalha (ver o quadro da autorização). Vazio logo depois de entrar, se a pessoa tem acesso a mais de uma: ela escolhe, e a troca emite um token novo. O token só vale enquanto o vínculo com a empresa estiver ativo." }
+            { "n": "EMPRESA_ID", "t": "NUMBER", "nulo": true, "fk": { "t": "EMPRESA_REF", "c": "ID", "esquema": "padrão" }, "nota": "Em qual empresa a sessão trabalha (ver o quadro da autorização). Vazio logo depois de entrar, se a pessoa tem acesso a mais de uma: ela escolhe, e a troca emite um token novo. O token só vale enquanto o vínculo com a empresa estiver ativo." },
+            { "n": "VERIFICADO_EM", "t": "TIMESTAMP(6)", "nulo": true, "nota": "Última vez que a pessoa usou a passkey nesta sessão (no login, ou em /api/auth/confirmar). Operação sensível (passkeys, códigos, criar usuário, cargo, permissões, convite, empresas da plataforma) exige que seja de menos de CONFIRMACAO_MINUTOS; senão, 403 \"Confirme com sua passkey\". Trocar de empresa herda o valor. Só anda para a frente e nunca para o futuro (ORA-20112)." }
           ],
           "restricoes": [
             { "tipo": "PK", "nome": "PK_TOKEN", "regra": "ID" },
@@ -700,8 +703,8 @@
           "campos": [
             { "n": "ID", "t": "NUMBER", "pk": true, "ident": true },
             { "n": "VALOR", "t": "VARCHAR2(43)", "uq": true, "nota": "32 bytes aleatórios (base64url). Consumido de forma atômica: usado ou vencido, não serve, então uma assinatura capturada não pode ser reapresentada." },
-            { "n": "FINALIDADE", "t": "VARCHAR2(20)", "nota": "'LOGIN' ou 'CADASTRO'. Um desafio só serve para a finalidade em que nasceu." },
-            { "n": "USUARIO_ID", "t": "NUMBER", "nulo": true, "fk": { "t": "USUARIO", "c": "ID" }, "nota": "Obrigatório no cadastro (o desafio é preso ao usuário do convite ou da sessão); vazio no login (o aparelho é que diz qual conta)." },
+            { "n": "FINALIDADE", "t": "VARCHAR2(20)", "nota": "'LOGIN', 'CADASTRO' ou 'CONFIRMACAO' (a pessoa logada confirma com a passkey antes de operação sensível). Um desafio só serve para a finalidade em que nasceu." },
+            { "n": "USUARIO_ID", "t": "NUMBER", "nulo": true, "fk": { "t": "USUARIO", "c": "ID" }, "nota": "Obrigatório no cadastro e na confirmação (o desafio é preso ao usuário do convite ou da sessão); vazio no login (o aparelho é que diz qual conta)." },
             { "n": "CRIADO_EM", "t": "TIMESTAMP(6)", "pad": "SYS_EXTRACT_UTC(SYSTIMESTAMP)" },
             { "n": "EXPIRA_EM", "t": "TIMESTAMP(6)", "nota": "DESAFIO_MINUTOS (5) depois de criado. O job apaga 1 dia depois de vencer." },
             { "n": "USADO_EM", "t": "TIMESTAMP(6)", "nulo": true }
@@ -711,7 +714,7 @@
             { "tipo": "UNIQUE", "nome": "UK_DESAFIO_VALOR", "regra": "VALOR" },
             { "tipo": "FK", "nome": "FK_DESAFIO_USUARIO", "regra": "USUARIO_ID → USUARIO (ID), entre schemas, sem cascade" },
             { "tipo": "CHECK", "nome": "CK_DESAFIO_VALOR", "regra": "REGEXP_LIKE(VALOR, '^[A-Za-z0-9_-]{43}$')" },
-            { "tipo": "CHECK", "nome": "CK_DESAFIO_FINALIDADE", "regra": "FINALIDADE IN ('LOGIN', 'CADASTRO')" },
+            { "tipo": "CHECK", "nome": "CK_DESAFIO_FINALIDADE", "regra": "FINALIDADE IN ('LOGIN', 'CADASTRO', 'CONFIRMACAO')" },
             { "tipo": "CHECK", "nome": "CK_DESAFIO_CADASTRO", "regra": "FINALIDADE = 'LOGIN' OR USUARIO_ID IS NOT NULL" },
             { "tipo": "CHECK", "nome": "CK_DESAFIO_VALIDADE", "regra": "EXPIRA_EM > CRIADO_EM" },
             { "tipo": "INDEX", "nome": "IX_DESAFIO_EXPIRA", "regra": "EXPIRA_EM" }
@@ -721,7 +724,7 @@
           "id": "BLOQUEIO_IP", "nome": "BLOQUEIO_IP", "schema": "sessao",
           "desc": "IPs barrados por excesso de falhas",
           "campos": [
-            { "n": "IP", "t": "VARCHAR2(45)", "pk": true, "nota": "IP do navegador, informado pelo BFF. 10 falhas do mesmo IP em 10 minutos (em qualquer cerimônia: login, convite, código) bloqueiam o IP por 1 hora. A resposta é 429 com Retry-After." },
+            { "n": "IP", "t": "VARCHAR2(45)", "pk": true, "nota": "O GRUPO do IP do navegador (informado pelo BFF): o IPv4, ou o bloco /64 do IPv6 ('2001:db8:1:2::/64'), para quem troca de endereço dentro do bloco não escapar. 10 falhas do mesmo grupo em 10 minutos (em qualquer cerimônia: login, convite, código, confirmação) bloqueiam o grupo por 1 hora. A resposta é 429 com Retry-After." },
             { "n": "BLOQUEADO_ATE", "t": "TIMESTAMP(6)" },
             { "n": "MOTIVO", "t": "VARCHAR2(100 CHAR)" },
             { "n": "CRIADO_EM", "t": "TIMESTAMP(6)", "pad": "SYS_EXTRACT_UTC(SYSTIMESTAMP)" }
@@ -735,18 +738,20 @@
           "desc": "toda tentativa, certa ou errada, com o motivo",
           "campos": [
             { "n": "ID", "t": "NUMBER", "pk": true, "ident": true },
-            { "n": "METODO", "t": "VARCHAR2(20)", "nota": "'PASSKEY', 'CONVITE' ou 'CODIGO_RECUPERACAO'." },
+            { "n": "METODO", "t": "VARCHAR2(20)", "nota": "'PASSKEY', 'CONVITE', 'CODIGO_RECUPERACAO' ou 'CONFIRMACAO' (confirmar com a passkey antes de operação sensível)." },
             { "n": "USUARIO_ID", "t": "NUMBER", "nulo": true, "nota": "Sem chave estrangeira, como todo log: sobrevive ao usuário." },
-            { "n": "IP_ORIGEM", "t": "VARCHAR2(45)", "nulo": true },
+            { "n": "IP_ORIGEM", "t": "VARCHAR2(45)", "nulo": true, "nota": "O endereço exato." },
             { "n": "SUCESSO", "t": "BOOLEAN" },
             { "n": "MOTIVO", "t": "VARCHAR2(30)", "nulo": true, "nota": "Por que falhou. A resposta ao cliente é sempre a mesma; o motivo fica só aqui." },
-            { "n": "DATA_HORA", "t": "TIMESTAMP(6)", "pad": "SYS_EXTRACT_UTC(SYSTIMESTAMP)", "nota": "Hora do servidor, em UTC, posta pelo gatilho (a informada é ignorada)." }
+            { "n": "DATA_HORA", "t": "TIMESTAMP(6)", "pad": "SYS_EXTRACT_UTC(SYSTIMESTAMP)", "nota": "Hora do servidor, em UTC, posta pelo gatilho (a informada é ignorada)." },
+            { "n": "IP_GRUPO", "t": "VARCHAR2(45)", "nulo": true, "nota": "O IPv4, ou o bloco /64 do IPv6: é por ele que as falhas são contadas. Vazio nas tentativas de antes de 24/11/2026." }
           ],
           "restricoes": [
             { "tipo": "PK", "nome": "PK_TENTATIVA_LOGIN", "regra": "ID" },
-            { "tipo": "CHECK", "nome": "CK_TENTATIVA_METODO", "regra": "METODO IN ('PASSKEY', 'CODIGO_RECUPERACAO', 'CONVITE')" },
+            { "tipo": "CHECK", "nome": "CK_TENTATIVA_METODO", "regra": "METODO IN ('PASSKEY', 'CODIGO_RECUPERACAO', 'CONVITE', 'CONFIRMACAO')" },
             { "tipo": "CHECK", "nome": "CK_TENTATIVA_MOTIVO", "regra": "MOTIVO IS NULL OR MOTIVO IN ('CREDENCIAL_DESCONHECIDA', 'VERIFICACAO_FALHOU', 'DESAFIO_INVALIDO', 'USUARIO_INATIVO', 'IP_BLOQUEADO', 'CODIGO_INVALIDO', 'CONVITE_INVALIDO', 'CONTADOR_SUSPEITO')" },
-            { "tipo": "INDEX", "nome": "IX_TENTATIVA_IP", "regra": "(IP_ORIGEM, DATA_HORA): contar as falhas de um IP na janela" }
+            { "tipo": "INDEX", "nome": "IX_TENTATIVA_IP", "regra": "(IP_ORIGEM, DATA_HORA)" },
+            { "tipo": "INDEX", "nome": "IX_TENTATIVA_IP_GRUPO", "regra": "(IP_GRUPO, DATA_HORA): contar as falhas de um grupo de IP na janela" }
           ]
         },
         {
@@ -755,7 +760,7 @@
           "campos": [
             { "n": "ID", "t": "NUMBER", "pk": true, "ident": true },
             { "n": "ORDEM", "t": "NUMBER", "uq": true, "nota": "Numeração sem buraco, dada pelo gatilho, como no LOG_ALTERACAO." },
-            { "n": "EVENTO", "t": "VARCHAR2(40)", "nota": "LOGIN, LOGOUT, SAIR_DE_TODOS, PASSKEY_CADASTRADA, PASSKEY_REMOVIDA, CODIGOS_GERADOS, CODIGO_USADO, CONVITE_CRIADO, CONVITE_USADO, IP_BLOQUEADO, SESSAO_ENCERRADA, USUARIO_CRIADO, PARAMETRO_ALTERADO, CONTADOR_SUSPEITO, EMPRESA_ESCOLHIDA, EMPRESA_CRIADA, ADMIN_PLATAFORMA_CONCEDIDO, ADMIN_PLATAFORMA_REVOGADO ou TERMO_ACEITO (gravado pelo gatilho do aceite de termos)." },
+            { "n": "EVENTO", "t": "VARCHAR2(40)", "nota": "LOGIN, LOGOUT, SAIR_DE_TODOS, PASSKEY_CADASTRADA, PASSKEY_REMOVIDA, CODIGOS_GERADOS, CODIGO_USADO, CONVITE_CRIADO, CONVITE_USADO, IP_BLOQUEADO, SESSAO_ENCERRADA, USUARIO_CRIADO, PARAMETRO_ALTERADO, CONTADOR_SUSPEITO, EMPRESA_ESCOLHIDA, EMPRESA_CRIADA, ADMIN_PLATAFORMA_CONCEDIDO, ADMIN_PLATAFORMA_REVOGADO, TERMO_ACEITO (gravado pelo gatilho do aceite de termos), PASSKEY_CONFIRMADA (a pessoa confirmou com a passkey antes de operação sensível) ou EMAIL_ENVIADO (convite, aviso de segurança ou \"já tem conta\": o tipo, nunca o endereço nem o texto)." },
             { "n": "USUARIO_ID", "t": "NUMBER", "nulo": true },
             { "n": "DETALHE", "t": "VARCHAR2(500 CHAR)", "nulo": true },
             { "n": "IP_ORIGEM", "t": "VARCHAR2(45)", "nulo": true },
@@ -767,7 +772,7 @@
           "restricoes": [
             { "tipo": "PK", "nome": "PK_LOG_SEGURANCA", "regra": "ID" },
             { "tipo": "UNIQUE", "nome": "UK_LOG_SEGURANCA_ORDEM", "regra": "ORDEM" },
-            { "tipo": "CHECK", "nome": "CK_LOG_SEGURANCA_EVENTO", "regra": "EVENTO IN ('LOGIN', 'LOGOUT', 'SAIR_DE_TODOS', 'PASSKEY_CADASTRADA', 'PASSKEY_REMOVIDA', 'CODIGOS_GERADOS', 'CODIGO_USADO', 'CONVITE_CRIADO', 'CONVITE_USADO', 'IP_BLOQUEADO', 'SESSAO_ENCERRADA', 'USUARIO_CRIADO', 'PARAMETRO_ALTERADO', 'CONTADOR_SUSPEITO', 'EMPRESA_ESCOLHIDA', 'EMPRESA_CRIADA', 'ADMIN_PLATAFORMA_CONCEDIDO', 'ADMIN_PLATAFORMA_REVOGADO', 'TERMO_ACEITO')" },
+            { "tipo": "CHECK", "nome": "CK_LOG_SEGURANCA_EVENTO", "regra": "EVENTO IN ('LOGIN', 'LOGOUT', 'SAIR_DE_TODOS', 'PASSKEY_CADASTRADA', 'PASSKEY_REMOVIDA', 'CODIGOS_GERADOS', 'CODIGO_USADO', 'CONVITE_CRIADO', 'CONVITE_USADO', 'IP_BLOQUEADO', 'SESSAO_ENCERRADA', 'USUARIO_CRIADO', 'PARAMETRO_ALTERADO', 'CONTADOR_SUSPEITO', 'EMPRESA_ESCOLHIDA', 'EMPRESA_CRIADA', 'ADMIN_PLATAFORMA_CONCEDIDO', 'ADMIN_PLATAFORMA_REVOGADO', 'TERMO_ACEITO', 'PASSKEY_CONFIRMADA', 'EMAIL_ENVIADO')" },
             { "tipo": "INDEX", "nome": "IX_LOG_SEGURANCA_USUARIO", "regra": "(USUARIO_ID, DATA_HORA)" }
           ]
         }

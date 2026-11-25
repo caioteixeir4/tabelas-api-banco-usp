@@ -33,4 +33,4 @@ jobs:
           cache: maven
 
       - name: Compila e roda os testes sem banco
-        run: mvn -B -ntp test -Dtest='CifraDeDadosTest,DocumentosTest,TratadorDeErrosTest,SegredosDoVaultTest' -Dsurefire.failIfNoSpecifiedTests=false
+        run: mvn -B -ntp test -Dtest='CifraDeDadosTest,DocumentosTest,TratadorDeErrosTest,SegredosDoVaultTest,IpsTest' -Dsurefire.failIfNoSpecifiedTests=false

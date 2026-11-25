@@ -162,6 +162,14 @@ public class TratadorDeErros extends ResponseEntityExceptionHandler {
         return problema(HttpStatus.FORBIDDEN, ex.getTitulo(), ex.getMessage());
     }
 
+    /** Operacao sensivel sem a passkey recente: o site reconhece pelo "confirmar" e pede a passkey. */
+    @ExceptionHandler(ConfirmacaoNecessariaException.class)
+    ProblemDetail confirmacaoNecessaria(ConfirmacaoNecessariaException ex) {
+        ProblemDetail p = problema(HttpStatus.FORBIDDEN, "Confirme com sua passkey", ex.getMessage());
+        p.setProperty("confirmar", true);
+        return p;
+    }
+
     /**
      * As regras da autorizacao que o BANCO garante (14_autorizacao.sql) levantam ORA-20101 a
      * ORA-20110: por exemplo, a troca de cargo que deixaria a empresa sem administrador. Viram 422,

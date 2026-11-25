@@ -183,6 +183,27 @@ public class AutenticacaoController {
         return responder(servico.escolherEmpresa(sessao(requisicao), pedido.empresaId(), FiltroDoBff.ipDoCliente(requisicao)), "");
     }
 
+    /**
+     * Confirmar com a passkey antes de operacao sensivel (o 403 "Confirme com sua passkey"): o
+     * desafio, preso a quem esta logado, com so as passkeys dele.
+     */
+    @PostMapping("/confirmar/opcoes")
+    public ResponseEntity<?> opcoesDeConfirmacao(HttpServletRequest requisicao) {
+        return responder(servico.opcoesDeConfirmacao(sessao(requisicao), FiltroDoBff.ipDoCliente(requisicao)), "");
+    }
+
+    /** 204: a sessao fica confirmada por CONFIRMACAO_MINUTOS. Recusa: 422 (e nao 401: a sessao continua). */
+    @PostMapping("/confirmar")
+    public ResponseEntity<?> confirmar(@Valid @RequestBody PedidoDeLogin pedido, HttpServletRequest requisicao) {
+        ServicoDeLogin.Resultado r = servico.confirmar(sessao(requisicao), pedido.credencial().toString(), FiltroDoBff.ipDoCliente(requisicao));
+        return switch (r) {
+            case ServicoDeLogin.Recusado x -> ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY).body(problema(
+                    HttpStatus.UNPROCESSABLE_ENTITY, "Não confirmado", "A passkey não pôde ser confirmada. Use uma passkey desta conta."));
+            case ServicoDeLogin.IpBloqueado b -> responder(b, "");
+            default -> ResponseEntity.noContent().build();
+        };
+    }
+
     /** Os termos de uso e a politica de privacidade vigentes, com o texto e se o usuario ja aceitou cada um. */
     @GetMapping("/termos")
     public List<Termos.Termo> termosVigentes(HttpServletRequest requisicao) {

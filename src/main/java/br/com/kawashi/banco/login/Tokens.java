@@ -34,9 +34,12 @@ public class Tokens {
     public record TokenEmitido(long id, String token, String escopo, LocalDateTime expiraEm, LocalDateTime expiraAbsolutoEm) {
     }
 
-    /** O que a API sabe de quem esta chamando, depois de conferir o token. */
+    /**
+     * O que a API sabe de quem esta chamando, depois de conferir o token. {@code confirmadaAgora}: a
+     * pessoa usou a passkey nesta sessao ha menos de CONFIRMACAO_MINUTOS (login ou /api/auth/confirmar).
+     */
     public record Sessao(long tokenId, long usuarioId, long pessoaId, String escopo, LocalDateTime expiraEm,
-            LocalDateTime expiraAbsolutoEm, Long empresaId, Long passkeyId) {
+            LocalDateTime expiraAbsolutoEm, Long empresaId, Long passkeyId, boolean confirmadaAgora) {
     }
 
     private final JdbcTemplate jdbc;
@@ -56,6 +59,7 @@ public class Tokens {
     /**
      * Emite um token. Com {@code empresaId}, a sessao fica presa a essa empresa (quem chama ja
      * conferiu o vinculo); sem, a sessao so serve para escolher a empresa e para o proprio login.
+     * Entrou com passkey: a sessao ja nasce confirmada (VERIFICADO_EM = agora).
      */
     public TokenEmitido emitir(long usuarioId, Long passkeyId, String escopo, String ip, ParametrosDeSeguranca.Parametros p,
             Long empresaId) {
@@ -75,10 +79,10 @@ public class Tokens {
         String token = PREFIXO + Aleatorio.base64Url32();
         String hash = hash(token);
         jdbc.update("INSERT INTO " + schemas.sessao("TOKEN")
-                + " (USUARIO_ID, PASSKEY_ID, TOKEN_HASH, ESCOPO, EXPIRA_EM, EXPIRA_ABSOLUTO_EM, IP_ORIGEM, EMPRESA_ID) VALUES (?, ?, ?, ?,"
+                + " (USUARIO_ID, PASSKEY_ID, TOKEN_HASH, ESCOPO, EXPIRA_EM, EXPIRA_ABSOLUTO_EM, IP_ORIGEM, EMPRESA_ID, VERIFICADO_EM) VALUES (?, ?, ?, ?,"
                 + " LEAST(SYS_EXTRACT_UTC(SYSTIMESTAMP) + NUMTODSINTERVAL(?, 'MINUTE'), SYS_EXTRACT_UTC(SYSTIMESTAMP) + NUMTODSINTERVAL(?, 'HOUR')),"
-                + " SYS_EXTRACT_UTC(SYSTIMESTAMP) + NUMTODSINTERVAL(?, 'HOUR'), ?, ?)",
-                usuarioId, passkeyId, hash, escopo, p.tokenMinutos(), p.tokenTetoHoras(), p.tokenTetoHoras(), ip, empresaId);
+                + " SYS_EXTRACT_UTC(SYSTIMESTAMP) + NUMTODSINTERVAL(?, 'HOUR'), ?, ?, CASE WHEN ? = 1 THEN SYS_EXTRACT_UTC(SYSTIMESTAMP) END)",
+                usuarioId, passkeyId, hash, escopo, p.tokenMinutos(), p.tokenTetoHoras(), p.tokenTetoHoras(), ip, empresaId, passkeyId != null ? 1 : 0);
         return jdbc.queryForObject("SELECT ID, ESCOPO, EXPIRA_EM, EXPIRA_ABSOLUTO_EM FROM " + schemas.sessao("TOKEN")
                 + " WHERE TOKEN_HASH = ?", (r, n) -> new TokenEmitido(r.getLong(1), token, r.getString(2),
                         r.getTimestamp(3).toLocalDateTime(), r.getTimestamp(4).toLocalDateTime()), hash);
@@ -95,7 +99,8 @@ public class Tokens {
         }
         List<Object[]> achados = jdbc.query("SELECT t.ID, t.USUARIO_ID, u.PESSOA_ID, t.ESCOPO,"
                 + " CASE WHEN t.ULTIMO_USO_EM < SYS_EXTRACT_UTC(SYSTIMESTAMP) - INTERVAL '1' MINUTE THEN 1 ELSE 0 END,"
-                + " t.EMPRESA_ID, t.PASSKEY_ID"
+                + " t.EMPRESA_ID, t.PASSKEY_ID,"
+                + " CASE WHEN t.VERIFICADO_EM > SYS_EXTRACT_UTC(SYSTIMESTAMP) - NUMTODSINTERVAL(?, 'MINUTE') THEN 1 ELSE 0 END"
                 + " FROM " + schemas.sessao("TOKEN") + " t JOIN " + schemas.login("USUARIO") + " u ON u.ID = t.USUARIO_ID"
                 + " WHERE t.TOKEN_HASH = ? AND t.REVOGADO_EM IS NULL AND t.EXPIRA_EM > SYS_EXTRACT_UTC(SYSTIMESTAMP)"
                 + " AND t.EXPIRA_ABSOLUTO_EM > SYS_EXTRACT_UTC(SYSTIMESTAMP) AND u.ATIVO = TRUE"
@@ -103,7 +108,7 @@ public class Tokens {
                 + " WHERE ue.USUARIO_ID = t.USUARIO_ID AND ue.EMPRESA_ID = t.EMPRESA_ID AND ue.ATIVO"
                 + " AND EXISTS (SELECT 1 FROM EMPRESA e WHERE e.ID = t.EMPRESA_ID AND e.ATIVA)))",
                 (r, n) -> new Object[] {r.getLong(1), r.getLong(2), r.getLong(3), r.getString(4), r.getInt(5),
-                        (Long) r.getObject(6, Long.class), (Long) r.getObject(7, Long.class)}, hash(token));
+                        (Long) r.getObject(6, Long.class), (Long) r.getObject(7, Long.class), r.getInt(8) == 1}, p.confirmacaoMinutos(), hash(token));
         if (achados.isEmpty()) {
             return Optional.empty();
         }
@@ -116,8 +121,19 @@ public class Tokens {
         }
         return jdbc.query("SELECT EXPIRA_EM, EXPIRA_ABSOLUTO_EM FROM " + schemas.sessao("TOKEN") + " WHERE ID = ?",
                 (r, n) -> new Sessao(tokenId, (Long) a[1], (Long) a[2], (String) a[3],
-                        r.getTimestamp(1).toLocalDateTime(), r.getTimestamp(2).toLocalDateTime(), (Long) a[5], (Long) a[6]), tokenId)
+                        r.getTimestamp(1).toLocalDateTime(), r.getTimestamp(2).toLocalDateTime(), (Long) a[5], (Long) a[6], (Boolean) a[7]), tokenId)
                 .stream().findFirst();
+    }
+
+    /** A pessoa acabou de usar a passkey nesta sessao (/api/auth/confirmar). */
+    public void marcarConfirmacao(long tokenId) {
+        jdbc.update("UPDATE " + schemas.sessao("TOKEN") + " SET VERIFICADO_EM = SYS_EXTRACT_UTC(SYSTIMESTAMP) WHERE ID = ?", tokenId);
+    }
+
+    /** O token novo (troca de empresa) herda a ultima confirmacao do anterior: trocar de empresa nao renova nada. */
+    public void herdarConfirmacao(long deTokenId, long paraTokenId) {
+        jdbc.update("UPDATE " + schemas.sessao("TOKEN") + " SET VERIFICADO_EM = (SELECT VERIFICADO_EM FROM " + schemas.sessao("TOKEN")
+                + " WHERE ID = ?) WHERE ID = ?", deTokenId, paraTokenId);
     }
 
     public void revogar(long tokenId, String motivo) {

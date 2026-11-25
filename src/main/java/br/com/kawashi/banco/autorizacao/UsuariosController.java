@@ -59,14 +59,14 @@ public class UsuariosController {
     }
 
     /** Criar o usuario ja da o cargo: precisa das duas permissoes (as duas sao so do administrador). */
-    @Exige({Permissoes.USUARIO_GERENCIAR})
+    @Exige(value = {Permissoes.USUARIO_GERENCIAR}, confirmar = true)
     @PostMapping("/usuarios")
-    public ResponseEntity<ServicoDeUsuarios.Criado> criar(@Valid @RequestBody NovoUsuario dados) {
-        ServicoDeUsuarios.Criado criado = servico.criar(dados.pessoaId(), dados.email(), dados.perfilId());
-        return ResponseEntity.created(URI.create("/api/usuarios/" + criado.usuarioId())).body(criado);
+    public ResponseEntity<ServicoDeUsuarios.Enviado> criar(@Valid @RequestBody NovoUsuario dados) {
+        // 202 e so "enviado para": a resposta e a mesma, exista ou nao conta com esse e-mail.
+        return ResponseEntity.accepted().body(servico.criar(dados.pessoaId(), dados.email(), dados.perfilId()));
     }
 
-    @Exige({Permissoes.PERFIL_GERENCIAR})
+    @Exige(value = {Permissoes.PERFIL_GERENCIAR}, confirmar = true)
     @PutMapping("/usuarios/{usuarioId}/perfil")
     public ResponseEntity<Void> trocarPerfil(@PathVariable long usuarioId, @Valid @RequestBody TrocaDePerfil dados) {
         servico.trocarPerfil(usuarioId, dados.perfilId());
@@ -80,17 +80,18 @@ public class UsuariosController {
         return ResponseEntity.noContent().build();
     }
 
-    @Exige({Permissoes.USUARIO_GERENCIAR})
+    @Exige(value = {Permissoes.USUARIO_GERENCIAR}, confirmar = true)
     @PostMapping("/usuarios/{usuarioId}/reativar")
     public ResponseEntity<Void> reativar(@PathVariable long usuarioId) {
         servico.reativar(usuarioId);
         return ResponseEntity.noContent().build();
     }
 
-    @Exige({Permissoes.USUARIO_GERENCIAR})
+    @Exige(value = {Permissoes.USUARIO_GERENCIAR}, confirmar = true)
     @PostMapping("/usuarios/{usuarioId}/convite")
-    public Map<String, String> novoConvite(@PathVariable long usuarioId) {
-        return Map.of("convite", servico.novoConvite(usuarioId));
+    public ResponseEntity<ServicoDeUsuarios.Enviado> novoConvite(@PathVariable long usuarioId) {
+        // O segredo vai para o e-mail da conta; quem pediu ve so para onde.
+        return ResponseEntity.accepted().body(new ServicoDeUsuarios.Enviado(servico.novoConvite(usuarioId)));
     }
 
     @Exige({Permissoes.USUARIO_GERENCIAR, Permissoes.PERFIL_GERENCIAR})
@@ -105,14 +106,14 @@ public class UsuariosController {
         return servico.perfis();
     }
 
-    @Exige({Permissoes.PERFIL_GERENCIAR})
+    @Exige(value = {Permissoes.PERFIL_GERENCIAR}, confirmar = true)
     @PostMapping("/perfis")
     public ResponseEntity<Map<String, Long>> criarPerfil(@Valid @RequestBody NovoPerfil dados) {
         long id = servico.criarPerfil(dados.nome(), dados.descricao(), dados.permissoes());
         return ResponseEntity.created(URI.create("/api/perfis/" + id)).body(Map.of("id", id));
     }
 
-    @Exige({Permissoes.PERFIL_GERENCIAR})
+    @Exige(value = {Permissoes.PERFIL_GERENCIAR}, confirmar = true)
     @PutMapping("/perfis/{perfilId}/permissoes")
     public ResponseEntity<Void> definirPermissoes(@PathVariable long perfilId, @RequestBody ListaDePermissoes dados) {
         servico.definirPermissoes(perfilId, dados.permissoes());

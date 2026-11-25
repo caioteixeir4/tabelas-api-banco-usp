@@ -67,8 +67,8 @@ flowchart TB
     T -- não --> R401["401, sempre a mesma resposta<br/>(vencido, revogado, conta desligada,<br/>vínculo desativado, empresa inativada)"]
     T -- sim --> E{"escopo CADASTRAR_PASSKEY<br/>fora das rotas permitidas?"}
     E -- sim --> R403c["403"]
-    E -- não --> FP{"FiltroDePermissao<br/>(rotas fora de /api/auth)<br/>a rota tem @Exige? aceitou os termos vigentes?<br/>a sessão tem empresa? o perfil tem a permissão?"}
-    FP -- não --> R403d["403"]
+    E -- não --> FP{"FiltroDePermissao<br/>(rotas fora de /api/auth)<br/>a rota tem @Exige? aceitou os termos vigentes?<br/>a sessão tem empresa? o perfil tem a permissão?<br/>rota que dá poder: a passkey foi usada há pouco?"}
+    FP -- não --> R403d["403 (ou 403 Confirme com sua passkey)"]
     FP -- sim --> C
     C --> SV["Serviço<br/>registro de outra empresa: 404<br/>regras de negócio (404, 409, 422)<br/>e LOG_ALTERACAO na mesma transação"]
     SV --> DB[("Oracle<br/>conta de execução, schema _APP:<br/>só lê e grava linhas")]
@@ -77,7 +77,7 @@ flowchart TB
 
 | Recurso | Endpoints |
 |---|---|
-| Login (passkey) | sem token: `POST /api/auth/passkey/login/opcoes`, `POST /api/auth/passkey/login`, `POST /api/auth/convite/opcoes`, `POST /api/auth/convite`, `POST /api/auth/recuperacao`. Com token: `GET /api/auth/eu`, `GET /api/auth/empresas`, `POST /api/auth/empresa`, `GET/POST /api/auth/passkeys`, `POST /api/auth/passkeys/opcoes`, `DELETE /api/auth/passkeys/{id}`, `POST /api/auth/codigos-de-recuperacao`, `POST /api/auth/logout`, `POST /api/auth/sair-de-todos`, `GET /api/auth/termos`, `POST /api/auth/termos/aceite` |
+| Login (passkey) | sem token: `POST /api/auth/passkey/login/opcoes`, `POST /api/auth/passkey/login`, `POST /api/auth/convite/opcoes`, `POST /api/auth/convite`, `POST /api/auth/recuperacao`. Com token: `GET /api/auth/eu`, `GET /api/auth/empresas`, `POST /api/auth/empresa`, `GET/POST /api/auth/passkeys`, `POST /api/auth/passkeys/opcoes`, `DELETE /api/auth/passkeys/{id}`, `POST /api/auth/codigos-de-recuperacao`, `POST /api/auth/logout`, `POST /api/auth/sair-de-todos`, `GET /api/auth/termos`, `POST /api/auth/termos/aceite`, `POST /api/auth/confirmar/opcoes`, `POST /api/auth/confirmar` |
 | Empresa (a da sessão) | `GET /api/empresas` (só a da sessão; filtros `cnpj`, `razaoSocial`, `ativa`), `GET/PUT /api/empresas/{id}` |
 | Plataforma | `GET/POST /api/plataforma/empresas`, `POST /api/plataforma/empresas/{id}/inativar`, `.../reativar`, `DELETE /api/plataforma/empresas/{id}` |
 | Usuários e perfis (administrador) | `GET/POST /api/usuarios`, `PUT /api/usuarios/{id}/perfil`, `POST /api/usuarios/{id}/desativar`, `.../reativar`, `.../convite`, `GET /api/usuarios/historico`, `GET/POST /api/perfis`, `PUT /api/perfis/{id}/permissoes`, `GET /api/permissoes` |
@@ -218,7 +218,7 @@ As respostas de passkey (`credencial`) são o `PublicKeyCredential.toJSON()` do 
 | `POST /api/auth/convite/opcoes` `{ "convite" }` | `200` com as opções de cadastro (`residentKey: required`, `attestation: none`, ES256 ou RS256). Convite inválido, usado ou vencido: `401` |
 | `POST /api/auth/convite` `{ "convite", "nome", "credencial" }` | `200` com o token e `codigosDeRecuperacao` (10, **mostrados uma única vez**). O convite deixa de valer. Se era um convite de recuperação, todas as sessões antigas caem |
 | `POST /api/auth/recuperacao` `{ "email", "codigo" }` | `200` com um token de escopo `CADASTRAR_PASSKEY`: só serve para ver e cadastrar passkeys, `logout` e `eu` (o resto dá `403`). O código deixa de valer e as outras sessões caem. Código aceito com ou sem traços, em qualquer caixa |
-| 10 falhas do mesmo IP em 10 minutos (em qualquer cerimônia) | `429` com `Retry-After`: o IP fica bloqueado por 1 hora |
+| 10 falhas do mesmo IP (ou do mesmo bloco /64 de IPv6) em 10 minutos (em qualquer cerimônia, inclusive a confirmação) | `429` com `Retry-After`: o IP (ou o bloco) fica bloqueado por 1 hora |
 
 O segredo do convite vai no **corpo**, nunca no caminho: o `LOG_ACESSO` grava o caminho.
 
@@ -274,7 +274,8 @@ horas depois do login. Os logs dizem quem fez: `LOG_ACESSO.USUARIO` e `LOG_ALTER
 ### Criar usuário
 
 Pela API, o administrador da empresa cria o usuário já com o cargo (`POST /api/usuarios`, ver
-"Autorização"), e o primeiro administrador nasce com a empresa, pela plataforma. O script
+"Autorização"), e o primeiro administrador nasce com a empresa, pela plataforma. Nos dois casos o
+convite vai para o **e-mail da pessoa** (ver "E-mail"): quem pediu vê só para onde foi. O script
 `scripts/criar-usuario.ps1` fica para o começo e para emergências: cria o usuário com um convite de
 uso único (24 h), dá acesso a uma empresa (`-Vincular`) e guarda o link
 (`<site>/convite.html#kwc_...`) no Vault, sem mostrar. O segredo vai depois do `#`, que o navegador
@@ -337,9 +338,9 @@ As tabelas e as travas do banco estão em `14_autorizacao.sql`, no repositório 
   perfil só com "revelar" não percorre os ids lendo documentos.
 - **Convite novo de recuperação** (`POST /api/usuarios/{id}/convite`) só para conta que é **só desta
   empresa**: com vínculo ativo aqui, sem vínculo com outra empresa e sem ser administrador da
-  plataforma (senão `422`: só a equipe da plataforma resolve). O segredo volta para o administrador
-  que pediu; com ele, o administrador entraria como a pessoa em qualquer outra empresa dela. Cada
-  convite novo faz os pendentes do usuário vencerem.
+  plataforma (senão `422`: só a equipe da plataforma resolve). O segredo vai para o e-mail da conta, e
+  o administrador vê só para onde foi (antes de 24/11/2026 ele voltava ao administrador, que podia
+  entrar como a pessoa). Cada convite novo faz os pendentes do usuário vencerem.
 - **Empresa inativada** derruba na hora as sessões presas a ela (`EMPRESA_INATIVADA`), e a validação
   do token confere que a empresa está ativa.
 - **Falha fechada fora de um pedido:** sem sessão (uma tarefa agendada, uma thread nova), as
@@ -366,10 +367,10 @@ fazem e cria perfis novos; as permissões exclusivas não vão para eles.
 | `POST /api/auth/empresa` `{ "empresaId" }` | logado | `200` com um token **novo** preso à empresa (o anterior cai). Sem vínculo: `404` |
 | `GET /api/auth/eu` | logado | também `empresaId`, `permissoes` (na empresa da sessão), `adminPlataforma` e `termosPendentes` |
 | `GET /api/usuarios` | administrador | o painel (`V_USUARIO_ACESSOS`): nome, cargo, perfil, situação, passkeys, último login |
-| `POST /api/usuarios` `{ "pessoaId", "email", "perfilId" }` | administrador | `201` com o `convite` (**uma vez**). Pessoa ou perfil de outra empresa: `404`; pessoa que já tem usuário: `409` |
-| `PUT /api/usuarios/{id}/perfil` `{ "perfilId" }` | administrador | `204`. Último administrador: `422` |
-| `POST /api/usuarios/{id}/desativar`, `/reativar` | administrador | `204`; desativar derruba as sessões dele nesta empresa. Último administrador: `422` |
-| `POST /api/usuarios/{id}/convite` | administrador | convite novo, só para quem é desta empresa (senão `404`) |
+| `POST /api/usuarios` `{ "pessoaId", "email", "perfilId" }` | administrador, confirmado | `202` `{ enviadoPara }`: o convite foi para o e-mail. A resposta é a MESMA se o e-mail já tem conta (aí nada é criado e o dono do e-mail é avisado). Pessoa ou perfil de outra empresa: `404`; pessoa que já tem usuário: `409` |
+| `PUT /api/usuarios/{id}/perfil` `{ "perfilId" }` | administrador, confirmado | `204`. Último administrador: `422` |
+| `POST /api/usuarios/{id}/desativar`, `/reativar` | administrador (reativar: confirmado) | `204`; desativar derruba as sessões dele nesta empresa. Último administrador: `422` |
+| `POST /api/usuarios/{id}/convite` | administrador, confirmado | `202` `{ enviadoPara }`: convite novo no e-mail da conta, só para quem é só desta empresa (senão `404` ou `422`) |
 | `GET /api/usuarios/historico` | administrador | o `LOG_PERMISSAO` da empresa (últimas 200 linhas) |
 | `GET /api/perfis`, `GET /api/permissoes` | administrador | perfis da empresa com as permissões de cada um; a lista de permissões |
 | `POST /api/perfis` `{ "nome", "descricao", "permissoes" }` | administrador | `201`. Nome repetido: `409`; permissão exclusiva ou desconhecida: `422` |
@@ -394,11 +395,12 @@ sequenceDiagram
     P->>A: POST /api/plataforma/empresas (empresa + primeiro administrador)
     A->>D: EMPRESA, perfis ADMINISTRADOR, OPERADOR, CONSULTA, PESSOA, USUARIO, vínculo, convite
     D->>D: gatilho grava PERFIL_CRIADO e VINCULO_CRIADO no LOG_PERMISSAO
-    A-->>P: 201 com o convite (uma vez)
-    Note over P,G: o convite chega ao administrador da empresa por um canal seguro, e ele cria a passkey
+    A-->>P: 201 com "enviado para a***@dominio"
+    A--)G: e-mail com o convite (depois do commit)
+    Note over P,G: só o administrador novo tem o convite e cria a passkey
     G->>A: POST /api/usuarios (pessoa da empresa, perfil OPERADOR)
     A->>D: USUARIO, vínculo com ATUALIZADO_POR = USUARIO:<id>
-    A-->>G: 201 com o convite do funcionário
+    A-->>G: 202 com "enviado para"; o convite vai ao e-mail do funcionário
     G->>A: PUT /api/usuarios/{id}/perfil (CONSULTA)
     A->>D: UPDATE do vínculo
     D->>D: gatilho grava PERFIL_TROCADO (OPERADOR para CONSULTA, por USUARIO:<id>)
@@ -534,6 +536,44 @@ Sem isso, um `PUT` que muda o nome regravava também `ATIVA` com o valor lido an
 - **Limite de corpo:** mais de 64 KiB (`app.limite-corpo-bytes`) recebe `413`. Vale para o corpo que
   declara o tamanho (recusado sem ser lido) e para o que não declara (transferência fragmentada,
   contado durante a leitura).
+
+## E-mail
+
+O que o sistema manda vai sempre para o e-mail da PRÓPRIA conta (`email/Avisos`), por SMTP (`MAIL_HOST`,
+`MAIL_PORT`; no desenvolvimento, o Mailpit do repositório de regras, em http://localhost:8025):
+
+| Mensagem | Quando |
+|---|---|
+| Convite (primeira passkey ou acesso novo) | o administrador cria o usuário ou pede convite novo; a plataforma cria a empresa com o primeiro administrador. Quem pediu vê só `enviadoPara` (`j***@dominio`) |
+| Aviso de segurança | passkey cadastrada ou removida, códigos de recuperação novos, código de recuperação usado, acesso recuperado por convite |
+| "Já tem conta" | uma empresa tentou criar usuário com um e-mail que já tem conta. A resposta à empresa é a mesma de um envio normal; quem fica sabendo é o dono do e-mail |
+
+- **Só depois do commit:** dentro de uma transação, o envio espera o commit (`CorreioSmtp`); um convite
+  desfeito nunca chega a ninguém. Se o servidor de e-mail falhar, o convite existe, mas não chega: fica
+  no log da aplicação (sem endereço nem texto), e o administrador pede outro.
+- **E-mail confirmado:** usar um convite que chegou por e-mail grava `USUARIO.EMAIL_CONFIRMADO_EM` (gatilho
+  do banco). O convite entregue pela equipe (`criar-usuario.ps1`, Vault) não confirma.
+- Cada envio vai para o `LOG_SEGURANCA` (`EMAIL_ENVIADO`, com o tipo; nunca o endereço nem o texto).
+
+## Confirmar com a passkey antes do que é sensível
+
+A sessão guarda a última vez que a pessoa usou a passkey (`TOKEN.VERIFICADO_EM`: no login, ou numa
+confirmação). Operação sensível exige que seja de menos de `CONFIRMACAO_MINUTOS` (5); senão, `403` com
+`{ "title": "Confirme com sua passkey", "confirmar": true }`.
+
+| Sensível | Onde é conferido |
+|---|---|
+| cadastrar ou remover passkey, gerar códigos de recuperação | `ServicoDeLogin` (quem entrou com código de recuperação cadastra a passkey nova sem isso: é a própria recuperação) |
+| criar usuário, trocar cargo, reativar acesso, convite novo, criar perfil, mudar permissões de perfil | `@Exige(..., confirmar = true)` no `FiltroDePermissao` |
+| criar, inativar, reativar e excluir empresa (plataforma) | idem |
+
+| Rota | Resposta |
+|---|---|
+| `POST /api/auth/confirmar/opcoes` | `200` com o desafio (`CONFIRMACAO`, preso a quem está logado) e só as passkeys dele em `allowCredentials`, com verificação obrigatória |
+| `POST /api/auth/confirmar` `{ "credencial" }` | `204`: a sessão fica confirmada. Passkey de outra conta, desafio errado ou assinatura que não confere: `422` (e **não** `401`: a sessão continua); conta como falha do IP, como um login |
+
+Trocar de empresa (token novo) herda a confirmação do token anterior. O site faz tudo sozinho: recebe o
+`403`, pede a passkey ao aparelho, confirma e repete o pedido.
 
 ## Termos de uso e política de privacidade (LGPD)
 

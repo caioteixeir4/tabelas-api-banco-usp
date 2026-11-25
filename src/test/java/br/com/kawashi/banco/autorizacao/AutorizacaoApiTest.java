@@ -42,6 +42,8 @@ class AutorizacaoApiTest {
     @Autowired
     private SchemasDoLogin schemas;
     @Autowired
+    private br.com.kawashi.banco.testes.CorreioDeTeste correio;
+    @Autowired
     @Qualifier("requestMappingHandlerMapping")
     private RequestMappingHandlerMapping rotas;
 
@@ -156,7 +158,9 @@ class AutorizacaoApiTest {
         long consulta = perfil(admin.empresaId(), "CONSULTA");
         long pessoa = api.pessoa();
         api.post("/api/usuarios", "{\"pessoaId\":" + pessoa + ",\"email\":\"nova@teste.kawashi.invalid\",\"perfilId\":" + consulta + "}")
-                .andExpect(status().isCreated()).andExpect(jsonPath("$.convite").value(org.hamcrest.Matchers.startsWith("kwc_")));
+                .andExpect(status().isAccepted()).andExpect(jsonPath("$.enviadoPara").value("n***@teste.kawashi.invalid"))
+                .andExpect(jsonPath("$.convite").doesNotExist());  // o segredo foi para o e-mail da pessoa, nao para o administrador
+        assertThat(correio.ultimoConvite("nova@teste.kawashi.invalid")).isPresent();
         api.get("/api/usuarios").andExpect(jsonPath("$[?(@.perfil == 'CONSULTA')]").isNotEmpty());
 
         UsuarioDeTeste.Criado outro = usuarios.novo();
@@ -230,8 +234,10 @@ class AutorizacaoApiTest {
     @Test
     void conviteNovoSoParaQuemEDaEmpresa() throws Exception {
         UsuarioDeTeste.Criado funcionario = usuarios.naEmpresa(admin.empresaId(), "CONSULTA");
-        api.post("/api/usuarios/" + funcionario.usuarioId() + "/convite").andExpect(status().isOk())
-                .andExpect(jsonPath("$.convite").value(org.hamcrest.Matchers.startsWith("kwc_")));
+        api.post("/api/usuarios/" + funcionario.usuarioId() + "/convite").andExpect(status().isAccepted())
+                .andExpect(jsonPath("$.enviadoPara").value(org.hamcrest.Matchers.endsWith("@teste.kawashi.invalid")))
+                .andExpect(jsonPath("$.convite").doesNotExist());
+        assertThat(correio.ultimoConvite(funcionario.email())).isPresent();
         api.post("/api/usuarios/" + usuarios.novo().usuarioId() + "/convite").andExpect(status().isNotFound());
     }
 

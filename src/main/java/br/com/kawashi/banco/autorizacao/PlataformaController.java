@@ -49,8 +49,8 @@ public class PlataformaController {
         return Pagina.de(empresas.listarTodas(razaoSocial, Paginas.seguro(paginacao)), EmpresaResponse::de);
     }
 
-    /** Cria a empresa, os perfis padrao e o primeiro administrador; o convite dele vem UMA vez. */
-    @Exige(value = {}, adminPlataforma = true)
+    /** Cria a empresa, os perfis padrao e o primeiro administrador; o convite vai para o e-mail dele. */
+    @Exige(value = {}, adminPlataforma = true, confirmar = true)
     @PostMapping
     public ResponseEntity<ServicoDePlataforma.EmpresaCriada> criar(@Valid @RequestBody ServicoDePlataforma.NovaEmpresa dados,
             HttpServletRequest requisicao) {
@@ -58,19 +58,19 @@ public class PlataformaController {
         return ResponseEntity.created(URI.create("/api/plataforma/empresas/" + criada.empresaId())).body(criada);
     }
 
-    @Exige(value = {}, adminPlataforma = true)
+    @Exige(value = {}, adminPlataforma = true, confirmar = true)
     @PostMapping("/{id}/inativar")
     public EmpresaResponse inativar(@PathVariable Long id) {
         return EmpresaResponse.de(empresas.inativar(id));
     }
 
-    @Exige(value = {}, adminPlataforma = true)
+    @Exige(value = {}, adminPlataforma = true, confirmar = true)
     @PostMapping("/{id}/reativar")
     public EmpresaResponse reativar(@PathVariable Long id) {
         return EmpresaResponse.de(empresas.reativar(id));
     }
 
-    @Exige(value = {}, adminPlataforma = true)
+    @Exige(value = {}, adminPlataforma = true, confirmar = true)
     @DeleteMapping("/{id}")
     public ResponseEntity<Map<String, Object>> excluir(@PathVariable Long id) {
         empresas.excluir(id);

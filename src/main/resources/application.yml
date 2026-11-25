@@ -25,6 +25,22 @@ spring:
       # enxergar as tabelas do schema do ambiente sem precisar do nome dele em cada comando.
       connection-init-sql: ALTER SESSION SET CURRENT_SCHEMA = ${DB_SCHEMA}
 
+  # E-mail por SMTP (convites e avisos de seguranca: ver Avisos). No desenvolvimento, o Mailpit do
+  # repositorio de regras (localhost:1025, mensagens em http://localhost:8025). Em producao, o
+  # servidor de verdade, com TLS (MAIL_TLS=true) e usuario e senha.
+  mail:
+    host: ${MAIL_HOST:localhost}
+    port: ${MAIL_PORT:1025}
+    username: ${MAIL_USUARIO:}
+    password: ${MAIL_SENHA:}
+    properties:
+      mail.smtp.auth: ${MAIL_AUTH:false}
+      mail.smtp.starttls.enable: ${MAIL_TLS:false}
+      mail.smtp.starttls.required: ${MAIL_TLS:false}
+      mail.smtp.connectiontimeout: 5000
+      mail.smtp.timeout: 5000
+      mail.smtp.writetimeout: 5000
+
   jpa:
     open-in-view: false
     hibernate:
@@ -82,6 +98,11 @@ app:
   # Passkeys (WebAuthn). rp-id e o dominio do SITE (do BFF), nao o da API; as origens sao os
   # enderecos exatos de onde o navegador pode fazer a cerimonia (separados por virgula). Uma
   # passkey criada para um rp-id so funciona nele: trocar o dominio e cadastrar tudo de novo.
+  # De quem e o e-mail que sai, e o endereco do SITE (o BFF) que vai no link do convite.
+  email:
+    remetente: ${EMAIL_REMETENTE:nao-responda@kawashi.invalid}
+  site:
+    url: ${SITE_URL:http://localhost:9090}
   webauthn:
     rp-id: ${WEBAUTHN_RP_ID:localhost}
     rp-nome: ${WEBAUTHN_RP_NOME:Kawashi}

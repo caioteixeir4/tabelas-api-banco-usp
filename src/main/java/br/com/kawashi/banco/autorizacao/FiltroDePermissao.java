@@ -65,6 +65,7 @@ public class FiltroDePermissao implements HandlerInterceptor, WebMvcConfigurer {
             if (!autorizacao.ehAdminPlataforma(sessao.usuarioId())) {
                 throw new AcessoNegadoException("Sem permissão", "Só o administrador da plataforma faz isto.");
             }
+            exigirConfirmacao(regra, sessao);
             return true;
         }
         if (sessao.empresaId() == null) {
@@ -73,6 +74,14 @@ public class FiltroDePermissao implements HandlerInterceptor, WebMvcConfigurer {
         if (!regra.noServico()) {
             autorizacao.exigir(regra.value());
         }
+        exigirConfirmacao(regra, sessao);
         return true;
+    }
+
+    /** Rota que da poder: a passkey tem de ter sido usada ha pouco nesta sessao (403 "Confirme com sua passkey"). */
+    private static void exigirConfirmacao(Exige regra, Tokens.Sessao sessao) {
+        if (regra.confirmar() && !sessao.confirmadaAgora()) {
+            throw new br.com.kawashi.banco.compartilhado.erros.ConfirmacaoNecessariaException();
+        }
     }
 }

@@ -40,6 +40,12 @@
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-actuator</artifactId>
         </dependency>
+        <!-- E-mail por SMTP: o convite vai para a propria pessoa (nunca volta para quem pediu) e os
+             avisos de seguranca da conta. No desenvolvimento, o Mailpit do repositorio de regras. -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-mail</artifactId>
+        </dependency>
 
         <!-- Migracoes versionadas das tabelas: o banco guarda so estrutura, e o historico de
              como ela chegou la fica no Flyway (e no git deste repositorio). -->

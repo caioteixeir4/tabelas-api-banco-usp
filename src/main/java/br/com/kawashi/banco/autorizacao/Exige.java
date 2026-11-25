@@ -16,6 +16,8 @@ import java.lang.annotation.Target;
  *       servico;</li>
  *   <li>{@code @Exige(value = {}, adminPlataforma = true)}: administrador da plataforma, sem
  *       empresa.</li>
+ *   <li>{@code confirmar = true}, em qualquer das anteriores: a passkey usada ha pouco (ver
+ *       {@link #confirmar()}).</li>
  * </ul>
  */
 @Target(ElementType.METHOD)
@@ -30,4 +32,12 @@ public @interface Exige {
 
     /** So o administrador da plataforma (nao exige empresa). */
     boolean adminPlataforma() default false;
+
+    /**
+     * Operacao que da poder a alguem (criar usuario, trocar cargo, mudar permissao de perfil, convite
+     * novo, criar ou inativar empresa): exige que a pessoa tenha usado a passkey ha pouco nesta sessao
+     * ({@code CONFIRMACAO_MINUTOS}). Senao, 403 "Confirme com sua passkey" e o site pede a passkey
+     * (/api/auth/confirmar). Uma sessao roubada nao vira poder sem o aparelho da pessoa.
+     */
+    boolean confirmar() default false;
 }

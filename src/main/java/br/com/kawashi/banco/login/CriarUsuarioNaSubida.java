@@ -54,13 +54,13 @@ public class CriarUsuarioNaSubida implements ApplicationRunner {
             String convite;
             if ("novo".equals(modo)) {
                 Usuarios.Criado c = usuarios.criar(Long.parseLong(env.getRequiredProperty("app.criar-usuario.pessoa-id").strip()),
-                        env.getRequiredProperty("app.criar-usuario.email"), "SCRIPT");
+                        env.getRequiredProperty("app.criar-usuario.email"), "SCRIPT", false);  // a equipe entrega (Vault)
                 convite = c.convite();
                 // A linha abaixo e lida pelo script: nao muda o formato sem mudar la.
                 LOG.info("USUARIO_CRIADO id={}: convite gravado no arquivo indicado.", c.usuarioId());
             } else if ("convite".equals(modo)) {
                 long usuarioId = Long.parseLong(env.getRequiredProperty("app.criar-usuario.usuario-id").strip());
-                convite = usuarios.novoConvite(usuarioId, "SCRIPT");
+                convite = usuarios.novoConvite(usuarioId, "SCRIPT", false);  // a equipe entrega (Vault)
                 LOG.info("USUARIO_CRIADO id={}: convite novo gravado no arquivo indicado.", usuarioId);
             } else if ("vincular".equals(modo)) {
                 // Da a um usuario que ja existe o acesso a uma empresa, com um perfil. Se a empresa

@@ -42,8 +42,11 @@ public class ServicoDePlataforma {
             @NotNull(message = "Informe o primeiro administrador") @Valid Administrador administrador) {
     }
 
-    /** O convite e mostrado UMA vez: quem criou entrega o link ao administrador. */
-    public record EmpresaCriada(long empresaId, long usuarioId, String convite) {
+    /**
+     * O convite do primeiro administrador vai para o e-mail DELE: quem criou a empresa (a plataforma)
+     * ve so para onde foi, e nao consegue entrar como ele (achado 4 da revisao de 23/11/2026).
+     */
+    public record EmpresaCriada(long empresaId, long usuarioId, String enviadoPara) {
     }
 
     private final EmpresaService empresas;
@@ -51,9 +54,11 @@ public class ServicoDePlataforma {
     private final Usuarios usuarios;
     private final Autorizacao autorizacao;
     private final LogDeSeguranca log;
+    private final br.com.kawashi.banco.email.Avisos avisos;
 
     public ServicoDePlataforma(EmpresaService empresas, PessoaService pessoas, Usuarios usuarios, Autorizacao autorizacao,
-            LogDeSeguranca log) {
+            LogDeSeguranca log, br.com.kawashi.banco.email.Avisos avisos) {
+        this.avisos = avisos;
         this.empresas = empresas;
         this.pessoas = pessoas;
         this.usuarios = usuarios;
@@ -72,11 +77,11 @@ public class ServicoDePlataforma {
             long administrador = autorizacao.criarPerfisPadrao(empresa.getId(), quem);
             Pessoa pessoa = pessoas.criar(empresa.getId(), new PessoaRequest("COLABORADOR", "F", dados.administrador().cpf(),
                     dados.administrador().nome(), null, "Administrador"));
-            Usuarios.Criado usuario = usuarios.criar(pessoa.getId(), dados.administrador().email(), quem);
+            Usuarios.Criado usuario = usuarios.criar(pessoa.getId(), dados.administrador().email(), quem, true);
             autorizacao.vincular(usuario.usuarioId(), empresa.getId(), administrador, quem);
             log.registrar("EMPRESA_CRIADA", criador, "empresa " + empresa.getId() + ", administrador: usuario " + usuario.usuarioId(),
                     ip, quem);
-            return new EmpresaCriada(empresa.getId(), usuario.usuarioId(), usuario.convite());
+            return new EmpresaCriada(empresa.getId(), usuario.usuarioId(), avisos.convite(usuario.usuarioId(), usuario.convite(), "CADASTRO", ip));
         });
     }
 }

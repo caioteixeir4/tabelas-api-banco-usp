@@ -42,9 +42,11 @@ public class ServicoDeUsuarios {
     private final PessoaService pessoas;
     private final Tokens tokens;
     private final br.com.kawashi.banco.email.Avisos avisos;
+    private final ConvitesDeVinculo convitesDeVinculo;
 
     public ServicoDeUsuarios(JdbcTemplate jdbc, SchemasDoLogin schemas, Autorizacao autorizacao, Usuarios usuarios,
-            PessoaService pessoas, Tokens tokens, br.com.kawashi.banco.email.Avisos avisos) {
+            PessoaService pessoas, Tokens tokens, br.com.kawashi.banco.email.Avisos avisos, ConvitesDeVinculo convitesDeVinculo) {
+        this.convitesDeVinculo = convitesDeVinculo;
         this.avisos = avisos;
         this.jdbc = jdbc;
         this.schemas = schemas;
@@ -76,8 +78,8 @@ public class ServicoDeUsuarios {
     /**
      * Cria o usuario de uma pessoa DESTA empresa, ja com o cargo, e manda o convite para o e-mail
      * dele. A resposta e SEMPRE a mesma ("enviado para j***@dominio"), exista ou nao conta com esse
-     * e-mail: se ja existe (em qualquer empresa), nada e criado e quem recebe o aviso e o dono do
-     * e-mail. Assim o administrador nao descobre quem usa o sistema em outras empresas.
+     * e-mail: se ja existe (em qualquer empresa), nenhum usuario e criado: vira um convite de
+     * vinculo (ConvitesDeVinculo), que o dono do e-mail aceita ou recusa. Assim o administrador nao descobre quem usa o sistema em outras empresas.
      */
     public Enviado criar(long pessoaId, String email, long perfilId) {
         long empresa = empresa();
@@ -95,8 +97,8 @@ public class ServicoDeUsuarios {
         String ip = SessaoAtual.ipDoPedido();
         java.util.Optional<Long> dono = usuarios.porEmail(email);
         if (dono.isPresent()) {
-            String razao = jdbc.queryForObject("SELECT RAZAO_SOCIAL FROM EMPRESA WHERE ID = ?", String.class, empresa);
-            return new Enviado(avisos.jaTemConta(dono.get(), razao, ip));
+            // Ja tem conta (em outra empresa): vira um convite de vinculo, que so vale se a pessoa aceitar.
+            return new Enviado(convitesDeVinculo.convidar(empresa, email, perfilId));
         }
         Usuarios.Criado criado = usuarios.criar(pessoaId, email, quem, true);
         autorizacao.vincular(criado.usuarioId(), empresa, perfilId, quem);
@@ -156,6 +158,26 @@ public class ServicoDeUsuarios {
         }
         String segredo = usuarios.novoConvite(usuarioId, SessaoAtual.quemNoLog(), true);
         return avisos.convite(usuarioId, segredo, "NOVA_PASSKEY", SessaoAtual.ipDoPedido());
+    }
+
+    /**
+     * Convida quem JA tem conta (em outra empresa) para trabalhar nesta, com o cargo. Mesma resposta
+     * sempre; ver ConvitesDeVinculo.
+     */
+    public Enviado convidarParaEmpresa(String email, long perfilId) {
+        long empresa = empresa();
+        autorizacao.exigir(Permissoes.PERFIL_GERENCIAR);  // o convite ja da o cargo
+        exigirPerfilDaEmpresa(perfilId, empresa, true);
+        return new Enviado(convitesDeVinculo.convidar(empresa, email, perfilId));
+    }
+
+    @Transactional(readOnly = true)
+    public List<ConvitesDeVinculo.ConviteDaEmpresa> convitesDaEmpresa() {
+        return convitesDeVinculo.daEmpresa(empresa());
+    }
+
+    public void cancelarConvite(long conviteId) {
+        convitesDeVinculo.cancelar(empresa(), conviteId);
     }
 
     /** O LOG_PERMISSAO desta empresa: quem mudou o cargo de quem, quando, de qual para qual. */

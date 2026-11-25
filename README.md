@@ -93,6 +93,11 @@ schemas protegidos e o Vault montados pelo `regras-banco-usp`. O que liga cada p
   códigos) e as que dão poder (criar usuário, trocar cargo, mudar permissões, convite, empresas da
   plataforma) exigem que a passkey tenha sido usada nos últimos 5 minutos. Senão, `403 "Confirme com
   sua passkey"`, e o site pede a passkey sozinho. Uma sessão roubada não vira poder sem o aparelho.
+- **Convite de vínculo** (desde 24/11/2026): o administrador dá acesso a quem JÁ tem conta em outra
+  empresa. A pessoa recebe um e-mail e só ganha acesso se ela mesma aceitar, logada com a passkey dela.
+  Fica registrado, sem poder mudar depois, quem convidou, quando, de qual IP, para qual empresa e cargo,
+  e quem respondeu; o acesso criado aponta para o convite. Criar usuário com um e-mail que já tem conta
+  também vira um convite desses.
 - **Bloqueio por IP com IPv6 por bloco:** as falhas e o limite de pedidos contam pelo IPv4 ou pelo bloco
   /64 do IPv6.
 - **Segredos pelo Vault (pronto, ainda desligado):** com um papel AppRole, a API lê as chaves de cifra,
@@ -114,11 +119,18 @@ Documentação:
 
 Ainda não implementado:
 
-1. **Dar acesso, pela API, a um usuário que já é de outra empresa** (hoje só pelo script). Quando uma
-   empresa tenta, o dono do e-mail recebe um aviso e pede à equipe.
-2. Os itens de segurança listados em "Pendências".
+1. Os itens de segurança listados em "Pendências".
 
 ## Rodando
+
+**No Docker, junto com o banco** (o jeito mais curto): compile (`mvn -o package -DskipTests`, aqui e no
+`bff-banco-usp`) e, em `regras-banco-usp/infra/`, rode `docker compose --profile apps up -d --build
+--no-deps api bff`. A imagem (`Dockerfile`) só leva o `.jar` (o `.dockerignore` deixa o `.env` de fora);
+os segredos chegam pelo `.env` deste projeto (`env_file` no compose). A API fica só na rede do Docker:
+quem chega nela é o BFF (o site, em http://localhost:9090). Para os testes e o roteiro HTTP, rode a API
+pelo Maven, como abaixo.
+
+**Pelo Maven:**
 
 Pré-requisitos: JDK 21 ou superior (testado com o 24), Maven 3.9 e o banco do `regras-banco-usp`
 no ar (`docker compose up -d` dentro de `infra/`).
@@ -254,7 +266,7 @@ proxy) e chamam os endpoints por MockMvc. Cada teste roda numa transação que �
 então não sobra dado no banco e os testes não interferem entre si. Os documentos usados são
 CNPJ/CPF válidos e aleatórios (`GeradorDeDocumentos`), nunca reais.
 
-A suíte tem **185 testes** (última execução de `mvn clean test`, 24/11/2026, todos passando). Toda
+A suíte tem **188 testes** (última execução de `mvn clean test`, 24/11/2026, todos passando). Toda
 chamada à API nos testes finge vir do BFF (`testes/Api` manda o segredo de teste e um IP de navegador)
 e vai com token: `testes/UsuarioDeTeste` cria a empresa, os perfis, o usuário e o vínculo de
 ADMINISTRADOR (dentro da transação do teste, que é desfeita) e emite o token preso à empresa. Cada
@@ -285,11 +297,14 @@ e os testes foram reescritos mais densos, vários casos por teste.
 | `SegredosDoVaultTest` (contra um Vault falso local, sem banco: os quatro caminhos, valores na frente do `.env`, token revogado, outro ambiente e papel errado impedem a subida) | 3 |
 | `EmailEConfirmacaoApiTest` (o convite vai ao e-mail da pessoa e usá-lo confirma o e-mail; e-mail que já tem conta responde igual e só o dono fica sabendo; operação sensível sem passkey recente pede confirmação, a passkey de outra conta não confirma, a própria libera; aviso por e-mail; falhas de um bloco IPv6 /64 bloqueiam o bloco) | 4 |
 | `IpsTest` (IPv4 inteiro, IPv6 pelo bloco /64, IPv4 dentro de IPv6; sem banco e sem DNS) | 3 |
+| `ConviteDeVinculoApiTest` (o convidado aceita e fica registrado quem convidou, quando, de qual IP, com o acesso apontando para o convite e os dois logs; só o convidado responde, recusa e cancelamento não dão acesso; resposta sempre igual e confirmação com passkey exigida) | 3 |
 | `DadosPessoaisCifradosTest` (o que fica na tabela, unicidade pela impressão digital, máscara, revelar com rastro, cifra adulterada por fora) | 13 |
 
 Cada correção da revisão foi conferida quebrando o código de propósito: sete mutações (convite liberado para quem tem outra empresa, convites pendentes que não vencem, validação que ignora a empresa inativa, inativar sem revogar, revelar sem exigir leitura, conferência liberada fora de um pedido, caminho torto aceito), e cada uma derrubou o teste certo. A primeira versão do teste de "fora de um pedido" não pegava a mutação (o Spring põe um pedido falso na thread do teste); ele passou a rodar numa thread nova.
 
 Os itens de 24/11/2026 também: oito mutações (o segredo do convite voltando para quem pediu, sem a resposta neutra, convite sem a marca de e-mail, rota de poder sem confirmação, operação da conta sem confirmação, confirmação aceitando a passkey de outra pessoa, IPv6 por endereço exato, sem o aviso de códigos novos), e cada uma derrubou o teste certo.
+
+O convite de vínculo também: cinco mutações (acesso sem apontar para o convite, convite sem o IP de quem convidou, resposta que revela e-mail sem conta, convite de outra pessoa aceito, convite cancelado ainda valendo), e cada uma derrubou o teste certo.
 
 O `ServidorRealTest` é a exceção à transação desfeita: precisa gravar de verdade para disputar as
 travas. Ele usa um usuário e uma empresa **fixos** (criados na primeira execução), porque perfis e

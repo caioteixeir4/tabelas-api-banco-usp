@@ -13,13 +13,13 @@
 
 ## Visão geral
 
-São 25 tabelas de negócio em 4 schemas por ambiente (mais uma interna, de controle do log), e uma visão de painel de usuários (`V_USUARIO_ACESSOS`). A separação por schema não é só organização: cada schema
+São 26 tabelas de negócio em 4 schemas por ambiente (mais uma interna, de controle do log), e uma visão de painel de usuários (`V_USUARIO_ACESSOS`). A separação por schema não é só organização: cada schema
 recebe uma permissão diferente, e é isso que limita o estrago se a API ou uma conta for comprometida.
 
 | Schema | O que guarda | Tabelas | O que a conta de execução da API pode fazer |
 |---|---|---|---|
 | `KAWASHI_ENV_<AMB>` | cadastros | `EMPRESA`, `FILIAL`, `PESSOA`, `CONTATO`, `ENDERECO` | ler e gravar linhas; não cria, altera nem apaga tabela |
-| `KAWASHI_ENV_<AMB>_LOGIN` | o que é permanente do usuário e a autorização | `USUARIO`, `PASSKEY`, `CONVITE`, `CODIGO_RECUPERACAO`, `PARAMETRO_SEGURANCA`, `ADMIN_PLATAFORMA`, `PERMISSAO`, `PERFIL`, `PERFIL_PERMISSAO`, `USUARIO_EMPRESA`, `TERMO`, `ACEITE_TERMO` | ler, criar e alterar (parâmetros, permissões, termos e administradores da plataforma: só ler; perfil e aceite: só ler e criar; do usuário, só a coluna `ATIVO` muda). Nenhum `DELETE` |
+| `KAWASHI_ENV_<AMB>_LOGIN` | o que é permanente do usuário e a autorização | `USUARIO`, `PASSKEY`, `CONVITE`, `CODIGO_RECUPERACAO`, `PARAMETRO_SEGURANCA`, `ADMIN_PLATAFORMA`, `PERMISSAO`, `PERFIL`, `PERFIL_PERMISSAO`, `USUARIO_EMPRESA`, `CONVITE_VINCULO`, `TERMO`, `ACEITE_TERMO` | ler, criar e alterar (parâmetros, permissões, termos e administradores da plataforma: só ler; perfil e aceite: só ler e criar; do usuário, só a coluna `ATIVO` muda). Nenhum `DELETE` |
 | `KAWASHI_ENV_<AMB>_SESSAO` | o que expira | `TOKEN`, `DESAFIO`, `BLOQUEIO_IP` | ler, criar e alterar; quem apaga o vencido é um job do banco |
 | `KAWASHI_ENV_<AMB>_LOG` | histórico | `LOG_ALTERACAO`, `LOG_ACESSO`, `LOG_SEGURANCA`, `TENTATIVA_LOGIN`, `LOG_PERMISSAO` | **só inserir e ler** (`LOG_PERMISSAO`: só ler; quem grava são os gatilhos) |
 
@@ -112,7 +112,11 @@ tabela pode tudo nela, e o dono aqui é um schema em que ninguém loga.
   **multiempresa**: o mesmo usuário pode ser administrador numa empresa e só consulta em outra, e
   sem uma linha ativa aqui ele não enxerga nada daquela empresa. A chave estrangeira do perfil é
   composta, `(PERFIL_ID, EMPRESA_ID)`, para o banco garantir que o perfil é da mesma empresa.
-- **`ADMIN_PLATAFORMA`**: a equipe da Kawashi, que cria empresas novas e o primeiro administrador de
+  Quando o acesso veio de um convite de vínculo, `CONVITE_VINCULO_ID` aponta para ele.
+- **`CONVITE_VINCULO`** (24/11/2026): o administrador de uma empresa convida quem já tem conta em outra;
+  nada muda até a própria pessoa aceitar. Guarda, sem poder mudar depois, quem convidou, quando (hora do
+  banco), de qual IP, para qual empresa e cargo, e a resposta (quem, quando, de qual IP). O convite e a
+  resposta vão sozinhos para o `LOG_PERMISSAO` e o `LOG_SEGURANCA`.- **`ADMIN_PLATAFORMA`**: a equipe da Kawashi, que cria empresas novas e o primeiro administrador de
   cada uma. Só se concede pelo banco (script do engenheiro), e não dá acesso aos dados das empresas.
 - **`LOG_PERMISSAO`** (schema de log): quem mudou o cargo de quem, quando, de qual perfil para qual,
   e cada permissão posta ou tirada. Gravado por gatilho do banco, encadeado por hash.
@@ -285,6 +289,8 @@ Fica para depois: localização suspeita. O aceite de termos e a âncora do
 | Rastro de mudanças de segurança | `LOG_SEGURANCA` | Login, passkeys, códigos, convites, bloqueios e parâmetros. Encadeado por hash. |
 | Log à prova de adulteração | schema `LOG`, `HASH_ANTERIOR`, `HASH` | A API só insere; as linhas são encadeadas por hash. |
 | Consentimento (LGPD) | `TERMO`, `ACEITE_TERMO` | Aceite por versão dos termos e da política de privacidade, com o hash do texto, a hora e o IP; sem aceite, nada de negócio. |
+| Infra não vê linha de negócio | VPD nas tabelas de negócio (repositório de regras, `19_vpd_infra.sql`) | Para quem é do time de Infra, o Oracle filtra toda consulta e alteração em `EMPRESA`, `FILIAL`, `PESSOA`, `CONTATO` e `ENDERECO` (`1 = 0`). A API e o Desenvolvimento não mudam. |
+| Quem deu cada acesso | `CONVITE_VINCULO`, `USUARIO_EMPRESA.CONVITE_VINCULO_ID` | Quem convidou, quando e de onde, sem poder mudar; o acesso aponta para o convite. |
 | Regras ajustáveis e auditadas | `PARAMETRO_SEGURANCA` | Os números ficam em tabela; cada mudança vai para o `LOG_SEGURANCA`. |
 
 Os números (15 minutos, 8 horas, 3 sessões, 10 falhas, 10 minutos, 1 hora, 5 minutos de desafio, 24 h

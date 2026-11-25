@@ -77,10 +77,10 @@ flowchart TB
 
 | Recurso | Endpoints |
 |---|---|
-| Login (passkey) | sem token: `POST /api/auth/passkey/login/opcoes`, `POST /api/auth/passkey/login`, `POST /api/auth/convite/opcoes`, `POST /api/auth/convite`, `POST /api/auth/recuperacao`. Com token: `GET /api/auth/eu`, `GET /api/auth/empresas`, `POST /api/auth/empresa`, `GET/POST /api/auth/passkeys`, `POST /api/auth/passkeys/opcoes`, `DELETE /api/auth/passkeys/{id}`, `POST /api/auth/codigos-de-recuperacao`, `POST /api/auth/logout`, `POST /api/auth/sair-de-todos`, `GET /api/auth/termos`, `POST /api/auth/termos/aceite`, `POST /api/auth/confirmar/opcoes`, `POST /api/auth/confirmar` |
+| Login (passkey) | sem token: `POST /api/auth/passkey/login/opcoes`, `POST /api/auth/passkey/login`, `POST /api/auth/convite/opcoes`, `POST /api/auth/convite`, `POST /api/auth/recuperacao`. Com token: `GET /api/auth/eu`, `GET /api/auth/empresas`, `POST /api/auth/empresa`, `GET/POST /api/auth/passkeys`, `POST /api/auth/passkeys/opcoes`, `DELETE /api/auth/passkeys/{id}`, `POST /api/auth/codigos-de-recuperacao`, `POST /api/auth/logout`, `POST /api/auth/sair-de-todos`, `GET /api/auth/termos`, `POST /api/auth/termos/aceite`, `POST /api/auth/confirmar/opcoes`, `POST /api/auth/confirmar`, `GET /api/auth/convites-de-vinculo`, `POST /api/auth/convites-de-vinculo/{id}/aceitar`, `POST /api/auth/convites-de-vinculo/{id}/recusar` |
 | Empresa (a da sessão) | `GET /api/empresas` (só a da sessão; filtros `cnpj`, `razaoSocial`, `ativa`), `GET/PUT /api/empresas/{id}` |
 | Plataforma | `GET/POST /api/plataforma/empresas`, `POST /api/plataforma/empresas/{id}/inativar`, `.../reativar`, `DELETE /api/plataforma/empresas/{id}` |
-| Usuários e perfis (administrador) | `GET/POST /api/usuarios`, `PUT /api/usuarios/{id}/perfil`, `POST /api/usuarios/{id}/desativar`, `.../reativar`, `.../convite`, `GET /api/usuarios/historico`, `GET/POST /api/perfis`, `PUT /api/perfis/{id}/permissoes`, `GET /api/permissoes` |
+| Usuários e perfis (administrador) | `GET/POST /api/usuarios`, `POST/GET /api/usuarios/convites-de-vinculo`, `POST /api/usuarios/convites-de-vinculo/{id}/cancelar`, `PUT /api/usuarios/{id}/perfil`, `POST /api/usuarios/{id}/desativar`, `.../reativar`, `.../convite`, `GET /api/usuarios/historico`, `GET/POST /api/perfis`, `PUT /api/perfis/{id}/permissoes`, `GET /api/permissoes` |
 | Filial | `POST/GET /api/empresas/{empresaId}/filiais`, `GET/PUT/DELETE /api/filiais/{id}`, `POST /api/filiais/{id}/inativar`, `POST /api/filiais/{id}/reativar` |
 | Pessoa | `POST/GET /api/empresas/{empresaId}/pessoas` (filtros `tipo`, `ativa`), `GET/PUT/DELETE /api/pessoas/{id}`, `GET /api/pessoas/{id}/documento` (revela o documento inteiro), `POST /api/pessoas/{id}/inativar`, `POST /api/pessoas/{id}/reativar` |
 | Contato | `POST/GET /api/filiais/{filialId}/contatos`, `POST/GET /api/pessoas/{pessoaId}/contatos`, `GET/PUT/DELETE /api/contatos/{id}`, `GET /api/contatos/{id}/valor` (revela o valor inteiro) |
@@ -546,7 +546,8 @@ O que o sistema manda vai sempre para o e-mail da PRÓPRIA conta (`email/Avisos`
 |---|---|
 | Convite (primeira passkey ou acesso novo) | o administrador cria o usuário ou pede convite novo; a plataforma cria a empresa com o primeiro administrador. Quem pediu vê só `enviadoPara` (`j***@dominio`) |
 | Aviso de segurança | passkey cadastrada ou removida, códigos de recuperação novos, código de recuperação usado, acesso recuperado por convite |
-| "Já tem conta" | uma empresa tentou criar usuário com um e-mail que já tem conta. A resposta à empresa é a mesma de um envio normal; quem fica sabendo é o dono do e-mail |
+| Convite de vínculo | uma empresa convidou quem já tem conta (ou tentou criar usuário com esse e-mail): a pessoa aceita ou recusa ao entrar |
+| "Sem conta" | uma empresa quis dar acesso a um e-mail que não tem conta: o dono do e-mail fica sabendo. A resposta à empresa é a mesma de um envio normal |
 
 - **Só depois do commit:** dentro de uma transação, o envio espera o commit (`CorreioSmtp`); um convite
   desfeito nunca chega a ninguém. Se o servidor de e-mail falhar, o convite existe, mas não chega: fica
@@ -554,6 +555,24 @@ O que o sistema manda vai sempre para o e-mail da PRÓPRIA conta (`email/Avisos`
 - **E-mail confirmado:** usar um convite que chegou por e-mail grava `USUARIO.EMAIL_CONFIRMADO_EM` (gatilho
   do banco). O convite entregue pela equipe (`criar-usuario.ps1`, Vault) não confirma.
 - Cada envio vai para o `LOG_SEGURANCA` (`EMAIL_ENVIADO`, com o tipo; nunca o endereço nem o texto).
+
+## Convite de vínculo: dar acesso a quem já tem conta em outra empresa
+
+As tabelas e as travas são do repositório de regras (`18_convite_de_vinculo.sql`).
+
+| Rota | Quem | Resposta |
+|---|---|---|
+| `POST /api/usuarios/convites-de-vinculo` `{ "email", "perfilId" }` | administrador, confirmado | `202` `{ enviadoPara }`, sempre igual: o e-mail tem conta (cria o convite e avisa), não tem (avisa o dono), já tem acesso ou convite pendente (nada muda) |
+| `GET /api/usuarios/convites-de-vinculo` | administrador | os convites da empresa: usuário, cargo, situação (`PENDENTE`, `ACEITO`, `RECUSADO`, `CANCELADO`, `VENCIDO`), quem convidou, IP, quando, quem respondeu e quando |
+| `POST /api/usuarios/convites-de-vinculo/{id}/cancelar` | administrador | `204`; só pendente desta empresa (senão `404`) |
+| `GET /api/auth/convites-de-vinculo` | o convidado | os convites pendentes para ele: empresa, cargo, quem convidou (o nome), quando, até quando |
+| `POST /api/auth/convites-de-vinculo/{id}/aceitar` | o convidado | `204`: o acesso é criado (ou reativado) com o cargo do convite, em nome de quem convidou, apontando para o convite. Depois é escolher a empresa. Convite de outra pessoa: `404`; respondido, cancelado ou vencido: `409` |
+| `POST /api/auth/convites-de-vinculo/{id}/recusar` | o convidado | `204` |
+
+O convite vale 7 dias. Quem convidou, a empresa, o cargo, o IP e a hora não mudam depois (o banco
+recusa, ORA-20114, que vira `422`), e o convite e a resposta vão sozinhos para o `LOG_PERMISSAO` e o
+`LOG_SEGURANCA`. Criar usuário (`POST /api/usuarios`) com um e-mail que já tem conta também vira um
+convite desses.
 
 ## Confirmar com a passkey antes do que é sensível
 

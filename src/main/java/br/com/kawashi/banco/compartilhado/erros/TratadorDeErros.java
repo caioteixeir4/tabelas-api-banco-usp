@@ -171,14 +171,14 @@ public class TratadorDeErros extends ResponseEntityExceptionHandler {
     }
 
     /**
-     * As regras da autorizacao que o BANCO garante (14_autorizacao.sql) levantam ORA-20101 a
-     * ORA-20110: por exemplo, a troca de cargo que deixaria a empresa sem administrador. Viram 422,
+     * As regras da autorizacao que o BANCO garante (14_autorizacao.sql e o convite de vinculo, 18) levantam ORA-20101 a
+     * ORA-20110 e ORA-20114: por exemplo, a troca de cargo que deixaria a empresa sem administrador. Viram 422,
      * com a mensagem que o banco escreveu. Qualquer outro erro de banco continua sendo 500.
      */
     @ExceptionHandler(org.springframework.dao.DataAccessException.class)
     ProblemDetail regraDoBanco(org.springframework.dao.DataAccessException ex) {
         for (Throwable causa = ex; causa != null; causa = causa.getCause()) {
-            if (causa instanceof java.sql.SQLException sql && sql.getErrorCode() >= 20101 && sql.getErrorCode() <= 20110) {
+            if (causa instanceof java.sql.SQLException sql && (sql.getErrorCode() >= 20101 && sql.getErrorCode() <= 20110 || sql.getErrorCode() == 20114)) {
                 String mensagem = sql.getMessage() == null ? "" : sql.getMessage().split("\n")[0].replaceFirst("^ORA-\\d+:\\s*", "");
                 return problema(HttpStatus.UNPROCESSABLE_ENTITY, "Regra de negócio violada", mensagem);
             }

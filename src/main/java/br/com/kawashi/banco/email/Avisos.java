@@ -66,16 +66,30 @@ public class Avisos {
     }
 
     /**
-     * Alguem tentou criar usuario com um e-mail que ja tem conta: o dono do e-mail fica sabendo, quem
-     * tentou nao. Devolve o endereco mascarado, como num envio normal.
+     * Convite de vinculo: uma empresa chamou para trabalhar nela quem ja tem conta. Nada muda ate a
+     * pessoa entrar e aceitar. Devolve o endereco mascarado, como num envio normal.
      */
-    public String jaTemConta(long usuarioId, String razaoSocialDaEmpresa, String ip) {
+    public String conviteDeVinculo(long usuarioId, String razaoSocialDaEmpresa, String perfil, String convidadoPor, String ip) {
         String email = usuarios.email(usuarioId);
-        String texto = "A empresa \"" + razaoSocialDaEmpresa + "\" quis dar a você acesso ao sistema Kawashi, mas este e-mail já tem "
-                + "conta. Nada foi mudado na sua conta.\n\nSe você deve ter acesso a essa empresa, peça à equipe da Kawashi para "
-                + "ligar a sua conta a ela. Se não conhece essa empresa, pode ignorar este e-mail.\n";
-        correio.enviar(new Correio.Mensagem(email, "Pedido de acesso ao Kawashi", texto, "JA_TEM_CONTA"));
-        log.registrar("EMAIL_ENVIADO", usuarioId, "JA_TEM_CONTA " + razaoSocialDaEmpresa, ip, SessaoAtual.quemNoLog());
+        String texto = convidadoPor + ", da empresa \"" + razaoSocialDaEmpresa + "\", convidou você para trabalhar nela no sistema Kawashi, "
+                + "com o cargo " + perfil + ".\n\nNada muda na sua conta até você aceitar. Para aceitar ou recusar, entre no sistema com a "
+                + "sua passkey: o convite aparece logo depois de entrar. Ele vale por " + 7 + " dias.\n\n"
+                + "Se você não conhece essa empresa, recuse o convite ou simplesmente ignore este e-mail.\n";
+        correio.enviar(new Correio.Mensagem(email, "Convite para trabalhar em outra empresa no Kawashi", texto, "CONVITE_VINCULO"));
+        log.registrar("EMAIL_ENVIADO", usuarioId, "CONVITE_VINCULO " + razaoSocialDaEmpresa, ip, SessaoAtual.quemNoLog());
+        return mascarar(email);
+    }
+
+    /**
+     * Uma empresa quis dar acesso a um e-mail que ainda nao tem conta: o dono do e-mail fica sabendo
+     * (quem tentou nao descobre a diferenca). Devolve o endereco mascarado.
+     */
+    public String semConta(String email, String razaoSocialDaEmpresa, String ip) {
+        String texto = "A empresa \"" + razaoSocialDaEmpresa + "\" quis dar a você acesso ao sistema Kawashi, mas este e-mail ainda não "
+                + "tem conta.\n\nSe você deve ter acesso, peça ao administrador dessa empresa para cadastrar você. Se não conhece essa "
+                + "empresa, pode ignorar este e-mail.\n";
+        correio.enviar(new Correio.Mensagem(email, "Pedido de acesso ao Kawashi", texto, "SEM_CONTA"));
+        log.registrar("EMAIL_ENVIADO", null, "SEM_CONTA " + razaoSocialDaEmpresa, ip, SessaoAtual.quemNoLog());
         return mascarar(email);
     }
 

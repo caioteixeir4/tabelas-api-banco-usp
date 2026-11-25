@@ -28,6 +28,12 @@ import jakarta.validation.constraints.Size;
 @RequestMapping("/api")
 public class UsuariosController {
 
+    /** Convite para quem ja tem conta (em outra empresa). */
+    public record ConviteParaEmpresa(
+            @NotBlank(message = "Informe o e-mail") @Size(max = 150) @Email(message = "E-mail inválido") String email,
+            @NotNull(message = "Informe o perfil") Long perfilId) {
+    }
+
     public record NovoUsuario(@NotNull(message = "Informe a pessoa") Long pessoaId,
             @NotBlank(message = "Informe o e-mail") @Size(max = 150) @Email(message = "E-mail inválido") String email,
             @NotNull(message = "Informe o perfil") Long perfilId) {
@@ -92,6 +98,30 @@ public class UsuariosController {
     public ResponseEntity<ServicoDeUsuarios.Enviado> novoConvite(@PathVariable long usuarioId) {
         // O segredo vai para o e-mail da conta; quem pediu ve so para onde.
         return ResponseEntity.accepted().body(new ServicoDeUsuarios.Enviado(servico.novoConvite(usuarioId)));
+    }
+
+    /**
+     * Convida quem JA tem conta em outra empresa para trabalhar nesta, com o cargo. 202 com "enviado
+     * para", sempre igual (exista a conta ou nao). So vale quando a propria pessoa aceitar.
+     */
+    @Exige(value = {Permissoes.USUARIO_GERENCIAR}, confirmar = true)
+    @PostMapping("/usuarios/convites-de-vinculo")
+    public ResponseEntity<ServicoDeUsuarios.Enviado> convidarParaEmpresa(@Valid @RequestBody ConviteParaEmpresa dados) {
+        return ResponseEntity.accepted().body(servico.convidarParaEmpresa(dados.email(), dados.perfilId()));
+    }
+
+    /** Os convites desta empresa: quem convidou, quando, de qual IP, para qual cargo, e a resposta. */
+    @Exige({Permissoes.USUARIO_GERENCIAR})
+    @GetMapping("/usuarios/convites-de-vinculo")
+    public java.util.List<ConvitesDeVinculo.ConviteDaEmpresa> convitesDaEmpresa() {
+        return servico.convitesDaEmpresa();
+    }
+
+    @Exige({Permissoes.USUARIO_GERENCIAR})
+    @PostMapping("/usuarios/convites-de-vinculo/{conviteId}/cancelar")
+    public ResponseEntity<Void> cancelarConvite(@PathVariable long conviteId) {
+        servico.cancelarConvite(conviteId);
+        return ResponseEntity.noContent().build();
     }
 
     @Exige({Permissoes.USUARIO_GERENCIAR, Permissoes.PERFIL_GERENCIAR})

@@ -31,5 +31,9 @@ BEGIN
     -- A autorizacao (14_autorizacao.sql) liga PERFIL, USUARIO_EMPRESA e TOKEN a EMPRESA deste schema e
     -- cria o painel V_USUARIO_ACESSOS, que le a PESSOA. Mesmo motivo: so depois que as tabelas existem.
     SYS.KAWASHI_LIGAR_AUTORIZACAO;
+
+    -- VPD (19_vpd_infra.sql): a equipe de Infra nao le nem altera linha das tabelas de negocio.
+    -- A politica so pode ser posta depois que as tabelas existem; a procedure nao repete o que ja tem.
+    SYS.KAWASHI_LIGAR_VPD;
 END;
 /

@@ -95,10 +95,10 @@ class EmailEConfirmacaoApiTest {
         // A mesma forma de resposta: so "enviadoPara", mascarado.
         assertThat(JsonPath.<java.util.Map<String, Object>>read(jaExiste, "$").keySet())
                 .isEqualTo(JsonPath.<java.util.Map<String, Object>>read(novo, "$").keySet()).containsExactly("enviadoPara");
-        // Nada foi criado para a pessoa; o dono do e-mail recebeu o aviso (com o nome da empresa).
+        // Nada foi criado para a pessoa; o dono do e-mail recebeu um convite de vinculo (que so vale se ele aceitar).
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM " + schemas.login("USUARIO") + " WHERE PESSOA_ID = ?", Long.class, pessoa))
                 .isZero();
-        assertThat(correio.para(deOutraEmpresa.email())).anyMatch(m -> "JA_TEM_CONTA".equals(m.tipo()));
+        assertThat(correio.para(deOutraEmpresa.email())).anyMatch(m -> "CONVITE_VINCULO".equals(m.tipo()));
         assertThat(correio.ultimoConvite(deOutraEmpresa.email())).isEmpty();
     }
 

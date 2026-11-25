@@ -83,8 +83,11 @@ public class AutenticacaoController {
     private final ServicoDeLogin servico;
     private final br.com.kawashi.banco.autorizacao.Autorizacao autorizacao;
     private final Termos termos;
+    private final br.com.kawashi.banco.autorizacao.ConvitesDeVinculo convitesDeVinculo;
 
-    public AutenticacaoController(ServicoDeLogin servico, br.com.kawashi.banco.autorizacao.Autorizacao autorizacao, Termos termos) {
+    public AutenticacaoController(ServicoDeLogin servico, br.com.kawashi.banco.autorizacao.Autorizacao autorizacao, Termos termos,
+            br.com.kawashi.banco.autorizacao.ConvitesDeVinculo convitesDeVinculo) {
+        this.convitesDeVinculo = convitesDeVinculo;
         this.servico = servico;
         this.autorizacao = autorizacao;
         this.termos = termos;
@@ -202,6 +205,25 @@ public class AutenticacaoController {
             case ServicoDeLogin.IpBloqueado b -> responder(b, "");
             default -> ResponseEntity.noContent().build();
         };
+    }
+
+    /** Convites de outras empresas para quem esta logado (aceitar da acesso a ela; nada muda sem aceitar). */
+    @GetMapping("/convites-de-vinculo")
+    public List<br.com.kawashi.banco.autorizacao.ConvitesDeVinculo.ConviteParaMim> convitesParaMim(HttpServletRequest requisicao) {
+        return convitesDeVinculo.paraMim(sessao(requisicao).usuarioId());
+    }
+
+    /** Aceita: o acesso a empresa passa a existir; depois e escolher a empresa (/api/auth/empresa). */
+    @PostMapping("/convites-de-vinculo/{conviteId}/aceitar")
+    public ResponseEntity<Void> aceitarConviteDeVinculo(@PathVariable long conviteId, HttpServletRequest requisicao) {
+        convitesDeVinculo.aceitar(sessao(requisicao).usuarioId(), conviteId);
+        return ResponseEntity.noContent().build();
+    }
+
+    @PostMapping("/convites-de-vinculo/{conviteId}/recusar")
+    public ResponseEntity<Void> recusarConviteDeVinculo(@PathVariable long conviteId, HttpServletRequest requisicao) {
+        convitesDeVinculo.recusar(sessao(requisicao).usuarioId(), conviteId);
+        return ResponseEntity.noContent().build();
     }
 
     /** Os termos de uso e a politica de privacidade vigentes, com o texto e se o usuario ja aceitou cada um. */

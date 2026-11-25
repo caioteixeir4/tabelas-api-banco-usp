@@ -760,7 +760,7 @@
           "campos": [
             { "n": "ID", "t": "NUMBER", "pk": true, "ident": true },
             { "n": "ORDEM", "t": "NUMBER", "uq": true, "nota": "Numeração sem buraco, dada pelo gatilho, como no LOG_ALTERACAO." },
-            { "n": "EVENTO", "t": "VARCHAR2(40)", "nota": "LOGIN, LOGOUT, SAIR_DE_TODOS, PASSKEY_CADASTRADA, PASSKEY_REMOVIDA, CODIGOS_GERADOS, CODIGO_USADO, CONVITE_CRIADO, CONVITE_USADO, IP_BLOQUEADO, SESSAO_ENCERRADA, USUARIO_CRIADO, PARAMETRO_ALTERADO, CONTADOR_SUSPEITO, EMPRESA_ESCOLHIDA, EMPRESA_CRIADA, ADMIN_PLATAFORMA_CONCEDIDO, ADMIN_PLATAFORMA_REVOGADO, TERMO_ACEITO (gravado pelo gatilho do aceite de termos), PASSKEY_CONFIRMADA (a pessoa confirmou com a passkey antes de operação sensível) ou EMAIL_ENVIADO (convite, aviso de segurança ou \"já tem conta\": o tipo, nunca o endereço nem o texto)." },
+            { "n": "EVENTO", "t": "VARCHAR2(40)", "nota": "LOGIN, LOGOUT, SAIR_DE_TODOS, PASSKEY_CADASTRADA, PASSKEY_REMOVIDA, CODIGOS_GERADOS, CODIGO_USADO, CONVITE_CRIADO, CONVITE_USADO, IP_BLOQUEADO, SESSAO_ENCERRADA, USUARIO_CRIADO, PARAMETRO_ALTERADO, CONTADOR_SUSPEITO, EMPRESA_ESCOLHIDA, EMPRESA_CRIADA, ADMIN_PLATAFORMA_CONCEDIDO, ADMIN_PLATAFORMA_REVOGADO, TERMO_ACEITO (gravado pelo gatilho do aceite de termos), PASSKEY_CONFIRMADA (a pessoa confirmou com a passkey antes de operação sensível), VINCULO_CONVIDADO e VINCULO_CONVITE_RESPONDIDO (convite de vínculo, com o IP) ou EMAIL_ENVIADO (convite, aviso de segurança ou \"já tem conta\": o tipo, nunca o endereço nem o texto)." },
             { "n": "USUARIO_ID", "t": "NUMBER", "nulo": true },
             { "n": "DETALHE", "t": "VARCHAR2(500 CHAR)", "nulo": true },
             { "n": "IP_ORIGEM", "t": "VARCHAR2(45)", "nulo": true },
@@ -772,7 +772,7 @@
           "restricoes": [
             { "tipo": "PK", "nome": "PK_LOG_SEGURANCA", "regra": "ID" },
             { "tipo": "UNIQUE", "nome": "UK_LOG_SEGURANCA_ORDEM", "regra": "ORDEM" },
-            { "tipo": "CHECK", "nome": "CK_LOG_SEGURANCA_EVENTO", "regra": "EVENTO IN ('LOGIN', 'LOGOUT', 'SAIR_DE_TODOS', 'PASSKEY_CADASTRADA', 'PASSKEY_REMOVIDA', 'CODIGOS_GERADOS', 'CODIGO_USADO', 'CONVITE_CRIADO', 'CONVITE_USADO', 'IP_BLOQUEADO', 'SESSAO_ENCERRADA', 'USUARIO_CRIADO', 'PARAMETRO_ALTERADO', 'CONTADOR_SUSPEITO', 'EMPRESA_ESCOLHIDA', 'EMPRESA_CRIADA', 'ADMIN_PLATAFORMA_CONCEDIDO', 'ADMIN_PLATAFORMA_REVOGADO', 'TERMO_ACEITO', 'PASSKEY_CONFIRMADA', 'EMAIL_ENVIADO')" },
+            { "tipo": "CHECK", "nome": "CK_LOG_SEGURANCA_EVENTO", "regra": "EVENTO IN ('LOGIN', 'LOGOUT', 'SAIR_DE_TODOS', 'PASSKEY_CADASTRADA', 'PASSKEY_REMOVIDA', 'CODIGOS_GERADOS', 'CODIGO_USADO', 'CONVITE_CRIADO', 'CONVITE_USADO', 'IP_BLOQUEADO', 'SESSAO_ENCERRADA', 'USUARIO_CRIADO', 'PARAMETRO_ALTERADO', 'CONTADOR_SUSPEITO', 'EMPRESA_ESCOLHIDA', 'EMPRESA_CRIADA', 'ADMIN_PLATAFORMA_CONCEDIDO', 'ADMIN_PLATAFORMA_REVOGADO', 'TERMO_ACEITO', 'PASSKEY_CONFIRMADA', 'EMAIL_ENVIADO', 'VINCULO_CONVIDADO', 'VINCULO_CONVITE_RESPONDIDO')" },
             { "tipo": "INDEX", "nome": "IX_LOG_SEGURANCA_USUARIO", "regra": "(USUARIO_ID, DATA_HORA)" }
           ]
         }
@@ -857,7 +857,7 @@
       "subtitulo": "O login diz quem é o usuário; aqui fica o que ele pode fazer e em quais empresas. Cada empresa tem os seus perfis; o ADMINISTRADOR é fixo (tem todas as permissões, implicitamente) e só ele dá cargo aos outros. O banco garante: toda empresa tem pelo menos um administrador ativo, o perfil do vínculo é da mesma empresa, permissão exclusiva do administrador não vai para outro perfil, e quem faz cada mudança fica registrado. Cada troca de cargo e de permissão vai sozinha, por gatilho, para o LOG_PERMISSAO (a API nem tem INSERT nele). A API não apaga nada aqui: tirar permissão ou acesso é desativar. Empresa nova só pelo administrador da plataforma. USUARIO, EMPRESA e TOKEN aparecem repetidas, em cinza.",
       "colunas": [
         { "v": "centro", "tabelas": ["ADMIN_PLATAFORMA", "USUARIO_REF", "V_USUARIO_ACESSOS"] },
-        { "v": "centro", "tabelas": ["USUARIO_EMPRESA", "PERFIL", "PERFIL_PERMISSAO"] },
+        { "v": "centro", "tabelas": ["USUARIO_EMPRESA", "CONVITE_VINCULO", "PERFIL", "PERFIL_PERMISSAO"] },
         { "v": "centro", "tabelas": ["EMPRESA_REF", "TOKEN_REF", "PERMISSAO", "LOG_PERMISSAO"] }
       ],
       "tabelas": [
@@ -966,7 +966,8 @@
             { "n": "ATIVO", "t": "BOOLEAN", "pad": "TRUE", "nota": "Desativar tira o acesso na hora (as sessões desta empresa caem). Nada é apagado." },
             { "n": "ATUALIZADO_POR", "t": "VARCHAR2(128)", "nota": "Quem fez a última mudança; o gatilho copia para o LOG_PERMISSAO." },
             { "n": "CRIADO_EM", "t": "TIMESTAMP(6)", "pad": "SYS_EXTRACT_UTC(SYSTIMESTAMP)" },
-            { "n": "ATUALIZADO_EM", "t": "TIMESTAMP(6)", "pad": "SYS_EXTRACT_UTC(SYSTIMESTAMP)" }
+            { "n": "ATUALIZADO_EM", "t": "TIMESTAMP(6)", "pad": "SYS_EXTRACT_UTC(SYSTIMESTAMP)" },
+            { "n": "CONVITE_VINCULO_ID", "t": "NUMBER", "nulo": true, "fk": { "t": "CONVITE_VINCULO", "c": "ID" }, "nota": "O convite que deu este acesso (quando veio de um convite de vínculo): de qualquer acesso se chega em quem convidou, quando e de qual IP." }
           ],
           "restricoes": [
             { "tipo": "PK", "nome": "PK_USUARIO_EMPRESA", "regra": "ID" },
@@ -975,7 +976,39 @@
             { "tipo": "FK", "nome": "FK_USUARIO_EMPRESA_PERFIL", "regra": "(PERFIL_ID, EMPRESA_ID) → PERFIL (ID, EMPRESA_ID), sem cascade" },
             { "tipo": "FK", "nome": "FK_USUARIO_EMPRESA_EMPRESA", "regra": "EMPRESA_ID → KAWASHI_ENV_<AMB>.EMPRESA (ID), entre schemas, sem cascade" },
             { "tipo": "INDEX", "nome": "IX_USUARIO_EMPRESA_EMPRESA", "regra": "(EMPRESA_ID, ATIVO)" },
-            { "tipo": "INDEX", "nome": "IX_USUARIO_EMPRESA_PERFIL", "regra": "(PERFIL_ID, EMPRESA_ID)" }
+            { "tipo": "INDEX", "nome": "IX_USUARIO_EMPRESA_PERFIL", "regra": "(PERFIL_ID, EMPRESA_ID)" },
+            { "tipo": "FK", "nome": "FK_USUARIO_EMPRESA_CONVITE", "regra": "CONVITE_VINCULO_ID → CONVITE_VINCULO (ID), sem cascade" }
+          ]
+        },
+        {
+          "id": "CONVITE_VINCULO", "nome": "CONVITE_VINCULO", "schema": "login",
+          "desc": "convite para quem já tem conta trabalhar em mais uma empresa",
+          "campos": [
+            { "n": "ID", "t": "NUMBER", "pk": true, "ident": true },
+            { "n": "USUARIO_ID", "t": "NUMBER", "fk": { "t": "USUARIO_REF", "c": "ID" }, "nota": "Quem foi convidado: uma conta que já existe (em outra empresa). Só ele aceita ou recusa." },
+            { "n": "EMPRESA_ID", "t": "NUMBER", "nota": "A empresa que convida." },
+            { "n": "PERFIL_ID", "t": "NUMBER", "fk": { "t": "PERFIL", "c": "ID" }, "nota": "O cargo oferecido. Chave composta (PERFIL_ID, EMPRESA_ID): o perfil é da empresa que convida." },
+            { "n": "CONVIDADO_POR", "t": "VARCHAR2(128)", "nota": "Quem convidou: USUARIO:<id> (pela API, obrigatório e igual ao id abaixo) ou a conta do DBA. Não muda depois (ORA-20114)." },
+            { "n": "CONVIDADO_POR_USUARIO_ID", "t": "NUMBER", "nulo": true, "fk": { "t": "USUARIO_REF", "c": "ID" }, "nota": "O id de quem convidou. Ninguém convida a si mesmo." },
+            { "n": "IP_ORIGEM", "t": "VARCHAR2(45)", "nulo": true, "nota": "O IP do navegador de quem convidou. Não muda depois." },
+            { "n": "CRIADO_EM", "t": "TIMESTAMP(6)", "pad": "SYS_EXTRACT_UTC(SYSTIMESTAMP)", "nota": "Hora do banco (a informada é ignorada). Não muda depois." },
+            { "n": "EXPIRA_EM", "t": "TIMESTAMP(6)", "nota": "7 dias pela API; o banco aceita até 30." },
+            { "n": "SITUACAO", "t": "VARCHAR2(12)", "pad": "'PENDENTE'", "nota": "PENDENTE, ACEITO, RECUSADO ou CANCELADO. Sai de PENDENTE uma vez só; ACEITO e RECUSADO, só pelo próprio convidado e no prazo." },
+            { "n": "RESPONDIDO_POR", "t": "VARCHAR2(128)", "nulo": true, "nota": "Quem respondeu (o convidado, ou o administrador que cancelou)." },
+            { "n": "RESPONDIDO_EM", "t": "TIMESTAMP(6)", "nulo": true, "nota": "Hora do banco, posta pelo gatilho." },
+            { "n": "IP_RESPOSTA", "t": "VARCHAR2(45)", "nulo": true, "nota": "O IP de quem respondeu." }
+          ],
+          "restricoes": [
+            { "tipo": "PK", "nome": "PK_CONVITE_VINCULO", "regra": "ID" },
+            { "tipo": "FK", "nome": "FK_CONVITE_VINCULO_USUARIO", "regra": "USUARIO_ID → USUARIO (ID), sem cascade" },
+            { "tipo": "FK", "nome": "FK_CONVITE_VINCULO_CONVIDOU", "regra": "CONVIDADO_POR_USUARIO_ID → USUARIO (ID), sem cascade" },
+            { "tipo": "FK", "nome": "FK_CONVITE_VINCULO_PERFIL", "regra": "(PERFIL_ID, EMPRESA_ID) → PERFIL (ID, EMPRESA_ID), sem cascade" },
+            { "tipo": "CHECK", "nome": "CK_CONVITE_VINCULO_SITUACAO", "regra": "SITUACAO IN ('PENDENTE', 'ACEITO', 'RECUSADO', 'CANCELADO')" },
+            { "tipo": "CHECK", "nome": "CK_CONVITE_VINCULO_RESPOSTA", "regra": "(SITUACAO = 'PENDENTE' AND RESPONDIDO_EM IS NULL AND RESPONDIDO_POR IS NULL) OR (SITUACAO <> 'PENDENTE' AND RESPONDIDO_EM IS NOT NULL AND RESPONDIDO_POR IS NOT NULL)" },
+            { "tipo": "CHECK", "nome": "CK_CONVITE_VINCULO_VALIDADE", "regra": "EXPIRA_EM > CRIADO_EM AND EXPIRA_EM <= CRIADO_EM + INTERVAL '30' DAY" },
+            { "tipo": "INDEX", "nome": "UX_CONVITE_VINCULO_PENDENTE", "regra": "único: um convite PENDENTE por (USUARIO_ID, EMPRESA_ID)" },
+            { "tipo": "INDEX", "nome": "IX_CONVITE_VINCULO_USUARIO", "regra": "(USUARIO_ID, SITUACAO)" },
+            { "tipo": "INDEX", "nome": "IX_CONVITE_VINCULO_EMPRESA", "regra": "(EMPRESA_ID, SITUACAO)" }
           ]
         },
         {
@@ -984,7 +1017,7 @@
           "campos": [
             { "n": "ID", "t": "NUMBER", "pk": true, "ident": true },
             { "n": "ORDEM", "t": "NUMBER", "uq": true, "nota": "Numeração sem buraco, dada pelo gatilho, como nos outros logs." },
-            { "n": "EVENTO", "t": "VARCHAR2(30)", "nota": "VINCULO_CRIADO, PERFIL_TROCADO, VINCULO_DESATIVADO, VINCULO_REATIVADO, PERMISSAO_ADICIONADA, PERMISSAO_REMOVIDA ou PERFIL_CRIADO." },
+            { "n": "EVENTO", "t": "VARCHAR2(30)", "nota": "VINCULO_CRIADO, PERFIL_TROCADO, VINCULO_DESATIVADO, VINCULO_REATIVADO, PERMISSAO_ADICIONADA, PERMISSAO_REMOVIDA, PERFIL_CRIADO, e os do convite de vínculo: VINCULO_CONVIDADO, CONVITE_ACEITO, CONVITE_RECUSADO ou CONVITE_CANCELADO (gravados pelo gatilho do CONVITE_VINCULO)." },
             { "n": "EMPRESA_ID", "t": "NUMBER" },
             { "n": "USUARIO_ID", "t": "NUMBER", "nulo": true, "nota": "De quem é o cargo que mudou (vazio quando o que mudou foi um perfil)." },
             { "n": "PERFIL_ANTERIOR", "t": "VARCHAR2(50 CHAR)", "nulo": true, "nota": "\"De\": o perfil antes." },
@@ -998,7 +1031,7 @@
           "restricoes": [
             { "tipo": "PK", "nome": "PK_LOG_PERMISSAO", "regra": "ID" },
             { "tipo": "UNIQUE", "nome": "UK_LOG_PERMISSAO_ORDEM", "regra": "ORDEM" },
-            { "tipo": "CHECK", "nome": "CK_LOG_PERMISSAO_EVENTO", "regra": "EVENTO IN ('VINCULO_CRIADO', 'PERFIL_TROCADO', 'VINCULO_DESATIVADO', 'VINCULO_REATIVADO', 'PERMISSAO_ADICIONADA', 'PERMISSAO_REMOVIDA', 'PERFIL_CRIADO')" },
+            { "tipo": "CHECK", "nome": "CK_LOG_PERMISSAO_EVENTO", "regra": "EVENTO IN ('VINCULO_CRIADO', 'PERFIL_TROCADO', 'VINCULO_DESATIVADO', 'VINCULO_REATIVADO', 'PERMISSAO_ADICIONADA', 'PERMISSAO_REMOVIDA', 'PERFIL_CRIADO', 'VINCULO_CONVIDADO', 'CONVITE_ACEITO', 'CONVITE_RECUSADO', 'CONVITE_CANCELADO')" },
             { "tipo": "INDEX", "nome": "IX_LOG_PERMISSAO_EMPRESA", "regra": "(EMPRESA_ID, DATA_HORA)" }
           ]
         },
@@ -1025,6 +1058,10 @@
         { "pai": "EMPRESA_REF", "filho": "USUARIO_EMPRESA", "fk": "EMPRESA_ID", "pk": "ID", "card": "1:N", "nome": "FK_USUARIO_EMPRESA_EMPRESA", "obs": "FK entre schemas: LOGIN aponta para o padrão." },
         { "pai": "EMPRESA_REF", "filho": "PERFIL", "fk": "EMPRESA_ID", "pk": "ID", "card": "1:N", "nome": "FK_PERFIL_EMPRESA" },
         { "pai": "EMPRESA_REF", "filho": "TOKEN_REF", "fk": "EMPRESA_ID", "pk": "ID", "card": "1:N", "nome": "FK_TOKEN_EMPRESA", "lado": "dir" },
+        { "pai": "USUARIO_REF", "filho": "CONVITE_VINCULO", "fk": "USUARIO_ID", "pk": "ID", "card": "1:N", "nome": "FK_CONVITE_VINCULO_USUARIO", "obs": "Quem foi convidado." },
+        { "pai": "USUARIO_REF", "filho": "CONVITE_VINCULO", "fk": "CONVIDADO_POR_USUARIO_ID", "pk": "ID", "card": "1:N", "nome": "FK_CONVITE_VINCULO_CONVIDOU", "obs": "Quem convidou." },
+        { "pai": "PERFIL", "filho": "CONVITE_VINCULO", "fk": "PERFIL_ID", "pk": "ID", "card": "1:N", "nome": "FK_CONVITE_VINCULO_PERFIL", "obs": "O cargo oferecido, da mesma empresa." },
+        { "pai": "CONVITE_VINCULO", "filho": "USUARIO_EMPRESA", "fk": "CONVITE_VINCULO_ID", "pk": "ID", "card": "1:N", "nome": "FK_USUARIO_EMPRESA_CONVITE", "obs": "O acesso que veio de um convite aponta para ele." },
         { "pai": "PERFIL", "filho": "USUARIO_EMPRESA", "fk": "PERFIL_ID", "pk": "ID", "card": "1:N", "nome": "FK_USUARIO_EMPRESA_PERFIL", "obs": "Chave composta (PERFIL_ID, EMPRESA_ID): o perfil é sempre da mesma empresa do vínculo." },
         { "pai": "PERFIL", "filho": "PERFIL_PERMISSAO", "fk": "PERFIL_ID", "pk": "ID", "card": "1:N", "nome": "FK_PERFIL_PERMISSAO_PERFIL" },
         { "pai": "PERMISSAO", "filho": "PERFIL_PERMISSAO", "fk": "PERMISSAO_ID", "pk": "ID", "card": "1:N", "nome": "FK_PERFIL_PERMISSAO_PERMISSAO" },

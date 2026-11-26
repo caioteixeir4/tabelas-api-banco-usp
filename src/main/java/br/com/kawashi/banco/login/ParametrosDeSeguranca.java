@@ -19,7 +19,8 @@ public class ParametrosDeSeguranca {
 
     public record Parametros(int tokenMinutos, int tokenTetoHoras, int sessoesMaximas, int ipMaxFalhas,
             int ipJanelaMinutos, int ipBloqueioMinutos, int desafioMinutos, int conviteHoras, int codigosRecuperacao,
-            int passkeysMaximas, int confirmacaoMinutos) {
+            int passkeysMaximas, int confirmacaoMinutos, int senhaMinCaracteres, int contaMaxFalhas, int contaBloqueioMinutos,
+            int dispositivoConfiavelDias, int redefinicaoSenhaMinutos) {
     }
 
     private final JdbcTemplate jdbc;
@@ -38,7 +39,9 @@ public class ParametrosDeSeguranca {
                 exigir(valores, "TOKEN_MINUTOS"), exigir(valores, "TOKEN_TETO_HORAS"), exigir(valores, "SESSOES_MAXIMAS"),
                 exigir(valores, "IP_MAX_FALHAS"), exigir(valores, "IP_JANELA_MINUTOS"), exigir(valores, "IP_BLOQUEIO_MINUTOS"),
                 exigir(valores, "DESAFIO_MINUTOS"), exigir(valores, "CONVITE_HORAS"), exigir(valores, "CODIGOS_RECUPERACAO"),
-                exigir(valores, "PASSKEYS_MAXIMAS"), exigir(valores, "CONFIRMACAO_MINUTOS"));
+                exigir(valores, "PASSKEYS_MAXIMAS"), exigir(valores, "CONFIRMACAO_MINUTOS"), exigir(valores, "SENHA_MIN_CARACTERES"),
+                exigir(valores, "CONTA_MAX_FALHAS"), exigir(valores, "CONTA_BLOQUEIO_MINUTOS"), exigir(valores, "DISPOSITIVO_CONFIAVEL_DIAS"),
+                exigir(valores, "REDEFINICAO_SENHA_MINUTOS"));
     }
 
     private static int exigir(Map<String, Integer> valores, String chave) {

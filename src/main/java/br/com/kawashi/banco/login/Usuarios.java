@@ -110,4 +110,92 @@ public class Usuarios {
     public static String normalizar(String email) {
         return email == null ? null : email.strip().toLowerCase(Locale.ROOT);
     }
+
+    // ---- login por senha: identificadores e credenciais -----------------------------------------
+
+    public static final String CONTEXTO_TELEFONE = "USUARIO.TELEFONE";
+
+    /** O que o login por senha precisa saber da conta. O segredo do 2FA continua cifrado aqui. */
+    public record Credenciais(long id, boolean ativo, String senhaHash, String totpSegredoCifrado, boolean totpAtivo,
+            Long totpUltimoPasso, boolean loginPorTelefone) {
+
+        @Override
+        public String toString() {
+            return "Credenciais[" + id + "]";  // nada de hash nem de segredo em log
+        }
+    }
+
+    private static final String COLUNAS_DAS_CREDENCIAIS = "SELECT ID, CASE WHEN ATIVO THEN 1 ELSE 0 END, SENHA_HASH, TOTP_SEGREDO_CIFRADO,"
+            + " CASE WHEN TOTP_ATIVADO_EM IS NOT NULL THEN 1 ELSE 0 END, TOTP_ULTIMO_PASSO, CASE WHEN LOGIN_POR_TELEFONE THEN 1 ELSE 0 END FROM ";
+
+    /**
+     * A conta do identificador digitado no login: com @ e o e-mail; so digitos (com ou sem espacos,
+     * parenteses, hifen e +) e o celular, e so vale se a pessoa ligou o login pelo celular; o resto e
+     * o nome de usuario (que nunca e so numeros, regra do banco: nao ha como confundir).
+     */
+    public java.util.Optional<Credenciais> porIdentificador(String identificador) {
+        if (identificador == null || identificador.isBlank() || identificador.length() > 150) {
+            return java.util.Optional.empty();
+        }
+        String id = identificador.strip();
+        if (id.contains("@")) {
+            return credenciaisOnde("EMAIL_INDICE = ?", cifra.indice(CONTEXTO_EMAIL, normalizar(id)));
+        }
+        String telefone = normalizarTelefone(id);
+        if (telefone != null) {
+            return credenciaisOnde("TELEFONE_INDICE = ? AND LOGIN_POR_TELEFONE", cifra.indice(CONTEXTO_TELEFONE, telefone));
+        }
+        return credenciaisOnde("NOME_USUARIO = ?", id.toLowerCase(Locale.ROOT));
+    }
+
+    public Credenciais credenciais(long usuarioId) {
+        return credenciaisOnde("ID = ?", usuarioId).orElseThrow(() -> new RecursoNaoEncontradoException("Usuário", usuarioId));
+    }
+
+    private java.util.Optional<Credenciais> credenciaisOnde(String condicao, Object valor) {
+        return jdbc.query(COLUNAS_DAS_CREDENCIAIS + schemas.login("USUARIO") + " WHERE " + condicao,
+                (r, n) -> new Credenciais(r.getLong(1), r.getInt(2) == 1, r.getString(3), r.getString(4), r.getInt(5) == 1,
+                        (Long) r.getObject(6, Long.class), r.getInt(7) == 1), valor).stream().findFirst();
+    }
+
+    /** O nome da pessoa dona da conta (para recusar senha e nome de usuario que o contenham). */
+    public String nome(long usuarioId) {
+        return jdbc.query("SELECT p.NOME FROM PESSOA p JOIN " + schemas.login("USUARIO") + " u ON u.PESSOA_ID = p.ID WHERE u.ID = ?",
+                (r, n) -> r.getString(1), usuarioId).stream().findFirst().orElse(null);
+    }
+
+    /** O que a tela de configuracoes mostra dos identificadores (o celular, so mascarado). */
+    public record Identificadores(String nomeUsuario, String celular, boolean loginPorCelular) {
+    }
+
+    public Identificadores identificadores(long usuarioId) {
+        return jdbc.queryForObject("SELECT NOME_USUARIO, TELEFONE_CIFRADO, CASE WHEN LOGIN_POR_TELEFONE THEN 1 ELSE 0 END FROM "
+                + schemas.login("USUARIO") + " WHERE ID = ?", (r, n) -> {
+                    String telefone = cifra.decifrar(CONTEXTO_TELEFONE, r.getString(2));
+                    return new Identificadores(r.getString(1), mascararTelefone(telefone), r.getInt(3) == 1);
+                }, usuarioId);
+    }
+
+    /**
+     * Celular so com digitos e com o codigo do pais: "(11) 98765-4321" vira "5511987654321" (10 ou 11
+     * digitos ganham o 55 do Brasil). Nulo se nao parece um telefone (entre 10 e 15 digitos).
+     */
+    public static String normalizarTelefone(String texto) {
+        if (texto == null || !texto.strip().matches("\\+?[0-9 ()\\-.]{8,25}")) {
+            return null;
+        }
+        String digitos = texto.replaceAll("[^0-9]", "");
+        if (digitos.length() == 10 || digitos.length() == 11) {
+            digitos = "55" + digitos;
+        }
+        return digitos.length() >= 12 && digitos.length() <= 15 ? digitos : null;
+    }
+
+    /** "5511987654321" vira "+55 •••••••4321". */
+    public static String mascararTelefone(String telefone) {
+        if (telefone == null) {
+            return null;
+        }
+        return "+" + telefone.substring(0, 2) + " " + "•".repeat(telefone.length() - 6) + telefone.substring(telefone.length() - 4);
+    }
 }

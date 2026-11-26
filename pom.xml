@@ -46,6 +46,18 @@
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-mail</artifactId>
         </dependency>
+        <!-- Login por senha: o hash e Argon2id (Bouncy Castle), e o QR code do autenticador (2FA) e
+             gerado aqui (ZXing), sem servico externo. -->
+        <dependency>
+            <groupId>org.bouncycastle</groupId>
+            <artifactId>bcprov-jdk18on</artifactId>
+            <version>1.80</version>
+        </dependency>
+        <dependency>
+            <groupId>com.google.zxing</groupId>
+            <artifactId>core</artifactId>
+            <version>3.5.3</version>
+        </dependency>
 
         <!-- Migracoes versionadas das tabelas: o banco guarda so estrutura, e o historico de
              como ela chegou la fica no Flyway (e no git deste repositorio). -->

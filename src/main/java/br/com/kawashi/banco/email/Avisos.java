@@ -42,10 +42,10 @@ public class Avisos {
         String email = usuarios.email(usuarioId);
         boolean primeira = "CADASTRO".equals(finalidade);
         String texto = (primeira
-                ? "Você recebeu acesso ao sistema Kawashi.\n\nPara entrar, cadastre uma passkey (a digital, o rosto ou o PIN do seu "
-                        + "aparelho) neste endereço:\n\n"
+                ? "Você recebeu acesso ao sistema Kawashi.\n\nPara entrar, crie uma senha ou cadastre uma passkey (a digital, o rosto "
+                        + "ou o PIN do seu aparelho) neste endereço:\n\n"
                 : "Foi pedido um acesso novo à sua conta no sistema Kawashi, para quem perdeu as passkeys e os códigos de "
-                        + "recuperação. Se foi você, cadastre uma passkey nova neste endereço:\n\n")
+                        + "recuperação. Se foi você, crie uma senha nova ou cadastre uma passkey nova neste endereço:\n\n")
                 + site + "/convite.html#" + segredo + "\n\n"
                 + "O link vale por pouco tempo e só uma vez. Não o repasse a ninguém: quem o usar entra na sua conta.\n"
                 + (primeira ? "" : "Se não foi você quem pediu, avise o administrador da sua empresa: as suas sessões continuam "
@@ -54,6 +54,16 @@ public class Avisos {
                 "CONVITE"));
         log.registrar("EMAIL_ENVIADO", usuarioId, "CONVITE " + finalidade, ip, SessaoAtual.quemNoLog());
         return mascarar(email);
+    }
+
+    /** "Esqueci minha senha": o link de redefinicao, so para o e-mail da conta. */
+    public void redefinicaoDeSenha(long usuarioId, String segredo, int minutos, String ip) {
+        String texto = "Foi pedida uma senha nova para a sua conta no sistema Kawashi.\n\nSe foi você, escolha a senha nova neste "
+                + "endereço (vale por " + minutos + " minutos e só uma vez):\n\n" + site + "/redefinir.html#" + segredo + "\n\n"
+                + "Se a conta tem o app autenticador (2FA), o código dele também vai ser pedido.\n"
+                + "Se NÃO foi você, ignore este e-mail: a sua senha continua a mesma. Não repasse o link a ninguém.\n";
+        correio.enviar(new Correio.Mensagem(usuarios.email(usuarioId), "Senha nova para a sua conta Kawashi", texto, "REDEFINIR_SENHA"));
+        log.registrar("EMAIL_ENVIADO", usuarioId, "REDEFINIR_SENHA", ip, SessaoAtual.quemNoLog());
     }
 
     /** Aviso de seguranca para o dono da conta. */

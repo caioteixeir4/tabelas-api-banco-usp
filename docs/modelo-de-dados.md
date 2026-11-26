@@ -1,26 +1,27 @@
 # Modelo de dados
 
-> **Situação em 23/11/2026.** Os **cadastros** (`EMPRESA`, `FILIAL`, `PESSOA`, `CONTATO`, `ENDERECO`)
+> **Situação em 25/11/2026.** Os **cadastros** (`EMPRESA`, `FILIAL`, `PESSOA`, `CONTATO`, `ENDERECO`)
 > e os **logs** (`LOG_ALTERACAO`, `LOG_ACESSO`) existem no banco e têm API e testes. CPF/CNPJ de
 > pessoa, e-mail e telefone são gravados **cifrados** pela API (migração `V6`) e saem **mascarados**
 > nas respostas; o disco do banco também é cifrado. O **cadastro de contas do banco** (quem é cada
 > conta, o que pode e quando a senha vence) existe no repositório de regras. O **login** da API existe
-> e é **só por passkey** (desde 20/11/2026; não há senha de usuário): toda a `/api` exige token, e só
+> por **passkey** (desde 20/11/2026) e, desde 25/11/2026, também por **senha** com 2FA opcional (app
+> autenticador; obrigatório para administrador): toda a `/api` exige token, e só
 > o **BFF** (o servidor do site, repositório `bff-banco-usp`) fala com a API. A **autorização
 > multiempresa** existe desde 23/11/2026: cada sessão vive numa empresa, perfis por empresa, e o banco
-> garante as regras de cargo. O aceite de termos (LGPD) entrou em 23/11/2026; o convite por e-mail (que confirma o e-mail), a confirmação com passkey antes do que é sensível e o bloqueio por bloco IPv6, em 24/11/2026. O desenho, campo a campo, está em [`diagrama-tabelas.html`](diagrama-tabelas.html)
+> garante as regras de cargo. O aceite de termos (LGPD) entrou em 23/11/2026; o convite por e-mail (que confirma o e-mail), a confirmação com passkey antes do que é sensível e o bloqueio por bloco IPv6, em 24/11/2026; o login por senha, o 2FA e o computador de confiança, em 25/11/2026. O desenho, campo a campo, está em [`diagrama-tabelas.html`](diagrama-tabelas.html)
 > (abra no navegador); a API está em [`api-e-regras.md`](api-e-regras.md); este texto explica o porquê.
 
 ## Visão geral
 
-São 26 tabelas de negócio em 4 schemas por ambiente (mais uma interna, de controle do log), e uma visão de painel de usuários (`V_USUARIO_ACESSOS`). A separação por schema não é só organização: cada schema
+São 27 tabelas de negócio em 4 schemas por ambiente (mais uma interna, de controle do log), e uma visão de painel de usuários (`V_USUARIO_ACESSOS`). A separação por schema não é só organização: cada schema
 recebe uma permissão diferente, e é isso que limita o estrago se a API ou uma conta for comprometida.
 
 | Schema | O que guarda | Tabelas | O que a conta de execução da API pode fazer |
 |---|---|---|---|
 | `KAWASHI_ENV_<AMB>` | cadastros | `EMPRESA`, `FILIAL`, `PESSOA`, `CONTATO`, `ENDERECO` | ler e gravar linhas; não cria, altera nem apaga tabela |
-| `KAWASHI_ENV_<AMB>_LOGIN` | o que é permanente do usuário e a autorização | `USUARIO`, `PASSKEY`, `CONVITE`, `CODIGO_RECUPERACAO`, `PARAMETRO_SEGURANCA`, `ADMIN_PLATAFORMA`, `PERMISSAO`, `PERFIL`, `PERFIL_PERMISSAO`, `USUARIO_EMPRESA`, `CONVITE_VINCULO`, `TERMO`, `ACEITE_TERMO` | ler, criar e alterar (parâmetros, permissões, termos e administradores da plataforma: só ler; perfil e aceite: só ler e criar; do usuário, só a coluna `ATIVO` muda). Nenhum `DELETE` |
-| `KAWASHI_ENV_<AMB>_SESSAO` | o que expira | `TOKEN`, `DESAFIO`, `BLOQUEIO_IP` | ler, criar e alterar; quem apaga o vencido é um job do banco |
+| `KAWASHI_ENV_<AMB>_LOGIN` | o que é permanente do usuário e a autorização | `USUARIO`, `PASSKEY`, `CONVITE`, `CODIGO_RECUPERACAO`, `PARAMETRO_SEGURANCA`, `ADMIN_PLATAFORMA`, `PERMISSAO`, `PERFIL`, `PERFIL_PERMISSAO`, `USUARIO_EMPRESA`, `CONVITE_VINCULO`, `TERMO`, `ACEITE_TERMO` | ler, criar e alterar (parâmetros, permissões, termos e administradores da plataforma: só ler; perfil e aceite: só ler e criar; do usuário, só mudam `ATIVO` e as colunas da senha, do 2FA e dos identificadores, nunca o `HANDLE` nem o e-mail). Nenhum `DELETE` |
+| `KAWASHI_ENV_<AMB>_SESSAO` | o que expira | `TOKEN`, `DESAFIO`, `BLOQUEIO_IP`, `DISPOSITIVO_CONFIAVEL` | ler, criar e alterar (do computador de confiança, só o último uso e a revogação); quem apaga o vencido é um job do banco (ainda não o computador de confiança) |
 | `KAWASHI_ENV_<AMB>_LOG` | histórico | `LOG_ALTERACAO`, `LOG_ACESSO`, `LOG_SEGURANCA`, `TENTATIVA_LOGIN`, `LOG_PERMISSAO` | **só inserir e ler** (`LOG_PERMISSAO`: só ler; quem grava são os gatilhos) |
 
 `<AMB>` é o ambiente (`TESTE_DEV`, `DEV`, `INFRA`, `HOMOLOG`, `PROD`...). Os schemas são criados pelo
@@ -61,15 +62,23 @@ genérica "tipo do dono + id" não garantiria.
 
 ## Login (schema `LOGIN`)
 
-Não existe senha. A pessoa entra com uma **passkey**: um par de chaves criado pelo próprio aparelho
-(Windows Hello, celular, chave de segurança), liberado pela digital, pelo rosto ou por um PIN que
-nunca sai do aparelho. O servidor guarda só a chave **pública**; para entrar, o aparelho assina um
-desafio. Não há segredo no banco que, vazado, sirva para entrar, e a passkey só funciona no domínio
-para o qual foi criada (um site falso não consegue usá-la: imune a phishing).
+A forma mais forte de entrar é a **passkey**: um par de chaves criado pelo próprio aparelho (Windows
+Hello, celular, chave de segurança), liberado pela digital, pelo rosto ou por um PIN que nunca sai do
+aparelho. O servidor guarda só a chave **pública**; para entrar, o aparelho assina um desafio. Do lado
+da passkey, não há segredo no banco que, vazado, sirva para entrar, e ela só funciona no domínio para
+o qual foi criada (um site falso não consegue usá-la: imune a phishing). Desde 25/11/2026 a pessoa
+também pode entrar com **senha** (e 2FA): ver "Login por senha e 2FA", abaixo.
 
 - **`USUARIO`**: o login de uma pessoa. `PESSOA_ID` é único (1 para 1). O e-mail é gravado cifrado
   (`EMAIL_CIFRADO`, com `EMAIL_INDICE` para a busca). `HANDLE` é o identificador aleatório da conta
-  que vai para o aparelho (o e-mail e o id do banco nunca vão).
+  que vai para o aparelho (o e-mail e o id do banco nunca vão). Desde 25/11/2026 (passo 20 do
+  repositório de regras), também: `SENHA_HASH` (Argon2id; o banco só aceita esse formato) e
+  `SENHA_ALTERADA_EM` (posto pelo gatilho); o 2FA em `TOTP_SEGREDO_CIFRADO` (cifrado pela API),
+  `TOTP_ATIVADO_EM` (hora do banco, posta pelo gatilho) e `TOTP_ULTIMO_PASSO` (o mesmo código não vale
+  duas vezes); e os identificadores opcionais `NOME_USUARIO` (único) e o celular em `TELEFONE_CIFRADO`
+  + `TELEFONE_INDICE` (único), com `LOGIN_POR_TELEFONE`, que o banco só deixa ligar com o 2FA ativo
+  (`CK_USUARIO_TELEFONE_2FA`). Toda mudança de senha, de 2FA e de identificador vai sozinha para o
+  `LOG_SEGURANCA` (gatilho `USUARIO_CREDENCIAIS_TRG`).
 - **`PASSKEY`**: as passkeys de cada usuário (até 10). `CREDENCIAL_ID` é o id que o aparelho dá;
   `DADOS_CREDENCIAL`, a chave pública (e o resto do que o WebAuthn guarda); `CONTADOR`, o contador de
   assinaturas (se voltar, é um aparelho clonado); `BACKUP_ELEGIVEL`/`BACKUP_FEITO` dizem se é uma
@@ -81,9 +90,13 @@ para o qual foi criada (um site falso não consegue usá-la: imune a phishing).
   do convite, o banco guarda só o SHA-256. Pela API, o segredo vai para o e-mail da própria pessoa
   (`ENVIADO_POR_EMAIL`), nunca para quem pediu; usar esse convite confirma o e-mail
   (`USUARIO.EMAIL_CONFIRMADO_EM`, gravado pelo gatilho). Um convite novo faz os pendentes vencerem.
+  No link, a pessoa cria uma senha ou cadastra a passkey. `FINALIDADE` `REDEFINIR_SENHA` (25/11/2026)
+  é o link de "esqueci minha senha": vale `REDEFINICAO_SENHA_MINUTOS` (60) e só serve para trocar a
+  senha, nunca para cadastrar passkey ou aceitar convite.
 - **`CODIGO_RECUPERACAO`**: 10 códigos de uso único, entregues ao aceitar o convite (e quando a
-  pessoa pede novos, o que revoga os anteriores). Servem para quem perdeu os aparelhos: o código dá um
-  token que **só** permite cadastrar uma passkey nova. Só o SHA-256 fica no banco.
+  pessoa pede novos, o que revoga os anteriores). Servem para quem perdeu os aparelhos (ou a senha): o
+  código dá um token que **só** permite cadastrar uma passkey nova ou criar uma senha nova. Só o
+  SHA-256 fica no banco.
 - **`PARAMETRO_SEGURANCA`**: os números das regras (duração do token, limite de sessões, de falhas por
   IP, validade do convite...). A API só lê; mudança feita no banco vai sozinha para o `LOG_SEGURANCA`,
   com quem mudou, o valor antigo e o novo.
@@ -153,14 +166,25 @@ Tudo aqui tem data de validade obrigatória. Quem apaga o vencido é um job do b
 
 - **`TOKEN`**: a sessão. Tem duas validades: `EXPIRA_EM`, que se renova enquanto há uso, e
   `EXPIRA_ABSOLUTO_EM`, um teto que a renovação não ultrapassa. `PASSKEY_ID` diz com qual passkey
-  entrou (remover a passkey derruba as sessões dela). `ESCOPO` é `COMPLETO` ou `CADASTRAR_PASSKEY`
-  (entrou com código de recuperação). `REVOGADO_EM` e `MOTIVO_REVOGACAO` marcam o fim. `VERIFICADO_EM`
-  é a última vez que a pessoa usou a passkey na sessão: operação sensível exige que seja recente
-  (`CONFIRMACAO_MINUTOS`). Apagado 7 dias depois do teto.
+  entrou (remover a passkey derruba as sessões dela). `ESCOPO` é `COMPLETO`, `CADASTRAR_PASSKEY`
+  (entrou com código de recuperação) ou `CONFIGURAR_2FA` (administrador que entrou com senha e ainda
+  não tem 2FA: só consegue ativá-lo). `REVOGADO_EM` e `MOTIVO_REVOGACAO` marcam o fim. `VERIFICADO_EM`
+  é a última vez que a pessoa se confirmou na sessão (passkey, ou senha e código): operação sensível
+  exige que seja recente (`CONFIRMACAO_MINUTOS`). Apagado 7 dias depois do teto.
 - **`DESAFIO`**: o número aleatório que o aparelho assina, de uso único e 5 minutos de validade, com
-  a `FINALIDADE` (`LOGIN` ou `CADASTRO`; o de cadastro é preso ao usuário). Usado ou vencido, não
-  serve: uma assinatura capturada não pode ser reapresentada. Apagado 1 dia depois de vencer.
+  a `FINALIDADE` (`LOGIN`, `CADASTRO`, `CONFIRMACAO` ou `SEGUNDO_FATOR`; menos o de login, todos são
+  presos ao usuário). Usado ou vencido, não serve: uma assinatura capturada não pode ser
+  reapresentada. O `SEGUNDO_FATOR` é o passo entre a senha certa e o código do 2FA. Apagado 1 dia
+  depois de vencer.
 - **`BLOQUEIO_IP`**: IPs barrados por excesso de falhas (o IP é o do navegador, que o BFF informa).
+- **`DISPOSITIVO_CONFIAVEL`** (25/11/2026): o computador em que a pessoa marcou "confiar neste
+  computador", que dispensa o código do 2FA da mesma conta por `DISPOSITIVO_CONFIAVEL_DIAS` (30). Só o
+  SHA-256 do segredo (`TOKEN_HASH`; o segredo fica num cookie `HttpOnly` do BFF), com `NOME`,
+  `IP_ORIGEM`, `CRIADO_EM`, `EXPIRA_EM`, `ULTIMO_USO_EM` e `REVOGADO_EM`. O gatilho
+  `DISPOSITIVO_CONFIAVEL_TRG` impede, até para o DBA, trocar o dono, o segredo, a origem, a criação ou
+  o prazo, e desrevogar (`ORA-20115`); confiar e revogar vão sozinhos para o `LOG_SEGURANCA`. A API não
+  apaga: só grava o último uso e a revogação. (O job de limpeza ainda não apaga os vencidos desta
+  tabela.)
 
 ## Logs (schema `LOG`)
 
@@ -168,10 +192,13 @@ Tudo aqui tem data de validade obrigatória. Quem apaga o vencido é um job do b
   tabela e o id, sem chave estrangeira, para o log sobreviver à exclusão do registro.
 - **`LOG_SEGURANCA`**: tudo que muda a segurança de uma conta: login, logout, passkey cadastrada ou
   removida, códigos gerados ou usados, convite criado ou usado, IP bloqueado, contador suspeito,
-  parâmetro alterado. Responde "quem cadastrou uma passkey nesta conta, e quando".
+  parâmetro alterado; desde 25/11/2026 também senha alterada, 2FA ativado ou desativado,
+  identificador alterado, computador de confiança marcado ou revogado, conta bloqueada e confirmação
+  com senha. Responde "quem cadastrou uma passkey nesta conta, e quando".
 - **`LOG_ACESSO`**: cada chamada à API (quem, de qual IP, método, caminho, status).
-- **`TENTATIVA_LOGIN`**: toda tentativa (passkey, convite, código de recuperação), certa ou errada,
-  com o IP e o **motivo** da recusa, que o usuário nunca vê.
+- **`TENTATIVA_LOGIN`**: toda tentativa (passkey, senha, código do 2FA, convite, código de
+  recuperação, confirmação), certa ou errada, com o IP e o **motivo** da recusa, que o usuário nunca
+  vê. É também dela que sai o bloqueio da senha da conta (as falhas recentes daquele usuário).
 
 Duas proteções contra adulteração (valem para `LOG_ALTERACAO` e `LOG_SEGURANCA`):
 
@@ -197,7 +224,9 @@ tabela, quem recebeu privilégio) já existe e fica no repositório de regras.
 
 Substituiu o login por senha (argon2id) que existiu de 18 a 20/11/2026. A pergunta foi "qual é a
 arquitetura mais segura para um site no navegador?", e a resposta tem duas partes: **passkey** no
-lugar da senha e um **BFF** entre o navegador e a API.
+lugar da senha e um **BFF** entre o navegador e a API. Em 25/11/2026 a senha voltou, **ao lado** da
+passkey e não no lugar dela (ver "Login por senha e 2FA"); o que está abaixo continua valendo para a
+passkey, que segue sendo a forma mais forte de entrar.
 
 ### Por que passkey e não senha (mais 2FA)
 
@@ -212,7 +241,10 @@ lugar da senha e um **BFF** entre o navegador e a API.
 Por isso caíram, junto com a senha: `HISTORICO_SENHA`, troca obrigatória aos 90 dias, bloqueio da
 conta por tentativas, `SEGUNDO_FATOR`, `DISPOSITIVO` ("aparelho de confiança") e `CODIGO_TEMPORARIO`
 ("esqueci minha senha"). Ficam o convite (como a conta nasce) e os códigos de recuperação (como volta
-quem perdeu os aparelhos).
+quem perdeu os aparelhos). Com a volta da senha (25/11/2026), parte disso voltou de outra forma, e
+mais enxuta: o bloqueio da senha da conta, o 2FA em colunas do `USUARIO`, o
+`DISPOSITIVO_CONFIAVEL` e o "esqueci minha senha" como um convite `REDEFINIR_SENHA`. Histórico de
+senhas e troca obrigatória continuam de fora.
 
 ### Por que BFF
 
@@ -250,9 +282,9 @@ depois de conferir o segredo.
 | Atestação | `none` | Não restringimos marca de aparelho: aceitar qualquer autenticador que siga o padrão. |
 | Passkey "descobrível" | `residentKey: required`, login sem lista de credenciais | O aparelho mostra as contas que tem; o site não precisa perguntar o e-mail (e não revela quais e-mails têm conta). |
 | Contador | se voltar, recusa e registra `CONTADOR_SUSPEITO` | Sinal de aparelho clonado. Passkeys sincronizadas mandam sempre 0, e isso é aceito. |
-| Recuperação | 10 códigos de uso único + convite novo do administrador | O código só dá um token de escopo `CADASTRAR_PASSKEY` e derruba as outras sessões. Sem códigos, o administrador emite um convite `NOVA_PASSKEY`. Não há "esqueci minha senha" por e-mail: o e-mail viraria a porta mais fraca. |
+| Recuperação | 10 códigos de uso único + convite novo do administrador | O código só dá um token de escopo `CADASTRAR_PASSKEY` e derruba as outras sessões. Sem códigos, o administrador emite um convite `NOVA_PASSKEY`. Para a passkey não há recuperação por e-mail: o e-mail viraria a porta mais fraca. Por isso o "esqueci minha senha" (25/11/2026) só manda o link para conta que já tem senha. |
 | Convite | uso único, 24 h, segredo depois do `#` no link | O que vem depois do `#` o navegador nunca manda ao servidor (não cai em log de acesso nem em proxy); a página o tira da barra de endereço ao ler. O segredo vai no **corpo** dos pedidos, nunca no caminho. |
-| Bloqueio por IP | 10 falhas em 10 min bloqueiam o IP por 1 h | Vale para qualquer cerimônia (login, convite, código). Não há bloqueio por conta: com passkey não há senha para adivinhar, e bloquear a conta só serviria para um atacante trancar a vítima do lado de fora. |
+| Bloqueio por IP | 10 falhas em 10 min bloqueiam o IP por 1 h | Vale para qualquer cerimônia (login, convite, código). Na passkey não há bloqueio por conta: não há senha para adivinhar, e bloquear a conta só serviria para um atacante trancar a vítima do lado de fora. O bloqueio por conta que existe desde 25/11/2026 vale só para a senha, e não impede entrar com passkey. |
 | Fuso | tudo em **UTC** (`SYS_EXTRACT_UTC(SYSTIMESTAMP)`) | Gravado, comparado e devolvido em UTC (as respostas trazem o "Z"). Comparar a coluna com `SYSTIMESTAMP` faria o Oracle ler a coluna no fuso da sessão: com a API em −05:00, um token vencido valia mais 5 horas (achado pelo teste, corrigido). |
 | Empresa | um token por empresa (`TOKEN.EMPRESA_ID`) | Trocar de empresa emite outro token e revoga o anterior (ver "Autorização"). |
 
@@ -261,22 +293,58 @@ depois de conferir o segredo.
 - As tabelas do login são criadas pelo **repositório de regras**, como as de log, e não pela migração
   da API: a conta de migração não enxerga nem os e-mails nem as chaves das passkeys.
 - `TENTATIVA_LOGIN` não guarda e-mail (nem a impressão digital dele): no login por passkey o e-mail
-  nem é informado.
+  nem é informado. No login por senha, o identificador digitado também não é guardado; fica só o
+  usuário, quando a conta existe.
 
 Fica para depois: localização suspeita. O aceite de termos e a âncora do
 `LOG_SEGURANCA` (e do `LOG_PERMISSAO`) no Vault entraram em 23/11/2026. A criação de usuário pela API entrou com a autorização (etapa 4).
+
+## Login por senha e 2FA (aplicado em 25/11/2026)
+
+**Por que voltou a senha.** Num computador sem Windows Hello e sem Bluetooth, a janela de passkey do
+Windows só oferecia uma chave USB: entrar ficava difícil demais. A passkey continua disponível e
+continua sendo a opção mais forte; a senha entra ao lado, com as defesas que a tabela "Por que passkey"
+mostra que ela precisa (2FA, bloqueio por conta, hash lento). As colunas e a tabela nova vêm do passo
+`20_login_por_senha.sql` do repositório de regras; as rotas estão em "Login por senha", em
+[`api-e-regras.md`](api-e-regras.md).
+
+| Decisão | Escolha | Por quê |
+|---|---|---|
+| Identificador | e-mail; ou nome de usuário (opcional); ou celular (só com "login pelo celular" ligado, e o banco só deixa ligar com 2FA) | O celular não é verificado por SMS: o 2FA é a garantia de quem o informou. Identificador só com dígitos é celular, por isso o nome de usuário nunca é só números. |
+| Hash | **Argon2id** (Bouncy Castle), 19456 KiB, 2 passadas, 1 fio, sal de 16 bytes, formato PHC | São os parâmetros mínimos da OWASP. Lento e caro em memória de propósito: um vazamento do banco não vira senha quebrada em massa. O banco recusa qualquer outro formato (`CK_USUARIO_SENHA`), então texto em claro não entra nem por engano. |
+| Regras da senha | 10+ caracteres (`SENHA_MIN_CARACTERES`), até 200, fora das mais comuns, mais de 2 caracteres diferentes, sem o e-mail nem pedaços do nome | Barra as senhas que um atacante tenta primeiro. |
+| Recusa | sempre a mesma; conta inexistente também gasta um Argon2 | Nem a mensagem nem o tempo da resposta dizem se a conta existe. |
+| Bloqueio por conta | 5 erros (de senha ou do código) em 15 min param a senha da conta (`CONTA_MAX_FALHAS`, `CONTA_BLOQUEIO_MINUTOS`) | Contra quem testa senhas de muitos IPs. As recusas pelo próprio bloqueio não contam (senão ele nunca acabaria), só contam as falhas depois da última troca de senha, e a passkey continua entrando: o atacante não tranca a vítima do lado de fora. O dono recebe aviso por e-mail. |
+| 2FA | app autenticador (TOTP, RFC 6238), opcional, recomendado no site; **obrigatório para administrador** que entra com senha | Administrador sem 2FA recebe uma sessão `CONFIGURAR_2FA`, que só ativa o 2FA. A passkey já é dois fatores, então quem entra com ela não é obrigado. |
+| Segredo do 2FA | 20 bytes aleatórios, cifrado pela API (AES-GCM) como os dados pessoais | Quem lê a tabela não gera códigos. O QR code é gerado na API (ZXing) e desenhado pelo site em SVG: o segredo não passa por serviço de imagem de fora. |
+| Código repetido | `TOTP_ULTIMO_PASSO`, gravado com `UPDATE` condicional | O mesmo código nunca vale duas vezes, nem com dois pedidos ao mesmo tempo. O relógio é o do banco. |
+| Computador de confiança | `DISPOSITIVO_CONFIAVEL`, 30 dias, só o SHA-256 do segredo `kwd_`; o segredo num cookie `HttpOnly` do BFF | Para não pedir o código a cada login no computador de sempre. Dispensa só o código, e só para a mesma conta. Cai tudo ao trocar a senha, desligar o 2FA ou "sair de todos os aparelhos". |
+| Esqueci minha senha | convite `REDEFINIR_SENHA` (60 min, no máximo um por minuto), só para conta que já tem senha; com 2FA, pede o código | Numa conta só com passkey, o e-mail viraria um jeito de contornar a passkey. Redefinir derruba todas as sessões e os computadores de confiança. O link não cadastra passkey nem aceita convite. |
+| Trocar a senha | pede a atual (ou confirmação recente, para quem só tinha passkey) | Uma sessão roubada não troca a senha. As outras sessões caem e o dono é avisado. |
+
+**O que o banco garante** (passo 20, provado no teste caixa-preta `Test-LoginPorSenha.ps1`): o formato
+do hash, do nome de usuário e das colunas cifradas; nome de usuário e celular únicos; login pelo
+celular só com 2FA; a hora da troca de senha e da ativação do 2FA posta pelo gatilho; toda mudança de
+senha, de 2FA e de identificador no `LOG_SEGURANCA`; e o computador de confiança que não muda de dono,
+segredo nem prazo e não volta depois de revogado, nem pelo DBA (`ORA-20115`). A API só altera do
+`USUARIO` as colunas da senha, do 2FA, dos identificadores e `ATIVO` (nunca o `HANDLE` nem o e-mail), e
+não apaga computador de confiança.
 
 ## Como cada mecanismo de segurança funciona
 
 | Mecanismo | Tabelas e colunas | Regra |
 |---|---|---|
-| Sem segredo que sirva para entrar | `PASSKEY.DADOS_CREDENCIAL` | Só a chave pública. A privada nunca sai do aparelho. |
-| Imune a phishing | (WebAuthn: `rpId` e origem) | O aparelho só assina para o domínio verdadeiro; a API confere a origem. |
-| Dois fatores sempre | (WebAuthn: `userVerification`) | O aparelho (ter) e a digital, o rosto ou o PIN (ser/saber). Resposta sem a verificação da pessoa é recusada. |
+| Sem segredo que sirva para entrar (passkey) | `PASSKEY.DADOS_CREDENCIAL` | Só a chave pública. A privada nunca sai do aparelho. |
+| Senha difícil de quebrar | `USUARIO.SENHA_HASH` | Argon2id com os parâmetros mínimos da OWASP e sal aleatório; o banco só aceita esse formato. |
+| Imune a phishing (passkey) | (WebAuthn: `rpId` e origem) | O aparelho só assina para o domínio verdadeiro; a API confere a origem. |
+| Dois fatores na passkey | (WebAuthn: `userVerification`) | O aparelho (ter) e a digital, o rosto ou o PIN (ser/saber). Resposta sem a verificação da pessoa é recusada. |
+| Segundo fator da senha | `USUARIO.TOTP_SEGREDO_CIFRADO`, `TOTP_ATIVADO_EM`, `TOTP_ULTIMO_PASSO` | App autenticador, opcional; obrigatório para administrador (sessão `CONFIGURAR_2FA` até ativar). O mesmo código não vale duas vezes. |
+| Computador de confiança | `DISPOSITIVO_CONFIAVEL` | Só o hash do segredo; 30 dias; dispensa só o código, da mesma conta; revogável, e não volta depois de revogado. |
+| Bloqueio da senha da conta | `TENTATIVA_LOGIN` | 5 erros de senha ou código em 15 minutos; a passkey continua entrando. |
 | Reapresentação impossível | `DESAFIO` | Uso único, 5 minutos. |
 | Aparelho clonado | `PASSKEY.CONTADOR` | Contador que volta: recusa e `CONTADOR_SUSPEITO`. |
 | Conta nasce por convite | `CONVITE` | Uso único, 24 h, só o hash no banco. |
-| Recuperação | `CODIGO_RECUPERACAO`, `CONVITE` (`NOVA_PASSKEY`) | Código: só cadastra passkey nova e derruba as outras sessões. Sem código: convite do administrador, que também derruba tudo. |
+| Recuperação | `CODIGO_RECUPERACAO`, `CONVITE` (`NOVA_PASSKEY`, `REDEFINIR_SENHA`) | Código: só cadastra passkey nova ou cria senha nova, e derruba as outras sessões. Sem código: convite do administrador, que também derruba tudo. Esqueci minha senha: link por e-mail só para quem já tem senha, que derruba todas as sessões. |
 | Limite contra robôs | `TENTATIVA_LOGIN`, `BLOQUEIO_IP` | 10 falhas do mesmo IP em 10 minutos bloqueiam o IP por 1 hora. |
 | Token que expira | `TOKEN.EXPIRA_EM`, `EXPIRA_ABSOLUTO_EM`, `REVOGADO_EM`, `MOTIVO_REVOGACAO` | 15 minutos deslizantes, teto de 8 horas, no máximo 3 sessões. |
 | Token nunca guardado em claro | `TOKEN.TOKEN_HASH` | Só o SHA-256. O token só existe no BFF e no cabeçalho entre o BFF e a API. |
@@ -286,7 +354,7 @@ Fica para depois: localização suspeita. O aceite de termos e a âncora do
 | Só o administrador dá cargo | `PERMISSAO.EXCLUSIVA_ADMIN`, `PERFIL.FIXO` | O banco recusa a permissão exclusiva em outro perfil. |
 | Empresa sempre com administrador | gatilho de `USUARIO_EMPRESA` | O banco recusa deixar a empresa sem administrador ativo. |
 | Rastro das trocas de cargo | `LOG_PERMISSAO` | Gatilho grava quem, quando, de quê para quê; encadeado por hash. |
-| Rastro de mudanças de segurança | `LOG_SEGURANCA` | Login, passkeys, códigos, convites, bloqueios e parâmetros. Encadeado por hash. |
+| Rastro de mudanças de segurança | `LOG_SEGURANCA` | Login, passkeys, senha, 2FA, identificadores, computadores de confiança, códigos, convites, bloqueios e parâmetros. Encadeado por hash. |
 | Log à prova de adulteração | schema `LOG`, `HASH_ANTERIOR`, `HASH` | A API só insere; as linhas são encadeadas por hash. |
 | Consentimento (LGPD) | `TERMO`, `ACEITE_TERMO` | Aceite por versão dos termos e da política de privacidade, com o hash do texto, a hora e o IP; sem aceite, nada de negócio. |
 | Infra não vê linha de negócio | VPD nas tabelas de negócio (repositório de regras, `19_vpd_infra.sql`) | Para quem é do time de Infra, o Oracle filtra toda consulta e alteração em `EMPRESA`, `FILIAL`, `PESSOA`, `CONTATO` e `ENDERECO` (`1 = 0`). A API e o Desenvolvimento não mudam. |
@@ -294,9 +362,12 @@ Fica para depois: localização suspeita. O aceite de termos e a âncora do
 | Regras ajustáveis e auditadas | `PARAMETRO_SEGURANCA` | Os números ficam em tabela; cada mudança vai para o `LOG_SEGURANCA`. |
 
 Os números (15 minutos, 8 horas, 3 sessões, 10 falhas, 10 minutos, 1 hora, 5 minutos de desafio, 24 h
-de convite, 10 códigos, 10 passkeys) ficam em `PARAMETRO_SEGURANCA`.
+de convite, 10 códigos, 10 passkeys; e, desde 25/11/2026, 10 caracteres de senha, 5 falhas e 15
+minutos de bloqueio da conta, 30 dias de computador de confiança, 60 minutos do link de senha nova)
+ficam em `PARAMETRO_SEGURANCA`, que tem 16 parâmetros.
 
-Em nenhuma coluna fica token, convite ou código em texto puro, e não existe senha de usuário.
+Em nenhuma coluna fica senha, token, convite, código ou segredo do 2FA em texto puro: a senha é um
+hash Argon2id, o segredo do 2FA é cifrado, e o resto é SHA-256.
 
 ### Segurança que não vira tabela
 
@@ -309,7 +380,9 @@ Em nenhuma coluna fica token, convite ou código em texto puro, e não existe se
 
 ### O que ficou de fora de propósito
 
-- **Senha** (e tudo que vinha com ela): ver "Por que passkey".
+- **Histórico de senhas e troca obrigatória da senha**: a senha voltou em 25/11/2026 sem eles (ver
+  "Login por senha e 2FA").
+- **2FA por SMS**: o segundo fator é só o app autenticador.
 - **Chaves de API para sistemas externos**: só quando houver uma integração de verdade.
 - **Tabela separada de "refresh token"**: a renovação com teto absoluto resolve com menos peças.
 
@@ -321,7 +394,9 @@ Em nenhuma coluna fica token, convite ou código em texto puro, e não existe se
 - `PESSOA` única com a separação na coluna `TIPO` (enum: cliente, colaborador, sócio, fornecedor),
   em vez de uma tabela por papel. Cliente faz parte das pessoas: a tabela `CLIENTE` acaba.
 - Contato e endereço são tabelas auxiliares, de uma pessoa ou de uma filial.
-- Login só por passkey, conta nascida de convite, recuperação por códigos ou convite novo.
+- Login por passkey (a forma mais forte) ou por senha com 2FA (app autenticador, obrigatório para
+  administrador); conta nascida de convite, recuperação por códigos ou convite novo, e "esqueci minha
+  senha" só para quem já tem senha.
 - Site no navegador com BFF: o token não chega ao navegador, e a API só atende o BFF.
 - Login, sessão (o que expira) e logs em schemas separados dos cadastros.
 - Autorização por perfil e por empresa, log de segurança, teto do token, aceite de termos,
@@ -343,7 +418,7 @@ Em nenhuma coluna fica token, convite ou código em texto puro, e não existe se
 | `FILIAL` | `FILIAL`, igual |
 | `CONTATO` (nome, e-mail e telefone de um cliente) | `CONTATO`, uma linha por meio, de uma filial ou de uma pessoa |
 | `ENDERECO` (só de cliente) | `ENDERECO` de uma filial ou de uma pessoa |
-| sem login na API | schemas `LOGIN` e `SESSAO`, login por passkey |
+| sem login na API | schemas `LOGIN` e `SESSAO`, login por passkey ou senha (com 2FA) |
 | sem controle de quem pode o quê | `PERFIL`, `PERMISSAO`, `USUARIO_EMPRESA`, `ADMIN_PLATAFORMA` |
 | sem log na API | schema `LOG` |
 | `PESSOA.DOCUMENTO` e `CONTATO.VALOR` em texto puro (V5) | `DOCUMENTO_CIFRADO` + `DOCUMENTO_INDICE` e `VALOR_CIFRADO` + `VALOR_INDICE` (V6) |
@@ -367,7 +442,10 @@ Cada uma com migração, API, testes e esta documentação atualizados:
    códigos de recuperação, token opaco guardado no BFF, bloqueio por IP e toda a `/api` exigindo token.
    Depois vieram (23/11/2026) o aceite de termos, a criação de usuário pela API, o limite de pedidos
    por IP e a âncora do `LOG_SEGURANCA`. Em 24/11/2026, o convite por e-mail (e com ele a confirmação do e-mail), a confirmação com passkey
-   antes do que é sensível e o bloqueio por bloco IPv6.
+   antes do que é sensível e o bloqueio por bloco IPv6. Em 25/11/2026, a senha voltou ao lado da
+   passkey (ver "Login por senha e 2FA"): 2FA por app autenticador, obrigatório para administrador,
+   computador de confiança, bloqueio da senha por conta, "esqueci minha senha" e identificadores
+   opcionais (nome de usuário, celular).
 4. **Autorização. Feita** (23/11/2026): perfis por empresa, permissão conferida em toda rota, sessão
    presa a uma empresa, isolamento entre empresas, administrador da plataforma, e as regras de cargo
    garantidas pelo banco com log próprio (ver "Autorização").

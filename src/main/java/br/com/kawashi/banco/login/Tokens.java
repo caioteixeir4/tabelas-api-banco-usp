@@ -63,6 +63,15 @@ public class Tokens {
      */
     public TokenEmitido emitir(long usuarioId, Long passkeyId, String escopo, String ip, ParametrosDeSeguranca.Parametros p,
             Long empresaId) {
+        return emitir(usuarioId, passkeyId, escopo, ip, p, empresaId, passkeyId != null);
+    }
+
+    /**
+     * Emite um token. {@code confirmada}: a pessoa acabou de provar quem e (passkey, ou senha no login
+     * por senha), entao a sessao ja nasce confirmada para as operacoes sensiveis.
+     */
+    public TokenEmitido emitir(long usuarioId, Long passkeyId, String escopo, String ip, ParametrosDeSeguranca.Parametros p,
+            Long empresaId, boolean confirmada) {
         // Trava a linha do usuario ate o fim da transacao: dois logins ao mesmo tempo contam as sessoes
         // um depois do outro, e o limite nao estoura. (Fora de transacao a trava nao segura nada:
         // quem chama emitir esta sempre numa, ver ServicoDeLogin.)
@@ -82,7 +91,7 @@ public class Tokens {
                 + " (USUARIO_ID, PASSKEY_ID, TOKEN_HASH, ESCOPO, EXPIRA_EM, EXPIRA_ABSOLUTO_EM, IP_ORIGEM, EMPRESA_ID, VERIFICADO_EM) VALUES (?, ?, ?, ?,"
                 + " LEAST(SYS_EXTRACT_UTC(SYSTIMESTAMP) + NUMTODSINTERVAL(?, 'MINUTE'), SYS_EXTRACT_UTC(SYSTIMESTAMP) + NUMTODSINTERVAL(?, 'HOUR')),"
                 + " SYS_EXTRACT_UTC(SYSTIMESTAMP) + NUMTODSINTERVAL(?, 'HOUR'), ?, ?, CASE WHEN ? = 1 THEN SYS_EXTRACT_UTC(SYSTIMESTAMP) END)",
-                usuarioId, passkeyId, hash, escopo, p.tokenMinutos(), p.tokenTetoHoras(), p.tokenTetoHoras(), ip, empresaId, passkeyId != null ? 1 : 0);
+                usuarioId, passkeyId, hash, escopo, p.tokenMinutos(), p.tokenTetoHoras(), p.tokenTetoHoras(), ip, empresaId, confirmada ? 1 : 0);
         return jdbc.queryForObject("SELECT ID, ESCOPO, EXPIRA_EM, EXPIRA_ABSOLUTO_EM FROM " + schemas.sessao("TOKEN")
                 + " WHERE TOKEN_HASH = ?", (r, n) -> new TokenEmitido(r.getLong(1), token, r.getString(2),
                         r.getTimestamp(3).toLocalDateTime(), r.getTimestamp(4).toLocalDateTime()), hash);

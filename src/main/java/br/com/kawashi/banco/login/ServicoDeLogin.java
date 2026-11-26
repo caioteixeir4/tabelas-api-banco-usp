@@ -31,10 +31,22 @@ import br.com.kawashi.banco.login.ParametrosDeSeguranca.Parametros;
 @Service
 public class ServicoDeLogin {
 
-    public sealed interface Resultado permits Entrou, Opcoes, Recusado, IpBloqueado {
+    public sealed interface Resultado permits Entrou, Opcoes, Recusado, IpBloqueado, SegundoFator {
     }
 
-    public record Entrou(Tokens.TokenEmitido token, List<String> codigosDeRecuperacao) implements Resultado {
+    /** {@code dispositivo}: o segredo de "confiar neste computador", quando a pessoa pediu (senao nulo). */
+    public record Entrou(Tokens.TokenEmitido token, List<String> codigosDeRecuperacao, String dispositivo) implements Resultado {
+
+        public Entrou(Tokens.TokenEmitido token, List<String> codigosDeRecuperacao) {
+            this(token, codigosDeRecuperacao, null);
+        }
+    }
+
+    /**
+     * A senha confere, mas falta o codigo do app autenticador: {@code desafio} prende o proximo passo
+     * a esta conta e vale por DESAFIO_MINUTOS. {@code codigoErrado}: o codigo anterior nao bateu.
+     */
+    public record SegundoFator(String desafio, boolean codigoErrado) implements Resultado {
     }
 
     public record Opcoes(Map<String, Object> publicKey) implements Resultado {
@@ -59,11 +71,15 @@ public class ServicoDeLogin {
     private final LogDeSeguranca log;
     private final br.com.kawashi.banco.autorizacao.Autorizacao autorizacao;
     private final br.com.kawashi.banco.email.Avisos avisos;
+    private final Tentativas tentativas;
+    private final DispositivosConfiaveis dispositivos;
 
     public ServicoDeLogin(JdbcTemplate jdbc, SchemasDoLogin schemas, CifraDeDados cifra, ParametrosDeSeguranca parametros,
             Tokens tokens, Desafios desafios, Convites convites, CodigosDeRecuperacao codigos, Passkeys passkeys,
             Usuarios usuarios, LogDeSeguranca log, br.com.kawashi.banco.autorizacao.Autorizacao autorizacao,
-            br.com.kawashi.banco.email.Avisos avisos) {
+            br.com.kawashi.banco.email.Avisos avisos, Tentativas tentativas, DispositivosConfiaveis dispositivos) {
+        this.tentativas = tentativas;
+        this.dispositivos = dispositivos;
         this.avisos = avisos;
         this.autorizacao = autorizacao;
         this.jdbc = jdbc;
@@ -129,7 +145,7 @@ public class ServicoDeLogin {
         if (bloqueio.isPresent()) {
             return bloqueio.get();
         }
-        Optional<Convites.Convite> convite = convites.valido(segredo);
+        Optional<Convites.Convite> convite = convites.valido(segredo).filter(ServicoDeLogin::serveParaPasskey);
         if (convite.isEmpty()) {
             return falhou("CONVITE", "CONVITE_INVALIDO", null, ip, p);
         }
@@ -147,7 +163,7 @@ public class ServicoDeLogin {
             tentativa("CONVITE", null, ip, false, "IP_BLOQUEADO");
             return bloqueio.get();
         }
-        Optional<Convites.Convite> convite = convites.valido(segredo);
+        Optional<Convites.Convite> convite = convites.valido(segredo).filter(ServicoDeLogin::serveParaPasskey);
         if (convite.isEmpty()) {
             return falhou("CONVITE", "CONVITE_INVALIDO", null, ip, p);
         }
@@ -352,8 +368,10 @@ public class ServicoDeLogin {
     @Transactional
     public int sairDeTodos(Tokens.Sessao sessao, String ip) {
         int quantas = tokens.revogarTodos(sessao.usuarioId(), "SAIR_DE_TODOS", null);
-        log.registrar("SAIR_DE_TODOS", sessao.usuarioId(), quantas + " sessao(oes) encerrada(s)", ip,
-                LogDeSeguranca.quem(sessao.usuarioId()));
+        // "Sair de todos os aparelhos" tambem tira a confianca dos computadores: o 2FA volta a ser pedido.
+        int computadores = dispositivos.revogarTodos(sessao.usuarioId());
+        log.registrar("SAIR_DE_TODOS", sessao.usuarioId(), quantas + " sessao(oes) encerrada(s); " + computadores
+                + " computador(es) de confianca revogado(s)", ip, LogDeSeguranca.quem(sessao.usuarioId()));
         return quantas;
     }
 
@@ -384,39 +402,24 @@ public class ServicoDeLogin {
         }
     }
 
+    /** Convite de redefinir senha nao cadastra passkey: senao o link do e-mail pularia o 2FA da conta. */
+    private static boolean serveParaPasskey(Convites.Convite c) {
+        return "CADASTRO".equals(c.finalidade()) || "NOVA_PASSKEY".equals(c.finalidade());
+    }
+
     private Optional<IpBloqueado> bloqueio(String ip) {
-        return jdbc.query("SELECT CEIL((CAST(BLOQUEADO_ATE AS DATE) - CAST(SYS_EXTRACT_UTC(SYSTIMESTAMP) AS DATE)) * 86400)"
-                + " FROM " + schemas.sessao("BLOQUEIO_IP") + " WHERE IP = ? AND BLOQUEADO_ATE > SYS_EXTRACT_UTC(SYSTIMESTAMP)",
-                (r, n) -> new IpBloqueado(Math.max(1, r.getLong(1))), Ips.grupo(ip)).stream().findFirst();
+        return tentativas.bloqueio(ip);
     }
 
     private Resultado falhou(String metodo, String motivo, Long usuarioId, String ip, Parametros p) {
-        tentativa(metodo, usuarioId, ip, false, motivo);
-        conferirIp(ip, p);
-        return new Recusado();
+        return tentativas.falhou(metodo, motivo, usuarioId, ip, p);
     }
 
-    /**
-     * Se o grupo do IP (o IPv4, ou o bloco /64 do IPv6: ver Ips) passou do limite de falhas na
-     * janela, bloqueia o grupo inteiro.
-     */
     private void conferirIp(String ip, Parametros p) {
-        String grupo = Ips.grupo(ip);
-        Long falhas = jdbc.queryForObject("SELECT COUNT(*) FROM " + schemas.log("TENTATIVA_LOGIN")
-                + " WHERE IP_GRUPO = ? AND SUCESSO = FALSE AND DATA_HORA > SYS_EXTRACT_UTC(SYSTIMESTAMP) - NUMTODSINTERVAL(?, 'MINUTE')",
-                Long.class, grupo, p.ipJanelaMinutos());
-        if (falhas != null && falhas >= p.ipMaxFalhas()) {
-            String motivoDoBloqueio = falhas + " falhas em " + p.ipJanelaMinutos() + " min";
-            jdbc.update("MERGE INTO " + schemas.sessao("BLOQUEIO_IP") + " b USING (SELECT ? AS IP FROM DUAL) n ON (b.IP = n.IP)"
-                    + " WHEN MATCHED THEN UPDATE SET b.BLOQUEADO_ATE = SYS_EXTRACT_UTC(SYSTIMESTAMP) + NUMTODSINTERVAL(?, 'MINUTE'), b.MOTIVO = ?"
-                    + " WHEN NOT MATCHED THEN INSERT (IP, BLOQUEADO_ATE, MOTIVO) VALUES (n.IP, SYS_EXTRACT_UTC(SYSTIMESTAMP) + NUMTODSINTERVAL(?, 'MINUTE'), ?)",
-                    grupo, p.ipBloqueioMinutos(), motivoDoBloqueio, p.ipBloqueioMinutos(), motivoDoBloqueio);
-            log.registrar("IP_BLOQUEADO", null, motivoDoBloqueio + "; bloqueado por " + p.ipBloqueioMinutos() + " min: " + grupo, ip, "API");
-        }
+        tentativas.conferirIp(ip, p);
     }
 
     private void tentativa(String metodo, Long usuarioId, String ip, boolean sucesso, String motivo) {
-        jdbc.update("INSERT INTO " + schemas.log("TENTATIVA_LOGIN") + " (METODO, USUARIO_ID, IP_ORIGEM, IP_GRUPO, SUCESSO, MOTIVO)"
-                + " VALUES (?, ?, ?, ?, ?, ?)", metodo, usuarioId, ip, Ips.grupo(ip), sucesso, motivo);
+        tentativas.registrar(metodo, usuarioId, ip, sucesso, motivo);
     }
 }

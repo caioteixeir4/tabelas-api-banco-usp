@@ -17,7 +17,7 @@ vizinho pelo que está descrito aqui; os detalhes ficam no README de cada um.
 | Repositório | É responsável por | Não faz |
 |---|---|---|
 | [`regras-banco-usp`](https://github.com/caioteixeir4/regras-banco-usp) | O **banco Oracle e o Vault**: hardening, ambientes, contas e perfis (RBAC por proxy), auditoria, criptografia em disco (TDE) e na rede, e os schemas que a API não pode controlar (log, login e sessão). Define **quem entra no banco e o que cada conta pode fazer**. | Tabelas de negócio, API, site |
-| [`tabelas-api-banco-usp`](https://github.com/caioteixeir4/tabelas-api-banco-usp) | As **tabelas de negócio** (empresa, filial, pessoa, contato, endereço) e a **API REST**: regras de negócio, cifra dos dados pessoais, login por passkey e emissão do token. Define **o que existe dentro dos schemas e como se usa**. | Contas do banco, tela; não atende o navegador |
+| [`tabelas-api-banco-usp`](https://github.com/caioteixeir4/tabelas-api-banco-usp) | As **tabelas de negócio** (empresa, filial, pessoa, contato, endereço) e a **API REST**: regras de negócio, cifra dos dados pessoais, login (senha com 2FA, ou passkey) e emissão do token. Define **o que existe dentro dos schemas e como se usa**. | Contas do banco, tela; não atende o navegador |
 | [`bff-banco-usp`](https://github.com/caioteixeir4/bff-banco-usp) | O **site** e o servidor dele (BFF): as páginas, o cookie de sessão e a guarda do token, que nunca chega ao navegador. Repassa à API só o que o site usa. | Regra de negócio, acesso ao banco |
 
 ```mermaid
@@ -27,7 +27,7 @@ flowchart LR
         B["BFF<br/>páginas, sessão,<br/>guarda o token"]
     end
     subgraph API["tabelas-api-banco-usp"]
-        A["API REST<br/>regras de negócio,<br/>login por passkey, cifra"]
+        A["API REST<br/>regras de negócio,<br/>login por senha ou passkey, cifra"]
     end
     subgraph REGRAS["regras-banco-usp"]
         S["scripts<br/>contas, schemas,<br/>hardening"]
@@ -58,11 +58,21 @@ schemas protegidos e o Vault montados pelo `regras-banco-usp`. O que liga cada p
   validações de CNPJ/CPF/UF, regras de negócio e erros no formato RFC 9457.
 - **Logs da aplicação** num schema separado (`KAWASHI_ENV_<AMBIENTE>_LOG`), em que a API só insere:
   quem mudou qual registro, encadeado por hash, e cada chamada à API.
-- **Login só por passkey** (desde 20/11/2026; não existe senha): a conta nasce de um convite de uso
-  único, a pessoa cadastra a passkey do aparelho (digital, rosto ou PIN) e recebe 10 códigos de
+- **Login por passkey** (desde 20/11/2026): a conta nasce de um convite de uso único, a pessoa
+  cadastra a passkey do aparelho (digital, rosto ou PIN) ou cria uma senha, e recebe 10 códigos de
   recuperação. Token opaco (15 min renovados com o uso, teto de 8 h, até 3 sessões), bloqueio por IP,
   detecção de aparelho clonado (contador). As tabelas ficam nos schemas `_LOGIN` e `_SESSAO`, criados
-  pelo repositório de regras.
+  pelo repositório de regras. A passkey continua sendo a forma mais forte de entrar.
+- **Login por senha, com 2FA** (desde 25/11/2026): num computador sem Windows Hello e sem Bluetooth, o
+  Windows só oferecia chave USB para a passkey, e entrar ficava difícil demais. Agora a pessoa também
+  entra com e-mail (ou nome de usuário, ou celular, se ligar isso) e senha. A senha é guardada em
+  Argon2id (Bouncy Castle, parâmetros mínimos da OWASP); o segundo fator é um app autenticador (TOTP,
+  com o QR code gerado na própria API pela ZXing), opcional mas recomendado, e **obrigatório para
+  administrador** que entra com senha. Há "confiar neste computador" por 30 dias (cookie `HttpOnly` do
+  BFF, só o hash no banco), bloqueio da senha da conta depois de 5 erros em 15 minutos (além do bloqueio
+  por IP), "esqueci minha senha" por e-mail (só para quem já tem senha) e a mesma resposta para conta
+  inexistente e senha errada. Detalhes em "Login por senha", em
+  [`docs/api-e-regras.md`](docs/api-e-regras.md).
 - **A API só atende o BFF** ([`bff-banco-usp`](https://github.com/caioteixeir4/bff-banco-usp), o servidor do site): todo pedido
   precisa de um segredo compartilhado. O token nunca chega ao navegador; ele fica guardado no BFF, e o
   navegador recebe só um cookie de sessão `HttpOnly`.
@@ -91,10 +101,12 @@ schemas protegidos e o Vault montados pelo `regras-banco-usp`. O que liga cada p
   No desenvolvimento, as mensagens caem no Mailpit (http://localhost:8025).
 - **Confirmar com a passkey antes do que é sensível** (desde 24/11/2026): operações da conta (passkeys,
   códigos) e as que dão poder (criar usuário, trocar cargo, mudar permissões, convite, empresas da
-  plataforma) exigem que a passkey tenha sido usada nos últimos 5 minutos. Senão, `403 "Confirme com
-  sua passkey"`, e o site pede a passkey sozinho. Uma sessão roubada não vira poder sem o aparelho.
+  plataforma) exigem que a pessoa tenha se confirmado nos últimos 5 minutos: com a passkey ou, desde
+  25/11/2026, com a senha (mais o código do app autenticador, se tiver 2FA). Senão, `403 "Confirme com
+  sua passkey"`, e o site pede a confirmação sozinho. Uma sessão roubada não vira poder sem o aparelho
+  ou a senha.
 - **Convite de vínculo** (desde 24/11/2026): o administrador dá acesso a quem JÁ tem conta em outra
-  empresa. A pessoa recebe um e-mail e só ganha acesso se ela mesma aceitar, logada com a passkey dela.
+  empresa. A pessoa recebe um e-mail e só ganha acesso se ela mesma aceitar, logada na conta dela.
   Fica registrado, sem poder mudar depois, quem convidou, quando, de qual IP, para qual empresa e cargo,
   e quem respondeu; o acesso criado aponta para o convite. Criar usuário com um e-mail que já tem conta
   também vira um convite desses.
@@ -165,9 +177,9 @@ no ar (`docker compose up -d` dentro de `infra/`).
    .\scripts\gerar-segredo-do-bff.ps1
    ```
 
-4. **Crie o primeiro usuário** (precisa de uma PESSOA cadastrada). Não há senha: o usuário recebe um
-   **link de convite** de uso único (24 h), que vai para o Vault e não aparece na tela. No link, a
-   pessoa cadastra a passkey e recebe os códigos de recuperação. Quem perdeu tudo ganha um convite
+4. **Crie o primeiro usuário** (precisa de uma PESSOA cadastrada). O script não cria senha: o usuário
+   recebe um **link de convite** de uso único (24 h), que vai para o Vault e não aparece na tela. No
+   link, a pessoa cria uma senha ou cadastra a passkey, e recebe os códigos de recuperação. Quem perdeu tudo ganha um convite
    novo com `-UsuarioId`:
 
    ```powershell
@@ -266,7 +278,7 @@ proxy) e chamam os endpoints por MockMvc. Cada teste roda numa transação que �
 então não sobra dado no banco e os testes não interferem entre si. Os documentos usados são
 CNPJ/CPF válidos e aleatórios (`GeradorDeDocumentos`), nunca reais.
 
-A suíte tem **188 testes** (última execução de `mvn clean test`, 24/11/2026, todos passando). Toda
+A suíte tem **212 testes** (última execução de `mvn clean test`, 25/11/2026, todos passando). Toda
 chamada à API nos testes finge vir do BFF (`testes/Api` manda o segredo de teste e um IP de navegador)
 e vai com token: `testes/UsuarioDeTeste` cria a empresa, os perfis, o usuário e o vínculo de
 ADMINISTRADOR (dentro da transação do teste, que é desfeita) e emite o token preso à empresa. Cada
@@ -299,6 +311,8 @@ e os testes foram reescritos mais densos, vários casos por teste.
 | `IpsTest` (IPv4 inteiro, IPv6 pelo bloco /64, IPv4 dentro de IPv6; sem banco e sem DNS) | 3 |
 | `ConviteDeVinculoApiTest` (o convidado aceita e fica registrado quem convidou, quando, de qual IP, com o acesso apontando para o convite e os dois logs; só o convidado responde, recusa e cancelamento não dão acesso; resposta sempre igual e confirmação com passkey exigida) | 3 |
 | `DadosPessoaisCifradosTest` (o que fica na tabela, unicidade pela impressão digital, máscara, revelar com rastro, cifra adulterada por fora) | 13 |
+| `login/SenhaApiTest` (convite com senha, senha fraca recusada; link de redefinir não cadastra passkey; entra pelo e-mail, pelo nome de usuário e, com 2FA e a opção ligada, pelo celular; a mesma recusa para conta inexistente, senha errada e conta sem senha; erros repetidos bloqueiam a senha da conta mesmo vindo de IPs diferentes; nome de usuário que é o nome, só números ou repetido; 2FA: código errado dá outra chance, o mesmo código não vale duas vezes; computador de confiança só para a própria conta; administrador sem 2FA só ativa o 2FA; desligar o 2FA com um código atual; esqueci só para quem tem senha, redefinir derruba tudo e pede o código com 2FA; trocar a senha pede a atual e derruba as outras sessões; operação sensível confirmada com a senha) | 17 |
+| `login/SenhasETotpTest` (Argon2id com sal aleatório, senha fraca, nome de usuário que é o nome, celular com o código do país, TOTP contra os vetores da RFC 6238, um passo de cada lado e passo já usado, QR code como matriz de 0 e 1; sem banco) | 7 |
 
 Cada correção da revisão foi conferida quebrando o código de propósito: sete mutações (convite liberado para quem tem outra empresa, convites pendentes que não vencem, validação que ignora a empresa inativa, inativar sem revogar, revelar sem exigir leitura, conferência liberada fora de um pedido, caminho torto aceito), e cada uma derrubou o teste certo. A primeira versão do teste de "fora de um pedido" não pegava a mutação (o Spring põe um pedido falso na thread do teste); ele passou a rodar numa thread nova.
 

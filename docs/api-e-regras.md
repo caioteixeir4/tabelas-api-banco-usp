@@ -9,8 +9,8 @@ estrutura das tabelas está nas migrações `V5` e `V6` (`src/main/resources/db/
 
 - **Só o BFF chama a API:** todo pedido leva o segredo `X-Kawashi-Bff` e o IP do navegador em
   `X-Kawashi-Ip-Cliente`; sem o segredo, `403` a tudo. Ver "Login" abaixo.
-- **Login obrigatório:** toda a `/api` exige `Authorization: Bearer <token>`, menos as cerimônias de
-  passkey que levam a um token. Sem token, ou com token vencido, revogado ou inválido: `401`, sempre
+- **Login obrigatório:** toda a `/api` exige `Authorization: Bearer <token>`, menos as cerimônias
+  (passkey, senha, convite, recuperação) que levam a um token. Sem token, ou com token vencido, revogado ou inválido: `401`, sempre
   com a mesma mensagem. Token na URL é recusado.
 - **Caminho base:** `/api`. JSON em UTF-8. Datas em ISO-8601, em UTC e sem fuso (`criadoEm`,
   `atualizadoEm`).
@@ -61,13 +61,13 @@ flowchart TB
     F15b -- não --> R400["400"]
     F15b -- sim --> F17{"LimiteDePedidosFilter (17)<br/>passou de 600 pedidos<br/>neste minuto deste IP?"}
     F17 -- sim --> R429["429 com Retry-After"]
-    F17 -- não --> F20{"AutenticacaoFilter (20)<br/>cerimônia de passkey sem token?"}
+    F17 -- não --> F20{"AutenticacaoFilter (20)<br/>cerimônia de login sem token<br/>(passkey, senha, convite, recuperação)?"}
     F20 -- sim --> C["Controlador<br/>validação dos campos (400)"]
     F20 -- não --> T{"token válido?"}
     T -- não --> R401["401, sempre a mesma resposta<br/>(vencido, revogado, conta desligada,<br/>vínculo desativado, empresa inativada)"]
-    T -- sim --> E{"escopo CADASTRAR_PASSKEY<br/>fora das rotas permitidas?"}
-    E -- sim --> R403c["403"]
-    E -- não --> FP{"FiltroDePermissao<br/>(rotas fora de /api/auth)<br/>a rota tem @Exige? aceitou os termos vigentes?<br/>a sessão tem empresa? o perfil tem a permissão?<br/>rota que dá poder: a passkey foi usada há pouco?"}
+    T -- sim --> E{"escopo CADASTRAR_PASSKEY ou CONFIGURAR_2FA<br/>fora das rotas permitidas?"}
+    E -- sim --> R403c["403 (CONFIGURAR_2FA: Ative o 2FA)"]
+    E -- não --> FP{"FiltroDePermissao<br/>(rotas fora de /api/auth)<br/>a rota tem @Exige? aceitou os termos vigentes?<br/>a sessão tem empresa? o perfil tem a permissão?<br/>rota que dá poder: confirmou (passkey ou senha) há pouco?"}
     FP -- não --> R403d["403 (ou 403 Confirme com sua passkey)"]
     FP -- sim --> C
     C --> SV["Serviço<br/>registro de outra empresa: 404<br/>regras de negócio (404, 409, 422)<br/>e LOG_ALTERACAO na mesma transação"]
@@ -77,7 +77,7 @@ flowchart TB
 
 | Recurso | Endpoints |
 |---|---|
-| Login (passkey) | sem token: `POST /api/auth/passkey/login/opcoes`, `POST /api/auth/passkey/login`, `POST /api/auth/convite/opcoes`, `POST /api/auth/convite`, `POST /api/auth/recuperacao`. Com token: `GET /api/auth/eu`, `GET /api/auth/empresas`, `POST /api/auth/empresa`, `GET/POST /api/auth/passkeys`, `POST /api/auth/passkeys/opcoes`, `DELETE /api/auth/passkeys/{id}`, `POST /api/auth/codigos-de-recuperacao`, `POST /api/auth/logout`, `POST /api/auth/sair-de-todos`, `GET /api/auth/termos`, `POST /api/auth/termos/aceite`, `POST /api/auth/confirmar/opcoes`, `POST /api/auth/confirmar`, `GET /api/auth/convites-de-vinculo`, `POST /api/auth/convites-de-vinculo/{id}/aceitar`, `POST /api/auth/convites-de-vinculo/{id}/recusar` |
+| Login (senha e passkey) | sem token: `POST /api/auth/senha/login`, `POST /api/auth/senha/segundo-fator`, `POST /api/auth/senha/esqueci`, `POST /api/auth/senha/redefinir`, `POST /api/auth/passkey/login/opcoes`, `POST /api/auth/passkey/login`, `POST /api/auth/convite/opcoes`, `POST /api/auth/convite`, `POST /api/auth/convite/senha`, `POST /api/auth/recuperacao`. Com token: `GET /api/auth/eu`, `POST /api/auth/senha`, `POST /api/auth/confirmar/senha`, `POST /api/auth/2fa/iniciar`, `POST /api/auth/2fa/ativar`, `POST /api/auth/2fa/desativar`, `PUT /api/auth/identificadores`, `GET /api/auth/dispositivos`, `DELETE /api/auth/dispositivos/{id}`, `GET /api/auth/empresas`, `POST /api/auth/empresa`, `GET/POST /api/auth/passkeys`, `POST /api/auth/passkeys/opcoes`, `DELETE /api/auth/passkeys/{id}`, `POST /api/auth/codigos-de-recuperacao`, `POST /api/auth/logout`, `POST /api/auth/sair-de-todos`, `GET /api/auth/termos`, `POST /api/auth/termos/aceite`, `POST /api/auth/confirmar/opcoes`, `POST /api/auth/confirmar`, `GET /api/auth/convites-de-vinculo`, `POST /api/auth/convites-de-vinculo/{id}/aceitar`, `POST /api/auth/convites-de-vinculo/{id}/recusar` |
 | Empresa (a da sessão) | `GET /api/empresas` (só a da sessão; filtros `cnpj`, `razaoSocial`, `ativa`), `GET/PUT /api/empresas/{id}` |
 | Plataforma | `GET/POST /api/plataforma/empresas`, `POST /api/plataforma/empresas/{id}/inativar`, `.../reativar`, `DELETE /api/plataforma/empresas/{id}` |
 | Usuários e perfis (administrador) | `GET/POST /api/usuarios`, `POST/GET /api/usuarios/convites-de-vinculo`, `POST /api/usuarios/convites-de-vinculo/{id}/cancelar`, `PUT /api/usuarios/{id}/perfil`, `POST /api/usuarios/{id}/desativar`, `.../reativar`, `.../convite`, `GET /api/usuarios/historico`, `GET/POST /api/perfis`, `PUT /api/perfis/{id}/permissoes`, `GET /api/permissoes` |
@@ -187,9 +187,13 @@ por último, para a trava durar o mínimo.
 
 ## Login
 
-Só por **passkey** (WebAuthn): não existe senha. Detalhes e o porquê de cada escolha em "Login por
-passkey", em [`modelo-de-dados.md`](modelo-de-dados.md). Os números ficam em `PARAMETRO_SEGURANCA` (a
-API só lê). A verificação criptográfica é da biblioteca WebAuthn4J (`login/Passkeys`).
+Dois jeitos de entrar: **passkey** (WebAuthn), a forma mais forte, e, desde 25/11/2026, **senha** com
+segundo fator opcional (app autenticador). A senha voltou porque, num computador sem Windows Hello e
+sem Bluetooth, o Windows só oferecia chave USB para a passkey, e entrar ficava difícil demais. Detalhes
+e o porquê de cada escolha em "Login por passkey" e "Login por senha", em
+[`modelo-de-dados.md`](modelo-de-dados.md); as rotas da senha estão em "Login por senha", abaixo. Os
+números ficam em `PARAMETRO_SEGURANCA` (a API só lê). A verificação criptográfica da passkey é da
+biblioteca WebAuthn4J (`login/Passkeys`).
 
 ### Quem chama: só o BFF
 
@@ -217,7 +221,7 @@ As respostas de passkey (`credencial`) são o `PublicKeyCredential.toJSON()` do 
 | contador de assinaturas que volta (aparelho clonado) | `401`, e um `CONTADOR_SUSPEITO` no `LOG_SEGURANCA` |
 | `POST /api/auth/convite/opcoes` `{ "convite" }` | `200` com as opções de cadastro (`residentKey: required`, `attestation: none`, ES256 ou RS256). Convite inválido, usado ou vencido: `401` |
 | `POST /api/auth/convite` `{ "convite", "nome", "credencial" }` | `200` com o token e `codigosDeRecuperacao` (10, **mostrados uma única vez**). O convite deixa de valer. Se era um convite de recuperação, todas as sessões antigas caem |
-| `POST /api/auth/recuperacao` `{ "email", "codigo" }` | `200` com um token de escopo `CADASTRAR_PASSKEY`: só serve para ver e cadastrar passkeys, `logout` e `eu` (o resto dá `403`). O código deixa de valer e as outras sessões caem. Código aceito com ou sem traços, em qualquer caixa |
+| `POST /api/auth/recuperacao` `{ "email", "codigo" }` | `200` com um token de escopo `CADASTRAR_PASSKEY`: só serve para ver e cadastrar passkeys, criar uma senha nova (`POST /api/auth/senha`), `logout` e `eu` (o resto dá `403`). O código deixa de valer e as outras sessões caem. Código aceito com ou sem traços, em qualquer caixa |
 | 10 falhas do mesmo IP (ou do mesmo bloco /64 de IPv6) em 10 minutos (em qualquer cerimônia, inclusive a confirmação) | `429` com `Retry-After`: o IP (ou o bloco) fica bloqueado por 1 hora |
 
 O segredo do convite vai no **corpo**, nunca no caminho: o `LOG_ACESSO` grava o caminho.
@@ -257,7 +261,7 @@ sequenceDiagram
 
 | Pedido | Resposta |
 |---|---|
-| `GET /api/auth/eu` | `200` `{ usuarioId, pessoaId, escopo, expiraEm, expiraAbsolutoEm }` |
+| `GET /api/auth/eu` | `200` `{ usuarioId, pessoaId, escopo, expiraEm, expiraAbsolutoEm, conta }`; `conta` = `{ temSenha, doisFatores, precisaDe2fa, nomeUsuario, celular, loginPorCelular }`, com o celular mascarado (`+55 •••••••4321`) |
 | `GET /api/auth/passkeys` | `200` lista `{ id, nome, criadaEm, ultimoUsoEm, sincronizada }` (horas em UTC com `Z`; nada da chave) |
 | `POST /api/auth/passkeys/opcoes` e `POST /api/auth/passkeys` `{ "nome", "credencial" }` | `201` `{ id, nome }`. Aparelho já cadastrado, resposta que não confere ou limite de 10 passkeys: `422` |
 | `DELETE /api/auth/passkeys/{id}` | `204`, e as sessões abertas com essa passkey caem. A última passkey não pode ser removida (`422`); passkey de outra pessoa: `404` |
@@ -270,6 +274,99 @@ O token só é aceito em `Authorization: Bearer`; token na URL é recusado. Toke
 vencido ou revogado recebem a mesma resposta `401`. Ele vale 15 minutos, é renovado com o uso, até 8
 horas depois do login. Os logs dizem quem fez: `LOG_ACESSO.USUARIO` e `LOG_ALTERACAO.USUARIO` gravam
 `USUARIO:<id>`.
+
+### Login por senha
+
+O código está em `login/ServicoDeSenha` (com `Senhas`, `Totp`, `Tentativas` e
+`DispositivosConfiaveis`). As colunas e as travas do banco são do repositório de regras
+(`20_login_por_senha.sql`).
+
+**Identificador.** O e-mail; ou o nome de usuário, se a pessoa criou um; ou o celular, só se ela ligou
+"login pelo celular", que o banco só aceita com o 2FA ativo (`CK_USUARIO_TELEFONE_2FA`). Identificador
+só com dígitos é celular (por isso o nome de usuário nunca é só números). O celular é normalizado para
+dígitos com o código do país: com 10 ou 11 dígitos, ganha o `55` na frente.
+
+**A senha.** Argon2id (biblioteca Bouncy Castle, `bcprov-jdk18on`), com os parâmetros mínimos da OWASP
+(19456 KiB de memória, 2 passadas, 1 fio) e sal aleatório de 16 bytes, no formato PHC
+`$argon2id$v=19$m=19456,t=2,p=1$sal$hash`; o banco só aceita esse formato (`CK_USUARIO_SENHA`). Regras
+(`422` com a mensagem): pelo menos `SENHA_MIN_CARACTERES` (10) e no máximo 200 caracteres; fora da
+lista de senhas mais comuns; não pode ter só 1 ou 2 caracteres diferentes; não pode conter a parte do
+e-mail antes do `@` (com 3 ou mais caracteres) nem um pedaço do nome com 3 ou mais letras (sem
+diferenciar acento).
+
+**A mesma recusa para tudo.** Conta que não existe, senha errada, conta sem senha e conta bloqueada
+recebem o mesmo `401`. Para conta que não existe, a API calcula um Argon2 do mesmo jeito: o tempo da
+resposta não revela se a conta existe. O motivo vai para `TENTATIVA_LOGIN`.
+
+**Bloqueio.** O bloqueio por IP é o mesmo das passkeys (`Tentativas`, compartilhado). Além dele, há o
+da conta: `CONTA_MAX_FALHAS` (5) senhas ou códigos de 2FA errados em `CONTA_BLOQUEIO_MINUTOS` (15) e a
+conta para de aceitar senha. As recusas por causa do próprio bloqueio não contam (senão um atacante a
+manteria trancada para sempre), e só contam as falhas depois da última troca de senha. O bloqueio vai
+para o `LOG_SEGURANCA` (`CONTA_BLOQUEADA`) e o dono recebe um aviso por e-mail. **Entrar com passkey
+não é afetado** pelo bloqueio da conta.
+
+**Segundo fator (2FA).** App autenticador, pelo padrão TOTP (RFC 6238): HMAC-SHA1, passo de 30
+segundos, 6 dígitos, aceitando um passo antes e um depois. Opcional, mas fortemente recomendado (o site
+mostra um aviso a quem não tem). O mesmo código nunca vale duas vezes: o último passo usado fica em
+`TOTP_ULTIMO_PASSO`, gravado por um `UPDATE` condicional. O segredo (20 bytes aleatórios, em base32) é
+gravado cifrado (AES-GCM, contexto `USUARIO.TOTP_SEGREDO`, coluna `TOTP_SEGREDO_CIFRADO`, `v1:...`). O
+QR code é gerado na própria API (biblioteca ZXing core) e vai como uma matriz de 0 e 1, que o site
+desenha em SVG: nenhum serviço de imagem de fora vê o segredo. O relógio é o do banco (UTC), o mesmo
+para todas as instâncias da API.
+
+**2FA obrigatório para administrador.** Quem é ADMINISTRADOR de alguma empresa, ou administrador da
+plataforma, e entra **com senha** sem ter o 2FA, recebe uma sessão de escopo `CONFIGURAR_2FA`: só
+`/api/auth/2fa/iniciar`, `/2fa/ativar`, `/logout`, `/eu`, `/termos` e `/termos/aceite` respondem; o
+resto dá `403` "Ative o 2FA". Ao ativar, a API emite um token `COMPLETO` novo e revoga o anterior
+(motivo `TOTP_ATIVADO`). Quem entra com passkey já tem dois fatores, e não é obrigado ao TOTP.
+
+| Pedido | Resposta |
+|---|---|
+| `POST /api/auth/senha/login` `{ "identificador", "senha" }` | `200` com o token (como o da passkey); ou, se a conta tem 2FA e o computador não é de confiança, `200` `{ "segundoFator": true, "desafio" }`. Recusa: `401`, sempre a mesma |
+| `POST /api/auth/senha/segundo-fator` `{ "desafio", "codigo", "confiar", "nomeDoComputador" }` | `200` com o token (e `dispositivo`, o segredo do computador de confiança, se `confiar`). Código errado: `422` com um desafio **novo** (tenta de novo sem redigitar a senha), até os limites da conta e do IP. Desafio inválido ou vencido: `401` |
+| `POST /api/auth/senha/esqueci` `{ "identificador" }` | `204`, sempre (exista a conta ou não) |
+| `POST /api/auth/senha/redefinir` `{ "convite", "senha", "codigo" }` | `204`. Link inválido, usado ou vencido: `401`. Conta com 2FA sem o código, ou com o código errado: `422` `{ "precisaCodigo": true }` |
+| `POST /api/auth/convite/senha` `{ "convite", "senha" }` | `200` com o token e os `codigosDeRecuperacao`, como o convite com passkey (vale para convite `CADASTRO` ou `NOVA_PASSKEY`). Administrador sem 2FA recebe o escopo `CONFIGURAR_2FA` |
+| `POST /api/auth/senha` `{ "atual", "nova" }` | `204`: cria ou troca a senha (ver abaixo). Senha atual errada: `422` |
+| `POST /api/auth/confirmar/senha` `{ "senha", "codigo" }` | `204`: a sessão fica confirmada, como na confirmação com passkey. Recusa: `422` |
+| `POST /api/auth/2fa/iniciar` | `200` `{ segredo, uri, qr }`: o segredo novo (ainda não vale), o `otpauth://` e a matriz do QR code |
+| `POST /api/auth/2fa/ativar` `{ "codigo" }` | `204` (ou `200` com o token novo, para a sessão `CONFIGURAR_2FA`). Código errado: `422` |
+| `POST /api/auth/2fa/desativar` `{ "codigo" }` | `204`, com um código atual. Recusado (`422`) para administrador e enquanto o login pelo celular estiver ligado |
+| `PUT /api/auth/identificadores` `{ "nomeUsuario", "celular", "loginPorCelular" }` | `200` com os identificadores. `null` = não mexe, `""` = tira. Nome de usuário ou celular que já é de outra conta: `409` |
+| `GET /api/auth/dispositivos`, `DELETE /api/auth/dispositivos/{id}` | os computadores de confiança `{ id, nome, ip, criadoEm, ultimoUsoEm, expiraEm }`; revogar um: `204` |
+
+**Desafio do segundo passo.** É uma linha de `DESAFIO` com a finalidade `SEGUNDO_FATOR`, presa ao
+usuário, de uso único e com a validade de `DESAFIO_MINUTOS`. A senha não é guardada entre os dois
+passos.
+
+**Confiar neste computador.** No passo do código, a pessoa pode marcar "confiar neste computador por 30
+dias". A API gera um segredo `kwd_` + 32 bytes aleatórios e guarda só o SHA-256 em
+`_SESSAO.DISPOSITIVO_CONFIAVEL`, que vale `DISPOSITIVO_CONFIAVEL_DIAS` (30). O BFF guarda o segredo num
+cookie `HttpOnly` e o manda à API no cabeçalho `X-Kawashi-Dispositivo`; ele só dispensa o código do
+2FA, e só para a mesma conta (a senha continua sendo pedida). Todos os computadores de confiança caem
+de uma vez quando a senha é trocada ou redefinida, quando o 2FA é desligado e em "sair de todos os
+aparelhos".
+
+**Esqueci minha senha.** Só a conta que **já tem senha** recebe o e-mail: numa conta só com passkey, o
+e-mail viraria um jeito de contornar a passkey (para ela, existem os códigos de recuperação). O link é
+um convite de finalidade `REDEFINIR_SENHA` (`/redefinir.html#kwc_...`; o que vem depois do `#` não vai
+ao servidor), vale `REDEFINICAO_SENHA_MINUTOS` (60), e sai no máximo um por minuto. Com 2FA, redefinir
+pede também o código. Redefinir derruba **todas** as sessões (motivo `SENHA_ALTERADA`) e todos os
+computadores de confiança. O link de redefinir não serve para cadastrar passkey nem para aceitar
+convite: isso contornaria o 2FA.
+
+**Criar ou trocar a senha, logado.** Quem já tem senha informa a atual (errada: `422`, e conta como
+falha `CONFIRMACAO`/`SENHA_INVALIDA`); quem só tinha passkey precisa de uma confirmação recente; quem
+entrou com código de recuperação (escopo `CADASTRAR_PASSKEY`) define sem nenhuma das duas. A nova
+precisa ser diferente da atual. As outras sessões caem (esta continua, menos na recuperação), os
+computadores de confiança caem, e o dono recebe um aviso por e-mail.
+
+**Identificadores.** Nome de usuário: minúsculas, de 3 a 30 caracteres entre `a-z`, `0-9`, `.`, `_` e
+`-`, não só números, e não pode ser o nome da pessoa (um pedaço do nome, o nome inteiro, primeiro mais
+último, pedaços seguidos, também com números em volta); único (`409`). Celular: único (`409`), gravado
+cifrado com impressão digital, como os dados pessoais.
+
+**Tokens do login por senha** nascem confirmados (`VERIFICADO_EM` = agora), como os da passkey.
 
 ### Criar usuário
 
@@ -289,13 +386,13 @@ flowchart TB
         ADM["Administrador roda<br/>criar-usuario.ps1"] --> CRI["API cria USUARIO e CONVITE<br/>(só o hash do segredo, vale 24 h)"]
         CRI --> VAULT[("Link do convite no Vault<br/>segredo no fragmento da URL")]
         VAULT --> ENT["Administrador entrega o link<br/>por um canal seguro"]
-        ENT --> CER["Pessoa abre o link e<br/>cria a passkey no aparelho"]
+        ENT --> CER["Pessoa abre o link e<br/>cria a passkey no aparelho<br/>(ou uma senha)"]
         CER --> OK["PASSKEY gravada, convite usado,<br/>10 códigos de recuperação mostrados uma vez,<br/>já entra com token"]
     end
     subgraph Volta["Perdeu os aparelhos"]
         P{"Tem um código<br/>de recuperação?"}
         P -- sim --> COD["POST /api/auth/recuperacao<br/>token CADASTRAR_PASSKEY,<br/>todas as outras sessões caem"]
-        COD --> NOVA["Cadastra uma passkey nova<br/>e entra com ela"]
+        COD --> NOVA["Cadastra uma passkey nova<br/>(ou cria uma senha nova)<br/>e entra com ela"]
         P -- não --> ADM2["Administrador roda<br/>criar-usuario.ps1 -UsuarioId"]
         ADM2 --> CONV2["Convite NOVA_PASSKEY:<br/>ao ser usado, todas as sessões caem"]
         CONV2 --> CER
@@ -544,8 +641,9 @@ O que o sistema manda vai sempre para o e-mail da PRÓPRIA conta (`email/Avisos`
 
 | Mensagem | Quando |
 |---|---|
-| Convite (primeira passkey ou acesso novo) | o administrador cria o usuário ou pede convite novo; a plataforma cria a empresa com o primeiro administrador. Quem pediu vê só `enviadoPara` (`j***@dominio`) |
-| Aviso de segurança | passkey cadastrada ou removida, códigos de recuperação novos, código de recuperação usado, acesso recuperado por convite |
+| Convite (primeiro acesso ou acesso novo: "crie uma senha ou cadastre uma passkey") | o administrador cria o usuário ou pede convite novo; a plataforma cria a empresa com o primeiro administrador. Quem pediu vê só `enviadoPara` (`j***@dominio`) |
+| Senha nova (link de `/redefinir.html`) | "esqueci minha senha", só para conta que já tem senha |
+| Aviso de segurança | passkey cadastrada ou removida, códigos de recuperação novos, código de recuperação usado, acesso recuperado por convite; senha criada, trocada ou redefinida, 2FA ligado ou desligado, identificadores alterados, senha bloqueada por tentativas erradas |
 | Convite de vínculo | uma empresa convidou quem já tem conta (ou tentou criar usuário com esse e-mail): a pessoa aceita ou recusa ao entrar |
 | "Sem conta" | uma empresa quis dar acesso a um e-mail que não tem conta: o dono do e-mail fica sabendo. A resposta à empresa é a mesma de um envio normal |
 
@@ -574,15 +672,17 @@ recusa, ORA-20114, que vira `422`), e o convite e a resposta vão sozinhos para 
 `LOG_SEGURANCA`. Criar usuário (`POST /api/usuarios`) com um e-mail que já tem conta também vira um
 convite desses.
 
-## Confirmar com a passkey antes do que é sensível
+## Confirmar com a passkey (ou a senha) antes do que é sensível
 
-A sessão guarda a última vez que a pessoa usou a passkey (`TOKEN.VERIFICADO_EM`: no login, ou numa
-confirmação). Operação sensível exige que seja de menos de `CONFIRMACAO_MINUTOS` (5); senão, `403` com
-`{ "title": "Confirme com sua passkey", "confirmar": true }`.
+A sessão guarda a última vez que a pessoa se confirmou (`TOKEN.VERIFICADO_EM`: no login, com passkey ou
+senha, ou numa confirmação). Operação sensível exige que seja de menos de `CONFIRMACAO_MINUTOS` (5);
+senão, `403` com `{ "title": "Confirme com sua passkey", "confirmar": true }` (o título ficou o mesmo;
+o site oferece senha e código, ou passkey).
 
 | Sensível | Onde é conferido |
 |---|---|
 | cadastrar ou remover passkey, gerar códigos de recuperação | `ServicoDeLogin` (quem entrou com código de recuperação cadastra a passkey nova sem isso: é a própria recuperação) |
+| iniciar ou desligar o 2FA, mudar identificadores, criar a primeira senha de quem só tinha passkey | `ServicoDeSenha` (a sessão `CONFIGURAR_2FA` ativa o 2FA sem isso; trocar a senha pede a atual no lugar) |
 | criar usuário, trocar cargo, reativar acesso, convite novo, criar perfil, mudar permissões de perfil | `@Exige(..., confirmar = true)` no `FiltroDePermissao` |
 | criar, inativar, reativar e excluir empresa (plataforma) | idem |
 
@@ -590,9 +690,10 @@ confirmação). Operação sensível exige que seja de menos de `CONFIRMACAO_MIN
 |---|---|
 | `POST /api/auth/confirmar/opcoes` | `200` com o desafio (`CONFIRMACAO`, preso a quem está logado) e só as passkeys dele em `allowCredentials`, com verificação obrigatória |
 | `POST /api/auth/confirmar` `{ "credencial" }` | `204`: a sessão fica confirmada. Passkey de outra conta, desafio errado ou assinatura que não confere: `422` (e **não** `401`: a sessão continua); conta como falha do IP, como um login |
+| `POST /api/auth/confirmar/senha` `{ "senha", "codigo" }` | `204`: o mesmo efeito, com a senha (e o código do app autenticador, se a conta tem 2FA). Vai para o `LOG_SEGURANCA` (`SENHA_CONFIRMADA`). Recusa: `422`, e conta como falha da conta e do IP |
 
 Trocar de empresa (token novo) herda a confirmação do token anterior. O site faz tudo sozinho: recebe o
-`403`, pede a passkey ao aparelho, confirma e repete o pedido.
+`403`, pede a senha e o código (ou a passkey ao aparelho), confirma e repete o pedido.
 
 ## Termos de uso e política de privacidade (LGPD)
 

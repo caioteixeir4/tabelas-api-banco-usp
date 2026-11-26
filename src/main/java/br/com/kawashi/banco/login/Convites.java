@@ -46,6 +46,28 @@ public class Convites {
         return segredo;
     }
 
+    /**
+     * "Esqueci minha senha": convite REDEFINIR_SENHA, por e-mail, valido por {@code minutos}. Vencem
+     * na hora so os pedidos de redefinicao anteriores (um convite de cadastro pendente continua).
+     * Vazio se ja ha um pedido de menos de 1 minuto: o botao repetido nao enche a caixa de e-mail.
+     */
+    public Optional<String> criarRedefinicao(long usuarioId, int minutos) {
+        Long recentes = jdbc.queryForObject("SELECT COUNT(*) FROM " + schemas.login("CONVITE")
+                + " WHERE USUARIO_ID = ? AND FINALIDADE = 'REDEFINIR_SENHA'"
+                + " AND CRIADO_EM > SYS_EXTRACT_UTC(SYSTIMESTAMP) - INTERVAL '1' MINUTE", Long.class, usuarioId);
+        if (recentes != null && recentes > 0) {
+            return Optional.empty();
+        }
+        jdbc.update("UPDATE " + schemas.login("CONVITE") + " SET EXPIRA_EM = SYS_EXTRACT_UTC(SYSTIMESTAMP)"
+                + " WHERE USUARIO_ID = ? AND FINALIDADE = 'REDEFINIR_SENHA' AND USADO_EM IS NULL"
+                + " AND EXPIRA_EM > SYS_EXTRACT_UTC(SYSTIMESTAMP) AND CRIADO_EM < SYS_EXTRACT_UTC(SYSTIMESTAMP)", usuarioId);
+        String segredo = PREFIXO + Aleatorio.base64Url32();
+        jdbc.update("INSERT INTO " + schemas.login("CONVITE") + " (USUARIO_ID, TOKEN_HASH, FINALIDADE, CRIADO_POR, EXPIRA_EM, ENVIADO_POR_EMAIL)"
+                + " VALUES (?, ?, 'REDEFINIR_SENHA', ?, SYS_EXTRACT_UTC(SYSTIMESTAMP) + NUMTODSINTERVAL(?, 'MINUTE'), TRUE)",
+                usuarioId, Aleatorio.sha256(segredo), "USUARIO:" + usuarioId, minutos);
+        return Optional.of(segredo);
+    }
+
     /** O convite vale: existe, nao foi usado, nao venceu e o usuario esta ativo. */
     public Optional<Convite> valido(String segredo) {
         if (segredo == null || !segredo.matches("kwc_[A-Za-z0-9_-]{43}")) {

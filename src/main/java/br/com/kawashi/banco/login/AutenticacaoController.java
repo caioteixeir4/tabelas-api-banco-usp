@@ -64,13 +64,99 @@ public class AutenticacaoController {
         }
     }
 
-    /** As horas saem com fuso explicito (UTC, "Z"): o banco grava tudo em UTC. */
+    /**
+     * As horas saem com fuso explicito (UTC, "Z"): o banco grava tudo em UTC. {@code dispositivo}: o
+     * segredo de "confiar neste computador" (o BFF guarda num cookie HttpOnly e nao repassa ao site).
+     */
     public record RespostaDoLogin(String token, String tipo, String escopo, OffsetDateTime expiraEm, OffsetDateTime expiraAbsolutoEm,
-            List<String> codigosDeRecuperacao) {
+            List<String> codigosDeRecuperacao, String dispositivo) {
     }
 
     public record Eu(long usuarioId, long pessoaId, String escopo, OffsetDateTime expiraEm, OffsetDateTime expiraAbsolutoEm,
-            Long empresaId, java.util.Set<String> permissoes, boolean adminPlataforma, boolean termosPendentes) {
+            Long empresaId, java.util.Set<String> permissoes, boolean adminPlataforma, boolean termosPendentes,
+            ServicoDeSenha.Conta conta) {
+    }
+
+    // ---- pedidos do login por senha ----
+
+    public record LoginComSenha(
+            @NotBlank(message = "Informe o e-mail, o nome de usuário ou o celular") @Size(max = 150) String identificador,
+            @NotBlank(message = "Informe a senha") @Size(max = 200) String senha) {
+
+        @Override
+        public String toString() {
+            return "LoginComSenha[***]";
+        }
+    }
+
+    public record CodigoDoSegundoFator(
+            @NotBlank(message = "Refaça o login") @Size(max = 100) String desafio,
+            @NotBlank(message = "Informe o código do app autenticador") @Size(max = 10) String codigo,
+            boolean confiar,
+            @Size(max = 100) String nomeDoComputador) {
+
+        @Override
+        public String toString() {
+            return "CodigoDoSegundoFator[***]";
+        }
+    }
+
+    public record PedidoDeEsqueci(@NotBlank(message = "Informe o e-mail, o nome de usuário ou o celular") @Size(max = 150) String identificador) {
+
+        @Override
+        public String toString() {
+            return "PedidoDeEsqueci[***]";
+        }
+    }
+
+    public record PedidoDeRedefinicao(
+            @NotBlank(message = "Informe o link") @Size(max = 100) String convite,
+            @NotBlank(message = "Informe a senha nova") @Size(max = 200) String senha,
+            @Size(max = 10) String codigo) {
+
+        @Override
+        public String toString() {
+            return "PedidoDeRedefinicao[***]";
+        }
+    }
+
+    public record ConviteComSenha(
+            @NotBlank(message = "Informe o convite") @Size(max = 100) String convite,
+            @NotBlank(message = "Informe a senha") @Size(max = 200) String senha) {
+
+        @Override
+        public String toString() {
+            return "ConviteComSenha[***]";
+        }
+    }
+
+    public record NovaSenha(@Size(max = 200) String atual, @NotBlank(message = "Informe a senha nova") @Size(max = 200) String nova) {
+
+        @Override
+        public String toString() {
+            return "NovaSenha[***]";
+        }
+    }
+
+    public record ConfirmacaoComSenha(@NotBlank(message = "Informe a senha") @Size(max = 200) String senha, @Size(max = 10) String codigo) {
+
+        @Override
+        public String toString() {
+            return "ConfirmacaoComSenha[***]";
+        }
+    }
+
+    public record CodigoDoApp(@NotBlank(message = "Informe o código do app autenticador") @Size(max = 10) String codigo) {
+
+        @Override
+        public String toString() {
+            return "CodigoDoApp[***]";
+        }
+    }
+
+    /** Nulo = nao mexer; texto vazio = remover. */
+    public record NovosIdentificadores(@Size(max = 30, message = "O nome de usuário aceita no máximo 30 caracteres") String nomeUsuario,
+            @Size(max = 25) String celular, Boolean loginPorCelular) {
     }
 
     public record EscolhaDeEmpresa(@NotNull(message = "Informe a empresa") Long empresaId) {
@@ -84,9 +170,11 @@ public class AutenticacaoController {
     private final br.com.kawashi.banco.autorizacao.Autorizacao autorizacao;
     private final Termos termos;
     private final br.com.kawashi.banco.autorizacao.ConvitesDeVinculo convitesDeVinculo;
+    private final ServicoDeSenha senhas;
 
     public AutenticacaoController(ServicoDeLogin servico, br.com.kawashi.banco.autorizacao.Autorizacao autorizacao, Termos termos,
-            br.com.kawashi.banco.autorizacao.ConvitesDeVinculo convitesDeVinculo) {
+            br.com.kawashi.banco.autorizacao.ConvitesDeVinculo convitesDeVinculo, ServicoDeSenha senhas) {
+        this.senhas = senhas;
         this.convitesDeVinculo = convitesDeVinculo;
         this.servico = servico;
         this.autorizacao = autorizacao;
@@ -120,6 +208,126 @@ public class AutenticacaoController {
     public ResponseEntity<?> recuperar(@Valid @RequestBody PedidoDeRecuperacao pedido, HttpServletRequest requisicao) {
         return responder(servico.recuperar(pedido.email(), pedido.codigo(), FiltroDoBff.ipDoCliente(requisicao)),
                 "E-mail ou código de recuperação inválido.");
+    }
+
+    // ---- login por senha (sem token) ------------------------------------------------------------
+
+    private static final String RECUSA_DA_SENHA = "Identificador ou senha inválidos. Depois de várias tentativas erradas, a senha fica "
+            + "bloqueada por alguns minutos.";
+
+    /** 200 com o token, ou 200 com {@code segundoFator: true} e o desafio do passo do codigo. */
+    @PostMapping("/senha/login")
+    public ResponseEntity<?> entrarComSenha(@Valid @RequestBody LoginComSenha pedido, HttpServletRequest requisicao) {
+        return responder(senhas.entrar(pedido.identificador(), pedido.senha(), requisicao.getHeader(DispositivosConfiaveis.CABECALHO),
+                FiltroDoBff.ipDoCliente(requisicao)), RECUSA_DA_SENHA);
+    }
+
+    /** Codigo errado (e ainda pode tentar): 422 com um desafio novo. */
+    @PostMapping("/senha/segundo-fator")
+    public ResponseEntity<?> segundoFator(@Valid @RequestBody CodigoDoSegundoFator pedido, HttpServletRequest requisicao) {
+        return responder(senhas.segundoFator(pedido.desafio(), pedido.codigo(), pedido.confiar(), pedido.nomeDoComputador(),
+                FiltroDoBff.ipDoCliente(requisicao)), "Código inválido ou vencido. Entre de novo com a sua senha.");
+    }
+
+    /** Sempre 204, exista a conta ou nao. */
+    @PostMapping("/senha/esqueci")
+    public ResponseEntity<Void> esqueci(@Valid @RequestBody PedidoDeEsqueci pedido, HttpServletRequest requisicao) {
+        senhas.esqueci(pedido.identificador(), FiltroDoBff.ipDoCliente(requisicao));
+        return ResponseEntity.noContent().build();
+    }
+
+    @PostMapping("/senha/redefinir")
+    public ResponseEntity<?> redefinir(@Valid @RequestBody PedidoDeRedefinicao pedido, HttpServletRequest requisicao) {
+        return switch (senhas.redefinir(pedido.convite(), pedido.senha(), pedido.codigo(), FiltroDoBff.ipDoCliente(requisicao))) {
+            case FEITA -> ResponseEntity.noContent().build();
+            case INVALIDA -> ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(problema(HttpStatus.UNAUTHORIZED, "Link inválido",
+                    "O link é inválido, já foi usado ou venceu. Peça outro em \"Esqueci minha senha\"."));
+            case PRECISA_CODIGO -> {
+                ProblemDetail p = problema(HttpStatus.UNPROCESSABLE_ENTITY, "Informe o código", "Esta conta tem o app autenticador (2FA): "
+                        + "informe o código dele.");
+                p.setProperty("precisaCodigo", true);
+                yield ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY).body(p);
+            }
+            case CODIGO_ERRADO -> {
+                ProblemDetail p = problema(HttpStatus.UNPROCESSABLE_ENTITY, "Código inválido", "O código do app autenticador não confere.");
+                p.setProperty("precisaCodigo", true);
+                yield ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY).body(p);
+            }
+            case IP_BLOQUEADO -> responder(new ServicoDeLogin.IpBloqueado(60), "");
+        };
+    }
+
+    /** Aceita o convite criando uma senha (em vez de uma passkey). */
+    @PostMapping("/convite/senha")
+    public ResponseEntity<?> aceitarConviteComSenha(@Valid @RequestBody ConviteComSenha pedido, HttpServletRequest requisicao) {
+        return responder(senhas.aceitarConvite(pedido.convite(), pedido.senha(), FiltroDoBff.ipDoCliente(requisicao)),
+                "Convite inválido, já usado ou vencido.");
+    }
+
+    // ---- senha, 2FA, identificadores e computadores de confianca (com token) ---------------------
+
+    /** Cria ou troca a senha. 204; senha atual errada: 422. As outras sessoes caem. */
+    @PostMapping("/senha")
+    public ResponseEntity<?> definirSenha(@Valid @RequestBody NovaSenha pedido, HttpServletRequest requisicao) {
+        if (!senhas.definirSenha(sessao(requisicao), pedido.atual(), pedido.nova(), FiltroDoBff.ipDoCliente(requisicao))) {
+            return ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY).body(problema(HttpStatus.UNPROCESSABLE_ENTITY,
+                    "Senha atual incorreta", "A senha atual não confere."));
+        }
+        return ResponseEntity.noContent().build();
+    }
+
+    /** Confirmar com a senha (e o codigo do 2FA, se ativo) antes de operacao sensivel. 204; recusa: 422. */
+    @PostMapping("/confirmar/senha")
+    public ResponseEntity<?> confirmarComSenha(@Valid @RequestBody ConfirmacaoComSenha pedido, HttpServletRequest requisicao) {
+        return switch (senhas.confirmar(sessao(requisicao), pedido.senha(), pedido.codigo(), FiltroDoBff.ipDoCliente(requisicao))) {
+            case ServicoDeLogin.Recusado x -> ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY).body(problema(
+                    HttpStatus.UNPROCESSABLE_ENTITY, "Não confirmado", "Senha ou código do app autenticador inválido."));
+            case ServicoDeLogin.IpBloqueado b -> responder(b, "");
+            default -> ResponseEntity.noContent().build();
+        };
+    }
+
+    @PostMapping("/2fa/iniciar")
+    public ServicoDeSenha.Configuracao2fa iniciar2fa(HttpServletRequest requisicao) {
+        return senhas.iniciar2fa(sessao(requisicao));
+    }
+
+    /** 204 (ou 200 com o token novo, para quem estava so com a sessao de ativar o 2FA); codigo errado: 422. */
+    @PostMapping("/2fa/ativar")
+    public ResponseEntity<?> ativar2fa(@Valid @RequestBody CodigoDoApp pedido, HttpServletRequest requisicao) {
+        ServicoDeSenha.Ativacao a = senhas.ativar2fa(sessao(requisicao), pedido.codigo(), FiltroDoBff.ipDoCliente(requisicao));
+        if (!a.ativado()) {
+            return ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY).body(problema(HttpStatus.UNPROCESSABLE_ENTITY,
+                    "Código inválido", "O código não confere. Confira se o relógio do celular está certo e digite o código atual."));
+        }
+        return a.tokenNovo() == null ? ResponseEntity.noContent().build()
+                : responder(new ServicoDeLogin.Entrou(a.tokenNovo(), null), "");
+    }
+
+    @PostMapping("/2fa/desativar")
+    public ResponseEntity<?> desativar2fa(@Valid @RequestBody CodigoDoApp pedido, HttpServletRequest requisicao) {
+        if (!senhas.desativar2fa(sessao(requisicao), pedido.codigo(), FiltroDoBff.ipDoCliente(requisicao))) {
+            return ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY).body(problema(HttpStatus.UNPROCESSABLE_ENTITY,
+                    "Código inválido", "O código do app autenticador não confere."));
+        }
+        return ResponseEntity.noContent().build();
+    }
+
+    @org.springframework.web.bind.annotation.PutMapping("/identificadores")
+    public Usuarios.Identificadores mudarIdentificadores(@Valid @RequestBody NovosIdentificadores pedido, HttpServletRequest requisicao) {
+        return senhas.mudarIdentificadores(sessao(requisicao), pedido.nomeUsuario(), pedido.celular(), pedido.loginPorCelular(),
+                FiltroDoBff.ipDoCliente(requisicao));
+    }
+
+    @GetMapping("/dispositivos")
+    public List<Map<String, Object>> dispositivos(HttpServletRequest requisicao) {
+        return senhas.dispositivosDe(sessao(requisicao));
+    }
+
+    @DeleteMapping("/dispositivos/{id}")
+    public ResponseEntity<Void> revogarDispositivo(@PathVariable long id, HttpServletRequest requisicao) {
+        senhas.revogarDispositivo(sessao(requisicao), id, FiltroDoBff.ipDoCliente(requisicao));
+        return ResponseEntity.noContent().build();
     }
 
     // ---- com token ---------------------------------------------------------------------------
@@ -171,7 +379,8 @@ public class AutenticacaoController {
     public Eu eu(HttpServletRequest requisicao) {
         Tokens.Sessao s = sessao(requisicao);
         return new Eu(s.usuarioId(), s.pessoaId(), s.escopo(), utc(s.expiraEm()), utc(s.expiraAbsolutoEm()), s.empresaId(),
-                autorizacao.permissoesDoPedido(), autorizacao.ehAdminPlataforma(s.usuarioId()), termos.temPendencia(s.usuarioId()));
+                autorizacao.permissoesDoPedido(), autorizacao.ehAdminPlataforma(s.usuarioId()), termos.temPendencia(s.usuarioId()),
+                senhas.conta(s.usuarioId()));
     }
 
     /** As empresas em que o usuario entra, com o cargo em cada uma. */
@@ -249,7 +458,15 @@ public class AutenticacaoController {
         return switch (resultado) {
             case ServicoDeLogin.Opcoes o -> ResponseEntity.ok(Map.of("publicKey", o.publicKey()));
             case ServicoDeLogin.Entrou e -> ResponseEntity.ok(new RespostaDoLogin(e.token().token(), "Bearer", e.token().escopo(),
-                    utc(e.token().expiraEm()), utc(e.token().expiraAbsolutoEm()), e.codigosDeRecuperacao()));
+                    utc(e.token().expiraEm()), utc(e.token().expiraAbsolutoEm()), e.codigosDeRecuperacao(), e.dispositivo()));
+            case ServicoDeLogin.SegundoFator s when !s.codigoErrado() -> ResponseEntity.ok(Map.of("segundoFator", true, "desafio", s.desafio()));
+            case ServicoDeLogin.SegundoFator s -> {
+                ProblemDetail p = problema(HttpStatus.UNPROCESSABLE_ENTITY, "Código inválido",
+                        "O código não confere. Digite o código que está aparecendo agora no app.");
+                p.setProperty("segundoFator", true);
+                p.setProperty("desafio", s.desafio());
+                yield ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY).body(p);
+            }
             case ServicoDeLogin.Recusado r -> ResponseEntity.status(HttpStatus.UNAUTHORIZED)
                     .header("WWW-Authenticate", "Bearer realm=\"kawashi\"")
                     .body(problema(HttpStatus.UNAUTHORIZED, "Não autenticado", mensagemDeRecusa));

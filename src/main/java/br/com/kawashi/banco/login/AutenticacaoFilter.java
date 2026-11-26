@@ -32,9 +32,15 @@ public class AutenticacaoFilter extends OncePerRequestFilter {
 
     /** Cerimonias que nao exigem token (todas POST). */
     static final Set<String> SEM_TOKEN = Set.of("/api/auth/passkey/login/opcoes", "/api/auth/passkey/login",
-            "/api/auth/convite/opcoes", "/api/auth/convite", "/api/auth/recuperacao");
+            "/api/auth/convite/opcoes", "/api/auth/convite", "/api/auth/recuperacao",
+            "/api/auth/senha/login", "/api/auth/senha/segundo-fator", "/api/auth/senha/esqueci", "/api/auth/senha/redefinir",
+            "/api/auth/convite/senha");
+    /** Quem entrou com codigo de recuperacao: cadastra uma passkey nova OU define uma senha nova. */
     private static final Set<String> PERMITIDOS_SO_PARA_CADASTRAR = Set.of("/api/auth/passkeys", "/api/auth/passkeys/opcoes",
-            "/api/auth/logout", "/api/auth/eu");
+            "/api/auth/logout", "/api/auth/eu", "/api/auth/senha");
+    /** Administrador que entrou com senha e ainda nao tem 2FA: so ativa o 2FA (e le os termos). */
+    private static final Set<String> PERMITIDOS_SO_PARA_2FA = Set.of("/api/auth/2fa/iniciar", "/api/auth/2fa/ativar",
+            "/api/auth/logout", "/api/auth/eu", "/api/auth/termos", "/api/auth/termos/aceite");
 
     private final Tokens tokens;
     private final ParametrosDeSeguranca parametros;
@@ -62,13 +68,17 @@ public class AutenticacaoFilter extends OncePerRequestFilter {
         String token = cabecalho != null && cabecalho.regionMatches(true, 0, "Bearer ", 0, 7) ? cabecalho.substring(7).strip() : null;
         Optional<Tokens.Sessao> sessao = token == null ? Optional.empty() : tokens.validar(token, parametros.atuais());
         if (sessao.isEmpty()) {
-            recusar(resposta, 401, "Não autenticado", "Entre com a sua passkey.");
+            recusar(resposta, 401, "Não autenticado", "Entre com a sua senha ou passkey.");
             return;
         }
         if ("CADASTRAR_PASSKEY".equals(sessao.get().escopo())
                 && !PERMITIDOS_SO_PARA_CADASTRAR.contains(requisicao.getRequestURI())) {
             recusar(resposta, 403, "Cadastre uma passkey", "Você entrou com um código de recuperação: cadastre uma passkey nova "
                     + "e entre com ela para continuar.");
+            return;
+        }
+        if ("CONFIGURAR_2FA".equals(sessao.get().escopo()) && !PERMITIDOS_SO_PARA_2FA.contains(requisicao.getRequestURI())) {
+            recusar(resposta, 403, "Ative o 2FA", "Administrador precisa do segundo fator: ative o app autenticador para continuar.");
             return;
         }
         SessaoAtual.guardar(requisicao, sessao.get());
